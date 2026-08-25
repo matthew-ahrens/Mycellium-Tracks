@@ -110,6 +110,26 @@ export default function App() {
 
     const update = (id, fn) => setItems((p) => p.map((i) => (i.id === id ? fn(i) : i)));
 
+    const saveStatus = async (label, status) => {
+        const { data, error } = await supabase
+            .from('items')
+            .update({ status })
+            .eq('label', label)
+            .select('id')
+            .single();
+
+        if (error) { console.error(error); alert('Save failed - check console'); return; }
+
+        await supabase.from('item_events').insert({
+            item_id: data.id,
+            happened_on: ISO,
+            kind: 'status',
+            body: STATUS[status].label,
+        });
+
+        update(label, (i) => ({ ...i, status, log: [...i.log, [ISO, STATUS[status].label]] }));
+    };
+
     const addChild = (parent, type) => {
         const n = items.filter((i) => i.type === type).length + 1;
         const id = `BO-${CODE[type]}${n}`;
@@ -126,7 +146,7 @@ export default function App() {
         <div className="root">
             <style>{CSS}</style>
             {open
-                ? <Detail items={items} id={open} onBack={() => setOpen(null)} onOpen={setOpen} update={update} addChild={addChild} />
+                ? <Detail items={items} id={open} onBack={() => setOpen(null)} onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus} />
                 : <Tree items={items} onOpen={setOpen} />}
         </div>
     );
@@ -250,7 +270,7 @@ function Tree({ items, onOpen }) {
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, onBack, onOpen, update, addChild }) {
+function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -264,7 +284,7 @@ function Detail({ items, id, onBack, onOpen, update, addChild }) {
     const totalWet = it.harvests.reduce((s, h) => s + h.wet, 0);
     const be = it.dryWeight && totalWet ? ((totalWet / it.dryWeight) * 100).toFixed(1) : null;
 
-    const setStatus = (s) => update(id, (i) => ({ ...i, status: s, log: [...i.log, [ISO, STATUS[s].label]] }));
+    const setStatus = (s) => saveStatus(id, s);
     const addNote = () => {
         if (!note.trim()) return;
         update(id, (i) => ({ ...i, log: [...i.log, [ISO, note.trim()]] }));
