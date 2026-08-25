@@ -79,6 +79,9 @@ export default function App() {
                 return;
             }
 
+            const { data: events } = await supabase.from('item_events').select('*');
+            const { data: harvests } = await supabase.from('lots').select('*').eq('form', 'wet');
+
             setItems(data.map((r) => ({
                 id: r.label,
                 parent: data.find((p) => p.id === r.parent_id)?.label ?? null,
@@ -89,8 +92,14 @@ export default function App() {
                 substrate: r.substrate ?? '',
                 notes: r.notes ?? '',
                 dryWeight: r.dry_substrate_g ?? undefined,
-                harvests: [],
-                log: [],
+                harvests: (harvests ?? [])
+                    .filter((h) => h.source_item_id === r.id)
+                    .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g) }))
+                    .sort((a, b) => a.f - b.f),
+                log: (events ?? [])
+                    .filter((e) => e.item_id === r.id)
+                    .map((e) => [e.happened_on, e.body])
+                    .sort((a, b) => a[0].localeCompare(b[0])),
             })));
             setLoading(false);
         }
