@@ -110,11 +110,11 @@ export default function App() {
                 dryWeight: r.dry_substrate_g ?? undefined,
                 harvests: (harvests ?? [])
                     .filter((h) => h.source_item_id === r.id)
-                    .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g) }))
+                    .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g), lotId: h.id }))
                     .sort((a, b) => a.f - b.f),
                 log: (events ?? [])
                     .filter((e) => e.item_id === r.id)
-                    .map((e) => [e.happened_on, e.body])
+                    .map((e) => [e.happened_on, e.body, e.id])
                     .sort((a, b) => a[0].localeCompare(b[0])),
             })));
             setLoading(false);
@@ -137,52 +137,80 @@ export default function App() {
 
         if (error) { console.error(error); alert('Save failed - check console'); return; }
 
-        await supabase.from('item_events').insert({
+        const { data: ev } = await supabase.from('item_events').insert({
             item_id: data.id,
             happened_on: today,
             kind: 'status',
             body: STATUS[status].label,
-        });
+        }).select('id').single();
 
-        update(label, (i) => ({ ...i, status, log: [...i.log, [today, STATUS[status].label]] }));
+        update(label, (i) => ({ ...i, status, log: [...i.log, [today, STATUS[status].label, ev?.id]] }));
     };
 
     const saveNote = async (label, text) => {
         const today = todayISO();
         const item = items.find((i) => i.id === label);
-        const { error } = await supabase.from('item_events').insert({
+        const { data: ev, error } = await supabase.from('item_events').insert({
             item_id: item.uid, happened_on: today, kind: 'note', body: text,
-        });
+        }).select('id').single();
         if (error) { console.error(error); alert('Note not saved - check console'); return; }
-        update(label, (i) => ({ ...i, log: [...i.log, [today, text]] }));
+        update(label, (i) => ({ ...i, log: [...i.log, [today, text, ev.id]] }));
+    };
+
+    const deleteEvent = async (label, eventId) => {
+        const { error } = await supabase.from('item_events').delete().eq('id', eventId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        update(label, (i) => ({ ...i, log: i.log.filter((l) => l[2] !== eventId) }));
     };
 
     const saveHarvest = async (label, grams) => {
         const today = todayISO();
         const item = items.find((i) => i.id === label);
-        const flush = item.harvests.length + 1;
+        /* Next flush number, not count+1 - deleting flush 2 of 3 would
+           otherwise make the next one a duplicate 3. */
+        const flush = item.harvests.reduce((m, h) => Math.max(m, h.f), 0) + 1;
 
-        const { error: lotErr } = await supabase.from('lots').insert({
+        const { data: lot, error: lotErr } = await supabase.from('lots').insert({
             label: `${label} flush ${flush}`,
             form: 'wet',
             amount_g: grams,
             source_item_id: item.uid,
             flush_number: flush,
             harvested_on: today,
-        });
+        }).select('id').single();
         if (lotErr) { console.error(lotErr); alert('Harvest not saved - check console'); return; }
 
         await supabase.from('items').update({ status: 'fruiting' }).eq('id', item.uid);
-        await supabase.from('item_events').insert({
+        const { data: ev } = await supabase.from('item_events').insert({
             item_id: item.uid, happened_on: today, kind: 'harvest',
             body: `Flush ${flush} - ${grams}g wet`,
-        });
+        }).select('id').single();
 
         update(label, (i) => ({
             ...i,
             status: 'fruiting',
-            harvests: [...i.harvests, { f: flush, date: today, wet: grams }],
-            log: [...i.log, [today, `Flush ${flush} - ${grams}g wet`]],
+            harvests: [...i.harvests, { f: flush, date: today, wet: grams, lotId: lot.id }],
+            log: [...i.log, [today, `Flush ${flush} - ${grams}g wet`, ev?.id]],
+        }));
+    };
+
+    const deleteHarvest = async (label, harvest) => {
+        const item = items.find((i) => i.id === label);
+
+        const { error } = await supabase.from('lots').delete().eq('id', harvest.lotId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+
+        /* The matching history line lives in a different table, so find it
+           by its text. Imperfect - a hand-edited entry won't match. */
+        const { data: gone } = await supabase.from('item_events').delete()
+            .eq('item_id', item.uid).eq('kind', 'harvest')
+            .like('body', `Flush ${harvest.f} -%`).select('id');
+
+        const goneIds = (gone ?? []).map((g) => g.id);
+        update(label, (i) => ({
+            ...i,
+            harvests: i.harvests.filter((h) => h.lotId !== harvest.lotId),
+            log: i.log.filter((l) => !goneIds.includes(l[2])),
         }));
     };
 
@@ -229,7 +257,7 @@ export default function App() {
         screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
             onBack={() => { setDir('back'); setOpen(null); }}
             onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
-            saveNote={saveNote} saveHarvest={saveHarvest} />;
+            saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
@@ -494,7 +522,7 @@ function Tree({ items, lines, species, onOpen, onBack }) {
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest }) {
+function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -573,10 +601,20 @@ function Detail({ items, id, culture, onBack, onOpen, update, addChild, saveStat
                             <Sec title="Harvests" />
                             {it.harvests.length > 0 && (
                                 <table className="tbl">
-                                    <thead><tr><th>Flush</th><th>Date</th><th>Wet</th></tr></thead>
+                                    <thead><tr><th>Flush</th><th>Date</th><th>Wet</th><th></th></tr></thead>
                                     <tbody>
                                         {it.harvests.map((h) => (
-                                            <tr key={h.f}><td>{h.f}</td><td>{fmt(h.date)}</td><td className="num">{h.wet} g</td></tr>
+                                            <tr key={h.lotId ?? h.f}>
+                                                <td>{h.f}</td>
+                                                <td>{fmt(h.date)}</td>
+                                                <td className="num">{h.wet} g</td>
+                                                <td className="x-cell">
+                                                    {h.lotId && (
+                                                        <button className="log-x" title="Delete this flush"
+                                                            onClick={() => { if (confirm(`Delete flush ${h.f} (${h.wet}g)? This removes the inventory lot too.`)) deleteHarvest(id, h); }}>×</button>
+                                                    )}
+                                                </td>
+                                            </tr>
                                         ))}
                                     </tbody>
                                 </table>
@@ -609,8 +647,15 @@ function Detail({ items, id, culture, onBack, onOpen, update, addChild, saveStat
                 <div>
                     <Sec title="History" />
                     <ul className="log">
-                        {[...it.log].reverse().map(([d, t], n) => (
-                            <li key={n}><span className="log-d">{fmt(d)}</span><span className="log-t">{t}</span></li>
+                        {[...it.log].reverse().map(([d, t, evId], n) => (
+                            <li key={evId ?? n}>
+                                <span className="log-d">{fmt(d)}</span>
+                                <span className="log-t">{t}</span>
+                                {evId && (
+                                    <button className="log-x" title="Delete this entry"
+                                        onClick={() => { if (confirm(`Delete "${t}"?`)) deleteEvent(id, evId); }}>×</button>
+                                )}
+                            </li>
                         ))}
                     </ul>
                     <div className="row-in">
@@ -721,7 +766,9 @@ const CSS = `
 .tbl th{text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:400;padding-bottom:6px;}
 .tbl td{padding:6px 0;border-top:1px solid var(--line);}
 .tbl .num{font-family:var(--mono);text-align:right;}
-.tbl th:last-child{text-align:right;}
+.tbl th:nth-child(3){text-align:right;}
+.x-cell{width:22px;text-align:right;padding-left:6px;}
+.tbl tr:hover .log-x{opacity:1;}
 .row-in{display:flex;gap:7px;margin-top:11px;}
 .in{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px;color:var(--bone);font-size:12.5px;font-family:var(--sans);}
 .in:focus{outline:none;border-color:var(--amber);}
@@ -741,6 +788,10 @@ const CSS = `
 .log li{display:flex;gap:11px;padding:8px 0;border-bottom:1px solid var(--line);}
 .log li:last-child{border-bottom:none;}
 .log-d{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex:0 0 46px;padding-top:2px;}
-.log-t{font-size:12.5px;line-height:1.45;}
+.log-t{font-size:12.5px;line-height:1.45;flex:1;}
+.log-x{background:none;border:none;padding:0 2px;color:#3E4A55;font-size:16px;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,color .15s;}
+.log li:hover .log-x{opacity:1;}
+.log-x:hover{color:var(--clay,#C1614F);}
+.log-x:focus-visible{opacity:1;outline:2px solid var(--amber);outline-offset:2px;}
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 `;
