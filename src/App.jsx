@@ -1,3 +1,4 @@
+import { supabase } from './supabaseClient'
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
 /* ================= DATA ================= */
@@ -10,56 +11,6 @@ const CULTURE = {
     species: "Pleurotus ostreatus columbinus",
     source: "Clone — commercial block",
 };
-
-const SEED = [
-    {
-        id: "BO-FB1", parent: null, type: "block", created: "2026-06-10", status: "retired",
-        where: "Tent — shelf 2", substrate: "Commercial sawdust block", notes: "First block. Waterline pinning on flush 3 — moisture gradient worth testing again.",
-        log: [["2026-06-10", "Block cut and moved to tent"], ["2026-07-30", "Flush 3 done — retired"]],
-        harvests: [{ f: 1, date: "2026-06-24", wet: 410 }, { f: 2, date: "2026-07-11", wet: 205 }, { f: 3, date: "2026-07-30", wet: 95 }],
-        dryWeight: 2270
-    },
-    {
-        id: "BO-AG1", parent: "BO-FB1", type: "agar", created: "2026-07-20", status: "consumed",
-        where: "Fridge — plate box", substrate: "MEA", notes: "Tissue clone off flush 2, interior stem.",
-        log: [["2026-07-20", "Tissue clone plated"], ["2026-07-27", "Clean, no sectoring"]], harvests: []
-    },
-    {
-        id: "BO-AG2", parent: "BO-AG1", type: "agar", created: "2026-07-28", status: "colonized",
-        where: "Fridge — plate box", substrate: "MEA", notes: "Transfer off leading edge. Master plate.",
-        log: [["2026-07-28", "Wedge transfer"], ["2026-08-06", "Fully colonized, stored cold"]], harvests: []
-    },
-    {
-        id: "BO-LC1", parent: "BO-AG1", type: "lc", created: "2026-08-05", status: "colonizing",
-        where: "Shelf — dark box", substrate: "DME + honey, distilled", notes: "",
-        log: [["2026-08-05", "Wedge into LC"], ["2026-08-16", "Cloudy, good growth, no off smell"]], harvests: []
-    },
-    {
-        id: "BO-GR1", parent: "BO-LC1", type: "grain", created: "2026-08-12", status: "colonizing",
-        where: "Shelf — dark box", substrate: "Rye, 3lb filter bag", notes: "",
-        log: [["2026-08-12", "10cc LC injected"], ["2026-08-19", "~60%, shook"]], harvests: []
-    },
-    {
-        id: "BO-GR2", parent: "BO-LC1", type: "grain", created: "2026-08-12", status: "contaminated",
-        where: "Binned", substrate: "Rye, 3lb filter bag", notes: "Sour smell at day 5. Sibling GR1 is clean, so it's the bag or my technique, not the LC.",
-        log: [["2026-08-12", "10cc LC injected"], ["2026-08-17", "Bacterial — sour, wet patches"]], harvests: []
-    },
-    {
-        id: "BO-BK1", parent: "BO-GR1", type: "bulk", created: "2026-08-19", status: "colonizing",
-        where: "Tent — shelf 1", substrate: "Masters Mix 50/50", notes: "", dryWeight: 2500,
-        log: [["2026-08-19", "Spawned at 1:3"]], harvests: []
-    },
-    {
-        id: "BO-BK2", parent: "BO-GR1", type: "bulk", created: "2026-08-19", status: "colonizing",
-        where: "Tent — shelf 1", substrate: "Masters Mix 50/50", notes: "", dryWeight: 2500,
-        log: [["2026-08-19", "Spawned at 1:3"]], harvests: []
-    },
-    {
-        id: "BO-BK3", parent: "BO-GR1", type: "bulk", created: "2026-08-20", status: "colonizing",
-        where: "Tent — shelf 1", substrate: "Masters Mix 50/50", notes: "", dryWeight: 2500,
-        log: [["2026-08-20", "Spawned at 1:3"]], harvests: []
-    },
-];
 
 const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Bulk block", block: "Fruiting block" };
 const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB" };
@@ -111,8 +62,42 @@ function hypha(a, b) {
 /* ================= APP ================= */
 
 export default function App() {
-    const [items, setItems] = useState(SEED);
+    const [items, setItems] = useState([]);
     const [open, setOpen] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function load() {
+            const { data, error } = await supabase
+                .from('items')
+                .select('*')
+                .order('created_on', { nullsFirst: false });
+
+            if (error) {
+                console.error(error);
+                setLoading(false);
+                return;
+            }
+
+            setItems(data.map((r) => ({
+                id: r.label,
+                parent: data.find((p) => p.id === r.parent_id)?.label ?? null,
+                type: r.type,
+                status: r.status,
+                created: r.created_on ?? '2026-01-01',
+                where: r.location ?? '',
+                substrate: r.substrate ?? '',
+                notes: r.notes ?? '',
+                dryWeight: r.dry_substrate_g ?? undefined,
+                harvests: [],
+                log: [],
+            })));
+            setLoading(false);
+        }
+        load();
+    }, []);
+
+    if (loading) return <div className="root"><style>{CSS}</style><div className="page">Loading…</div></div>;
 
     const update = (id, fn) => setItems((p) => p.map((i) => (i.id === id ? fn(i) : i)));
 
