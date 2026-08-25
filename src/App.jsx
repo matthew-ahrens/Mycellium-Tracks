@@ -27,8 +27,8 @@ const STATUS = {
 const TONE = { amber: "#E0A244", jade: "#5FB894", clay: "#C1614F", slate: "#5B6773" };
 const FRUITS = ["bulk", "block"];
 
-const days = (iso) => Math.round((TODAY - new Date(iso + "T12:00:00")) / 86400000);
-const fmt = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const days = (iso) => iso ? Math.round((TODAY - new Date(iso + "T12:00:00")) / 86400000) : null;
+const fmt = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "date unknown";
 
 /* ================= LAYOUT ================= */
 
@@ -87,7 +87,7 @@ export default function App() {
                 parent: data.find((p) => p.id === r.parent_id)?.label ?? null,
                 type: r.type,
                 status: r.status,
-                created: r.created_on ?? '2026-01-01',
+                created: r.created_on,
                 where: r.location ?? '',
                 substrate: r.substrate ?? '',
                 notes: r.notes ?? '',
@@ -236,7 +236,7 @@ function Tree({ items, onOpen }) {
                                     <circle r={r} fill="#111720" stroke={tone} strokeWidth="1.9" />
                                     {st.tone !== "slate" && <circle r={r * 0.42} fill={tone} />}
                                     <text y={r + 17} className="n-id" textAnchor="middle">{i.id}</text>
-                                    <text y={r + 30} className="n-sub" textAnchor="middle">{TYPES[i.type]} · d{days(i.created)}</text>
+                                    <text y={r + 30} className="n-sub" textAnchor="middle">{TYPES[i.type]}{days(i.created) !== null ? ` · d${days(i.created)}` : ""}</text>
                                 </g>
                             );
                         })}
@@ -292,7 +292,7 @@ function Detail({ items, id, onBack, onOpen, update, addChild }) {
                 </div>
                 <div>
                     <h1 className="d-id">{it.id}</h1>
-                    <div className="d-sub">{TYPES[it.type]} · started {fmt(it.created)} · day {days(it.created)}</div>
+                    <div className="d-sub">{TYPES[it.type]} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
                 </div>
                 <span className="pill" style={{ color: tone, borderColor: tone }}>{st.label}</span>
             </div>
