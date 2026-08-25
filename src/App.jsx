@@ -3,8 +3,12 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 
 /* ================= DATA ================= */
 
-const TODAY = new Date("2026-08-22T12:00:00");
-const ISO = TODAY.toISOString().slice(0, 10);
+/* Local date as YYYY-MM-DD. Not toISOString() - that converts to UTC,
+   which rolls over to tomorrow's date during your evening. */
+const todayISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const CULTURE = {
     name: "Blue Oyster A",
@@ -27,7 +31,7 @@ const STATUS = {
 const TONE = { amber: "#E0A244", jade: "#5FB894", clay: "#C1614F", slate: "#5B6773" };
 const FRUITS = ["bulk", "block"];
 
-const days = (iso) => iso ? Math.round((TODAY - new Date(iso + "T12:00:00")) / 86400000) : null;
+const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
 const fmt = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "date unknown";
 
 /* ================= LAYOUT ================= */
@@ -84,6 +88,8 @@ export default function App() {
 
             setItems(data.map((r) => ({
                 id: r.label,
+                uid: r.id,
+                geneticsId: r.genetics_id,
                 parent: data.find((p) => p.id === r.parent_id)?.label ?? null,
                 type: r.type,
                 status: r.status,
@@ -111,6 +117,7 @@ export default function App() {
     const update = (id, fn) => setItems((p) => p.map((i) => (i.id === id ? fn(i) : i)));
 
     const saveStatus = async (label, status) => {
+        const today = todayISO();
         const { data, error } = await supabase
             .from('items')
             .update({ status })
@@ -122,31 +129,87 @@ export default function App() {
 
         await supabase.from('item_events').insert({
             item_id: data.id,
-            happened_on: ISO,
+            happened_on: today,
             kind: 'status',
             body: STATUS[status].label,
         });
 
-        update(label, (i) => ({ ...i, status, log: [...i.log, [ISO, STATUS[status].label]] }));
+        update(label, (i) => ({ ...i, status, log: [...i.log, [today, STATUS[status].label]] }));
     };
 
-    const addChild = (parent, type) => {
+    const saveNote = async (label, text) => {
+        const today = todayISO();
+        const item = items.find((i) => i.id === label);
+        const { error } = await supabase.from('item_events').insert({
+            item_id: item.uid, happened_on: today, kind: 'note', body: text,
+        });
+        if (error) { console.error(error); alert('Note not saved - check console'); return; }
+        update(label, (i) => ({ ...i, log: [...i.log, [today, text]] }));
+    };
+
+    const saveHarvest = async (label, grams) => {
+        const today = todayISO();
+        const item = items.find((i) => i.id === label);
+        const flush = item.harvests.length + 1;
+
+        const { error: lotErr } = await supabase.from('lots').insert({
+            label: `${label} flush ${flush}`,
+            form: 'wet',
+            amount_g: grams,
+            source_item_id: item.uid,
+            flush_number: flush,
+            harvested_on: today,
+        });
+        if (lotErr) { console.error(lotErr); alert('Harvest not saved - check console'); return; }
+
+        await supabase.from('items').update({ status: 'fruiting' }).eq('id', item.uid);
+        await supabase.from('item_events').insert({
+            item_id: item.uid, happened_on: today, kind: 'harvest',
+            body: `Flush ${flush} - ${grams}g wet`,
+        });
+
+        update(label, (i) => ({
+            ...i,
+            status: 'fruiting',
+            harvests: [...i.harvests, { f: flush, date: today, wet: grams }],
+            log: [...i.log, [today, `Flush ${flush} - ${grams}g wet`]],
+        }));
+    };
+
+    const addChild = async (parentLabel, type) => {
+        const today = todayISO();
+        const parent = items.find((i) => i.id === parentLabel);
         const n = items.filter((i) => i.type === type).length + 1;
-        const id = `BO-${CODE[type]}${n}`;
+        const label = `BO-${CODE[type]}${n}`;
+
+        const { data, error } = await supabase.from('items').insert({
+            genetics_id: parent.geneticsId,
+            parent_id: parent.uid,
+            label, type, status: 'colonizing', created_on: today,
+        }).select('id').single();
+
+        if (error) { console.error(error); alert('Could not create item - check console'); return; }
+
+        await supabase.from('item_events').insert({
+            item_id: data.id, happened_on: today, kind: 'note',
+            body: `Inoculated from ${parentLabel}`,
+        });
+
         setItems((p) => [...p, {
-            id, parent, type, created: ISO, status: "colonizing",
-            where: "", substrate: "", notes: "", harvests: [],
-            dryWeight: type === "bulk" ? 2500 : undefined,
-            log: [[ISO, `Inoculated from ${parent}`]],
+            id: label, uid: data.id, geneticsId: parent.geneticsId,
+            parent: parentLabel, type, created: today, status: 'colonizing',
+            where: '', substrate: '', notes: '', harvests: [],
+            dryWeight: undefined,
+            log: [[today, `Inoculated from ${parentLabel}`]],
         }]);
-        setOpen(id);
+        setOpen(label);
     };
 
     return (
         <div className="root">
             <style>{CSS}</style>
             {open
-                ? <Detail items={items} id={open} onBack={() => setOpen(null)} onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus} />
+                ? <Detail items={items} id={open} onBack={() => setOpen(null)} onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus} saveNote={saveNote} saveHarvest={saveHarvest} />
                 : <Tree items={items} onOpen={setOpen} />}
         </div>
     );
@@ -270,7 +333,7 @@ function Tree({ items, onOpen }) {
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus }) {
+function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -287,18 +350,13 @@ function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus }) {
     const setStatus = (s) => saveStatus(id, s);
     const addNote = () => {
         if (!note.trim()) return;
-        update(id, (i) => ({ ...i, log: [...i.log, [ISO, note.trim()]] }));
+        saveNote(id, note.trim());
         setNote("");
     };
     const addHarvest = () => {
-        const g = parseInt(wet, 10);
+        const g = parseFloat(wet);
         if (!g) return;
-        update(id, (i) => ({
-            ...i,
-            status: "fruiting",
-            harvests: [...i.harvests, { f: i.harvests.length + 1, date: ISO, wet: g }],
-            log: [...i.log, [ISO, `Flush ${i.harvests.length + 1} — ${g}g wet`]],
-        }));
+        saveHarvest(id, g);
         setWet("");
     };
 
