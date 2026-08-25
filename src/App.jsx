@@ -10,12 +10,6 @@ const todayISO = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const CULTURE = {
-    name: "Blue Oyster A",
-    species: "Pleurotus ostreatus columbinus",
-    source: "Clone — commercial block",
-};
-
 const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Bulk block", block: "Fruiting block" };
 const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB" };
 
@@ -50,7 +44,12 @@ function layout(items) {
         out[n.id] = { x: slot * GAP_X, y: d * GAP_Y, depth: d };
         return slot;
     };
-    items.filter((i) => !i.parent).forEach((r) => walk(r, 0));
+    /* Each root is a separate genetics line. Gap between them so parallel
+       trees read as distinct rather than one big tangle. */
+    items.filter((i) => !i.parent).forEach((r, n) => {
+        if (n > 0) cur += 0.9;
+        walk(r, 0);
+    });
     return out;
 }
 
@@ -67,8 +66,14 @@ function hypha(a, b) {
 
 export default function App() {
     const [items, setItems] = useState([]);
+    const [species, setSpecies] = useState([]);
+    const [genetics, setGenetics] = useState([]);
+    const [nav, setNav] = useState({ level: 'species', speciesId: null, geneticsId: null });
+    const [dir, setDir] = useState('fwd');
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
+
+    const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
 
     useEffect(() => {
         async function load() {
@@ -85,6 +90,11 @@ export default function App() {
 
             const { data: events } = await supabase.from('item_events').select('*');
             const { data: harvests } = await supabase.from('lots').select('*').eq('form', 'wet');
+            const { data: sp } = await supabase.from('species').select('*').order('common_name');
+            const { data: gen } = await supabase.from('genetics').select('*').order('name');
+
+            setSpecies(sp ?? []);
+            setGenetics(gen ?? []);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -179,8 +189,9 @@ export default function App() {
     const addChild = async (parentLabel, type) => {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
-        const n = items.filter((i) => i.type === type).length + 1;
-        const label = `BO-${CODE[type]}${n}`;
+        const code = genetics.find((g) => g.id === parent.geneticsId)?.code ?? 'X';
+        const n = items.filter((i) => i.geneticsId === parent.geneticsId && i.type === type).length + 1;
+        const label = `${code}-${CODE[type]}${n}`;
 
         const { data, error } = await supabase.from('items').insert({
             genetics_id: parent.geneticsId,
@@ -205,19 +216,159 @@ export default function App() {
         setOpen(label);
     };
 
+    const sp = species.find((s) => s.id === nav.speciesId);
+    const lines = genetics.filter((g) => g.species_id === nav.speciesId);
+    const lineIds = lines.map((g) => g.id);
+    const mine = items.filter((i) => lineIds.includes(i.geneticsId));
+    const openItem = items.find((i) => i.id === open);
+    const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
+
+    let screen, key;
+    if (open) {
+        key = 'detail-' + open;
+        screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
+            onBack={() => { setDir('back'); setOpen(null); }}
+            onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
+            saveNote={saveNote} saveHarvest={saveHarvest} />;
+    } else if (nav.level === 'tree') {
+        key = 'tree-' + nav.speciesId;
+        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
+            onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
+    } else {
+        key = 'species';
+        screen = <SpeciesGrid species={species} genetics={genetics} items={items}
+            onOpen={(id) => go({ level: 'tree', speciesId: id })} />;
+    }
+
     return (
         <div className="root">
             <style>{CSS}</style>
-            {open
-                ? <Detail items={items} id={open} onBack={() => setOpen(null)} onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus} saveNote={saveNote} saveHarvest={saveHarvest} />
-                : <Tree items={items} onOpen={setOpen} />}
+            <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
+        </div>
+    );
+}
+
+/* ---------------- MINI BRANCH GLYPH ---------------- */
+
+function MiniTree({ nodes }) {
+    const W = 74, H = 38, pad = 7;
+    if (!nodes.length) return <svg width={W} height={H} />;
+    const maxD = Math.max(1, ...nodes.map((n) => n.depth));
+    const step = (W - pad * 2) / Math.max(1, maxD);
+    const byDepth = {};
+    nodes.forEach((n) => { (byDepth[n.depth] ||= []).push(n); });
+    const pos = {};
+    nodes.forEach((n) => {
+        const row = byDepth[n.depth];
+        const i = row.indexOf(n);
+        const y = row.length === 1 ? H / 2 : pad + ((H - pad * 2) * i) / (row.length - 1);
+        pos[n.item.id] = { x: pad + n.depth * step, y };
+    });
+    return (
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+            {nodes.map((n) => {
+                const p = n.item.parent && pos[n.item.parent];
+                if (!p) return null;
+                const c = pos[n.item.id];
+                return <path key={'e' + n.item.id} className="mini-edge"
+                    d={`M${p.x} ${p.y} C ${(p.x + c.x) / 2} ${p.y}, ${(p.x + c.x) / 2} ${c.y}, ${c.x} ${c.y}`} />;
+            })}
+            {nodes.map((n) => {
+                const c = pos[n.item.id];
+                const live = STATUS[n.item.status].live;
+                return <circle key={n.item.id} cx={c.x} cy={c.y} r={live ? 3.2 : 2.3}
+                    fill={TONE[STATUS[n.item.status].tone]} opacity={live ? 1 : .55} />;
+            })}
+        </svg>
+    );
+}
+
+function branchOf(items, geneticsId) {
+    const mine = items.filter((i) => i.geneticsId === geneticsId);
+    const kids = (id) => mine.filter((i) => i.parent === id);
+    const walk = (n, d) => [{ item: n, depth: d }, ...kids(n.id).flatMap((k) => walk(k, d + 1))];
+    return mine.filter((i) => !i.parent).flatMap((r) => walk(r, 0));
+}
+
+/* ---------------- SPECIES GRID ---------------- */
+
+function SpeciesGrid({ species, genetics, items, onOpen }) {
+    const live = items.filter((i) => STATUS[i.status].live).length;
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Cultures on the shelf</div>
+                    <h1>Species</h1>
+                </div>
+                <div className="tally"><span className="num">{live}</span><span className="tally-l">live<br />items</span></div>
+            </div>
+
+            <div className="grid">
+                {species.map((s) => {
+                    const lines = genetics.filter((g) => g.species_id === s.id);
+                    const ids = lines.map((g) => g.id);
+                    const mine = items.filter((i) => ids.includes(i.geneticsId));
+                    const liveN = mine.filter((i) => STATUS[i.status].live).length;
+                    return (
+                        <button key={s.id} className="tile" onClick={() => onOpen(s.id)}>
+                            <div className="tile-name">{s.common_name}</div>
+                            <div className="tile-latin">{s.latin_name}</div>
+                            <div className="tile-foot">
+                                <span className="src">{lines.length} {lines.length === 1 ? 'line' : 'lines'}</span>
+                                <span className={liveN ? 'live-c' : 'dormant'}>{liveN ? `${liveN} live` : 'dormant'}</span>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+/* ---------------- GENETICS GRID ---------------- */
+
+function GeneticsGrid({ species, genetics, items, onOpen, onBack }) {
+    return (
+        <div className="page">
+            <button className="back" onClick={onBack}>← Species</button>
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">{species?.latin_name}</div>
+                    <h1>{species?.common_name}</h1>
+                </div>
+            </div>
+
+            {species?.notes && <p className="spec-note">{species.notes}</p>}
+
+            <div className="grid">
+                {genetics.map((g) => {
+                    const nodes = branchOf(items, g.id);
+                    const liveN = nodes.filter((n) => STATUS[n.item.status].live).length;
+                    return (
+                        <button key={g.id} className="tile" onClick={() => onOpen(g.id)}>
+                            <div className="tile-top">
+                                <div>
+                                    <div className="tile-name">{g.name}</div>
+                                    <div className="tile-latin">{g.code}</div>
+                                </div>
+                                <MiniTree nodes={nodes} />
+                            </div>
+                            <div className="tile-foot">
+                                <span className="src">{g.source}</span>
+                                <span className={liveN ? 'live-c' : 'dormant'}>{liveN ? `${liveN} live` : 'dormant'}</span>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
         </div>
     );
 }
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, onOpen }) {
+function Tree({ items, lines, species, onOpen, onBack }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
@@ -291,10 +442,11 @@ function Tree({ items, onOpen }) {
 
     return (
         <div className="page">
+            <button className="back" onClick={onBack}>← Species</button>
             <div className="bar">
                 <div>
-                    <div className="eyebrow">{CULTURE.species}</div>
-                    <h1>{CULTURE.name}</h1>
+                    <div className="eyebrow">{species?.latin_name}</div>
+                    <h1>{species?.common_name}</h1>
                 </div>
                 <button className="sw" onClick={fit}>Fit</button>
             </div>
@@ -302,6 +454,15 @@ function Tree({ items, onOpen }) {
             <div className="canvas" ref={box} onWheel={onWheel} onPointerDown={onDown}>
                 <svg width="100%" height="100%">
                     <g className="stage" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+                        {items.filter((i) => !i.parent).map((r) => {
+                            const g = lines.find((l) => l.id === r.geneticsId);
+                            const p = pos[r.id];
+                            return (
+                                <text key={'lbl' + r.id} x={p.x} y={p.y - 34} className="line-label" textAnchor="middle">
+                                    {g?.name ?? 'Unknown line'}
+                                </text>
+                            );
+                        })}
                         {items.map((i) => i.parent && (
                             <path key={i.id}
                                 className={`hypha ${litChain.includes(i.id) && litChain.includes(i.parent) ? "lit" : hover ? "dim" : ""}`}
@@ -333,7 +494,7 @@ function Tree({ items, onOpen }) {
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest }) {
+function Detail({ items, id, culture, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -362,7 +523,7 @@ function Detail({ items, id, onBack, onOpen, update, addChild, saveStatus, saveN
 
     return (
         <div className="page detail">
-            <button className="back" onClick={onBack}>← {CULTURE.name}</button>
+            <button className="back" onClick={onBack}>← {culture?.name}</button>
 
             <div className="d-head">
                 <div className="d-mark" style={{ borderColor: tone }}>
@@ -476,8 +637,32 @@ const CSS = `
   background:var(--ground);color:var(--bone);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
 }
 .root *{box-sizing:border-box;}
-.page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;animation:in .3s ease-out;}
-@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;}
+
+/* screen transitions */
+.screen-in{animation:slideIn .42s cubic-bezier(.22,.68,.32,1);}
+.screen-back{animation:slideBack .42s cubic-bezier(.22,.68,.32,1);}
+@keyframes slideIn{from{opacity:0;transform:translateX(26px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes slideBack{from{opacity:0;transform:translateX(-26px) scale(.985)}to{opacity:1;transform:none}}
+
+/* tiles */
+.tally{display:flex;align-items:center;gap:9px;}
+.tally .num{font-family:var(--mono);font-size:30px;color:var(--amber);}
+.tally-l{font-family:var(--mono);font-size:9.5px;line-height:1.2;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:13px;margin-top:22px;}
+.tile{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;color:inherit;cursor:pointer;font-family:var(--sans);transition:border-color .18s,transform .18s,background .18s;}
+.tile:hover{border-color:#3E4A55;background:var(--panel2);transform:translateY(-2px);}
+.tile:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.tile-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+.tile-name{font-family:var(--serif);font-size:21px;}
+.tile-latin{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;font-style:italic;}
+.tile-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;padding-top:11px;border-top:1px solid var(--line);}
+.src{font-size:11.5px;color:var(--dim);}
+.live-c{font-family:var(--mono);font-size:11px;color:var(--jade);white-space:nowrap;}
+.dormant{font-family:var(--mono);font-size:11px;color:#4E5963;white-space:nowrap;}
+.mini-edge{fill:none;stroke:#3A454F;stroke-width:1;}
+.spec-note{font-size:12.5px;color:var(--dim);font-style:italic;margin:12px 0 0;max-width:60ch;}
+.line-label{font-family:var(--serif);font-size:15px;fill:var(--bone);opacity:.72;}
 
 .bar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px;}
 .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);font-style:italic;}
@@ -557,5 +742,5 @@ const CSS = `
 .log li:last-child{border-bottom:none;}
 .log-d{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex:0 0 46px;padding-top:2px;}
 .log-t{font-size:12.5px;line-height:1.45;}
-@media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}}
+@media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 `;
