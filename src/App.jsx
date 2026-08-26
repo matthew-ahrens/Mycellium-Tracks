@@ -114,8 +114,8 @@ export default function App() {
                     .sort((a, b) => a.f - b.f),
                 log: (events ?? [])
                     .filter((e) => e.item_id === r.id)
-                    .map((e) => [e.happened_on, e.body, e.id])
-                    .sort((a, b) => a[0].localeCompare(b[0])),
+                    .map((e) => ({ id: e.id, date: e.happened_on, body: e.body, kind: e.kind, lotId: e.lot_id }))
+                    .sort((a, b) => a.date.localeCompare(b.date)),
             })));
             setLoading(false);
         }
@@ -144,7 +144,7 @@ export default function App() {
             body: STATUS[status].label,
         }).select('id').single();
 
-        update(label, (i) => ({ ...i, status, log: [...i.log, [today, STATUS[status].label, ev?.id]] }));
+        update(label, (i) => ({ ...i, status, log: [...i.log, { id: ev?.id, date: today, body: STATUS[status].label, kind: 'status' }] }));
     };
 
     const saveNote = async (label, text) => {
@@ -154,13 +154,25 @@ export default function App() {
             item_id: item.uid, happened_on: today, kind: 'note', body: text,
         }).select('id').single();
         if (error) { console.error(error); alert('Note not saved - check console'); return; }
-        update(label, (i) => ({ ...i, log: [...i.log, [today, text, ev.id]] }));
+        update(label, (i) => ({ ...i, log: [...i.log, { id: ev.id, date: today, body: text, kind: 'note' }] }));
     };
 
     const deleteEvent = async (label, eventId) => {
         const { error } = await supabase.from('item_events').delete().eq('id', eventId);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
-        update(label, (i) => ({ ...i, log: i.log.filter((l) => l[2] !== eventId) }));
+        update(label, (i) => ({ ...i, log: i.log.filter((l) => l.id !== eventId) }));
+    };
+
+    /* Edit a history line. Date and text both editable. */
+    const editEvent = async (label, eventId, date, body) => {
+        const { error } = await supabase.from('item_events')
+            .update({ happened_on: date, body }).eq('id', eventId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        update(label, (i) => ({
+            ...i,
+            log: i.log.map((l) => (l.id === eventId ? { ...l, date, body } : l))
+                .sort((a, b) => a.date.localeCompare(b.date)),
+        }));
     };
 
     const saveHarvest = async (label, grams) => {
@@ -184,34 +196,80 @@ export default function App() {
         const { data: ev } = await supabase.from('item_events').insert({
             item_id: item.uid, happened_on: today, kind: 'harvest',
             body: `Flush ${flush} - ${grams}g wet`,
+            lot_id: lot.id,
         }).select('id').single();
 
         update(label, (i) => ({
             ...i,
             status: 'fruiting',
             harvests: [...i.harvests, { f: flush, date: today, wet: grams, lotId: lot.id }],
-            log: [...i.log, [today, `Flush ${flush} - ${grams}g wet`, ev?.id]],
+            log: [...i.log, { id: ev?.id, date: today, body: `Flush ${flush} - ${grams}g wet`, kind: 'harvest', lotId: lot.id }],
+        }));
+    };
+
+    /* Edit a flush. Updates the lot and its history line together. */
+    const editHarvest = async (label, harvest, date, grams) => {
+        const { error } = await supabase.from('lots')
+            .update({ harvested_on: date, amount_g: grams }).eq('id', harvest.lotId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+
+        const item = items.find((i) => i.id === label);
+        const line = item.log.find((l) => l.lotId === harvest.lotId);
+        let newBody = line?.body;
+        if (line) {
+            /* Rewrite only the leading "Flush N - Xg wet" part, so any extra
+               note text on the same line survives the edit. */
+            newBody = line.body.replace(/^Flush \d+ - [\d.]+g wet/, `Flush ${harvest.f} - ${grams}g wet`);
+            await supabase.from('item_events')
+                .update({ happened_on: date, body: newBody }).eq('id', line.id);
+        }
+
+        update(label, (i) => ({
+            ...i,
+            harvests: i.harvests.map((h) => (h.lotId === harvest.lotId ? { ...h, date, wet: grams } : h)),
+            log: i.log.map((l) => (l.lotId === harvest.lotId ? { ...l, date, body: newBody } : l))
+                .sort((a, b) => a.date.localeCompare(b.date)),
         }));
     };
 
     const deleteHarvest = async (label, harvest) => {
-        const item = items.find((i) => i.id === label);
+        /* Delete the history line first, matched by lot_id rather than text. */
+        await supabase.from('item_events').delete().eq('lot_id', harvest.lotId);
 
         const { error } = await supabase.from('lots').delete().eq('id', harvest.lotId);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
 
-        /* The matching history line lives in a different table, so find it
-           by its text. Imperfect - a hand-edited entry won't match. */
-        const { data: gone } = await supabase.from('item_events').delete()
-            .eq('item_id', item.uid).eq('kind', 'harvest')
-            .like('body', `Flush ${harvest.f} -%`).select('id');
-
-        const goneIds = (gone ?? []).map((g) => g.id);
         update(label, (i) => ({
             ...i,
             harvests: i.harvests.filter((h) => h.lotId !== harvest.lotId),
-            log: i.log.filter((l) => !goneIds.includes(l[2])),
+            log: i.log.filter((l) => l.lotId !== harvest.lotId),
         }));
+    };
+
+    /* Generic field save for an item. `patch` uses app-shape keys;
+       mapped to db columns here so the UI never touches column names. */
+    const saveItemFields = async (label, patch) => {
+        const item = items.find((i) => i.id === label);
+        const cols = {};
+        if ('id' in patch) cols.label = patch.id;
+        if ('type' in patch) cols.type = patch.type;
+        if ('where' in patch) cols.location = patch.where || null;
+        if ('substrate' in patch) cols.substrate = patch.substrate || null;
+        if ('notes' in patch) cols.notes = patch.notes || null;
+        if ('created' in patch) cols.created_on = patch.created || null;
+        if ('dryWeight' in patch) cols.dry_substrate_g = patch.dryWeight ?? null;
+
+        const { error } = await supabase.from('items').update(cols).eq('id', item.uid);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+
+        setItems((p) => p.map((i) => {
+            if (i.id === label) return { ...i, ...patch };
+            /* Children point at the parent by label, so a rename has to
+               follow through or the tree loses its connection. */
+            if ('id' in patch && i.parent === label) return { ...i, parent: patch.id };
+            return i;
+        }));
+        if ('id' in patch && open === label) setOpen(patch.id);
     };
 
     const addChild = async (parentLabel, type) => {
@@ -229,17 +287,17 @@ export default function App() {
 
         if (error) { console.error(error); alert('Could not create item - check console'); return; }
 
-        await supabase.from('item_events').insert({
+        const { data: ev } = await supabase.from('item_events').insert({
             item_id: data.id, happened_on: today, kind: 'note',
             body: `Inoculated from ${parentLabel}`,
-        });
+        }).select('id').single();
 
         setItems((p) => [...p, {
             id: label, uid: data.id, geneticsId: parent.geneticsId,
             parent: parentLabel, type, created: today, status: 'colonizing',
             where: '', substrate: '', notes: '', harvests: [],
             dryWeight: undefined,
-            log: [[today, `Inoculated from ${parentLabel}`]],
+            log: [{ id: ev?.id, date: today, body: `Inoculated from ${parentLabel}`, kind: 'note' }],
         }]);
         setOpen(label);
     };
@@ -257,7 +315,8 @@ export default function App() {
         screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
             onBack={() => { setDir('back'); setOpen(null); }}
             onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
-            saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest} />;
+            saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
+            editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
@@ -522,11 +581,17 @@ function Tree({ items, lines, species, onOpen, onBack }) {
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest }) {
+function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
     const [wet, setWet] = useState("");
+    const [editing, setEditing] = useState(null);   // event id or lot id
+    const [draft, setDraft] = useState({ date: "", body: "", wet: "" });
+    const [editHead, setEditHead] = useState(false);
+    const [editFacts, setEditFacts] = useState(false);
+    const [editNotes, setEditNotes] = useState(false);
+    const [f, setF] = useState({});                 // field drafts
 
     const kids = items.filter((i) => i.parent === id);
     const chain = [];
@@ -557,11 +622,37 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                 <div className="d-mark" style={{ borderColor: tone }}>
                     <span style={{ background: tone }} />
                 </div>
-                <div>
-                    <h1 className="d-id">{it.id}</h1>
-                    <div className="d-sub">{TYPES[it.type]} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
-                </div>
-                <span className="pill" style={{ color: tone, borderColor: tone }}>{st.label}</span>
+                {editHead ? (
+                    <div className="head-edit">
+                        <input className="in" value={f.id ?? ""} onChange={(e) => setF({ ...f, id: e.target.value })}
+                            placeholder="label, e.g. BO-GR2" />
+                        <select className="in sel" value={f.type ?? it.type} onChange={(e) => setF({ ...f, type: e.target.value })}>
+                            {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
+                        </select>
+                        <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
+                        <button className="mini" onClick={() => {
+                            const patch = {};
+                            if (f.id?.trim() && f.id.trim() !== it.id) patch.id = f.id.trim();
+                            if (f.type && f.type !== it.type) patch.type = f.type;
+                            if ((f.created || null) !== it.created) patch.created = f.created || null;
+                            if (Object.keys(patch).length) saveItemFields(id, patch);
+                            setEditHead(false);
+                        }}>Save</button>
+                        <button className="mini ghost" onClick={() => setEditHead(false)}>Cancel</button>
+                    </div>
+                ) : (
+                    <div className="head-read">
+                        <h1 className="d-id">{it.id}</h1>
+                        <div className="d-sub">{TYPES[it.type]} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
+                    </div>
+                )}
+                {!editHead && (
+                    <>
+                        <button className="edit-btn" title="Edit label, type, start date"
+                            onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "" }); setEditHead(true); }}>✎</button>
+                        <span className="pill" style={{ color: tone, borderColor: tone }}>{st.label}</span>
+                    </>
+                )}
             </div>
 
             <div className="crumbs">
@@ -603,15 +694,39 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                                 <table className="tbl">
                                     <thead><tr><th>Flush</th><th>Date</th><th>Wet</th><th></th></tr></thead>
                                     <tbody>
-                                        {it.harvests.map((h) => (
+                                        {it.harvests.map((h) => editing === h.lotId ? (
+                                            <tr key={h.lotId}>
+                                                <td>{h.f}</td>
+                                                <td colSpan="3">
+                                                    <div className="edit-row">
+                                                        <input className="in sm" type="date" value={draft.date}
+                                                            onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+                                                        <input className="in sm" inputMode="decimal" value={draft.wet}
+                                                            onChange={(e) => setDraft({ ...draft, wet: e.target.value })} placeholder="grams" />
+                                                        <button className="mini" onClick={() => {
+                                                            const g = parseFloat(draft.wet);
+                                                            if (!g || !draft.date) return;
+                                                            editHarvest(id, h, draft.date, g);
+                                                            setEditing(null);
+                                                        }}>Save</button>
+                                                        <button className="mini ghost" onClick={() => setEditing(null)}>Cancel</button>
+                                                        <button className="mini danger" onClick={() => {
+                                                            if (confirm(`Delete flush ${h.f} (${h.wet}g)? This removes the inventory lot too.`)) {
+                                                                deleteHarvest(id, h); setEditing(null);
+                                                            }
+                                                        }}>Delete</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : (
                                             <tr key={h.lotId ?? h.f}>
                                                 <td>{h.f}</td>
                                                 <td>{fmt(h.date)}</td>
                                                 <td className="num">{h.wet} g</td>
                                                 <td className="x-cell">
                                                     {h.lotId && (
-                                                        <button className="log-x" title="Delete this flush"
-                                                            onClick={() => { if (confirm(`Delete flush ${h.f} (${h.wet}g)? This removes the inventory lot too.`)) deleteHarvest(id, h); }}>×</button>
+                                                        <button className="log-x" title="Edit this flush"
+                                                            onClick={() => { setEditing(h.lotId); setDraft({ date: h.date, wet: String(h.wet), body: "" }); }}>✎</button>
                                                     )}
                                                 </td>
                                             </tr>
@@ -632,7 +747,33 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                         </>
                     )}
 
-                    <Sec title="Details" />
+                    <Sec title="Details" onEdit={editFacts ? null : () => {
+                        setF({ where: it.where ?? "", substrate: it.substrate ?? "", dryWeight: it.dryWeight ?? "" });
+                        setEditFacts(true);
+                    }} />
+                    {editFacts ? (
+                        <div className="field-form">
+                            <label>Where</label>
+                            <input className="in" value={f.where} onChange={(e) => setF({ ...f, where: e.target.value })} />
+                            <label>Substrate</label>
+                            <input className="in" value={f.substrate} onChange={(e) => setF({ ...f, substrate: e.target.value })} />
+                            <label>Dry substrate (g)</label>
+                            <input className="in" inputMode="decimal" value={f.dryWeight}
+                                onChange={(e) => setF({ ...f, dryWeight: e.target.value })} placeholder="for BE math" />
+                            <div className="edit-row">
+                                <button className="mini" onClick={() => {
+                                    const dw = f.dryWeight === "" ? null : parseFloat(f.dryWeight);
+                                    saveItemFields(id, {
+                                        where: f.where.trim(),
+                                        substrate: f.substrate.trim(),
+                                        dryWeight: Number.isNaN(dw) ? null : dw,
+                                    });
+                                    setEditFacts(false);
+                                }}>Save</button>
+                                <button className="mini ghost" onClick={() => setEditFacts(false)}>Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
                     <dl className="facts">
                         <dt>Where</dt><dd>{it.where || "—"}</dd>
                         <dt>Substrate</dt><dd>{it.substrate || "—"}</dd>
@@ -640,20 +781,61 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                         <dt>Produced</dt>
                         <dd>{kids.length ? kids.map((k) => <button key={k.id} className="lnk" onClick={() => onOpen(k.id)}>{k.id}</button>) : "nothing yet"}</dd>
                     </dl>
+                    )}
 
-                    {it.notes && <><Sec title="Notes" /><p className="notes">{it.notes}</p></>}
+                    <Sec title="Notes" onEdit={editNotes ? null : () => { setF({ notes: it.notes ?? "" }); setEditNotes(true); }} />
+                    {editNotes ? (
+                        <div className="field-form">
+                            <textarea className="in ta" rows="6" value={f.notes}
+                                onChange={(e) => setF({ ...f, notes: e.target.value })}
+                                placeholder="Anything worth remembering about this container. One thought per line." />
+                            <div className="edit-row">
+                                <button className="mini" onClick={() => { saveItemFields(id, { notes: f.notes }); setEditNotes(false); }}>Save</button>
+                                <button className="mini ghost" onClick={() => setEditNotes(false)}>Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        it.notes
+                            ? <p className="notes">{it.notes.split('\n').map((line, n) => <span key={n}>{line}<br /></span>)}</p>
+                            : <p className="notes empty-note">No notes yet.</p>
+                    )}
                 </div>
 
                 <div>
                     <Sec title="History" />
                     <ul className="log">
-                        {[...it.log].reverse().map(([d, t, evId], n) => (
-                            <li key={evId ?? n}>
-                                <span className="log-d">{fmt(d)}</span>
-                                <span className="log-t">{t}</span>
-                                {evId && (
-                                    <button className="log-x" title="Delete this entry"
-                                        onClick={() => { if (confirm(`Delete "${t}"?`)) deleteEvent(id, evId); }}>×</button>
+                        {[...it.log].reverse().map((l, n) => editing === l.id ? (
+                            <li key={l.id} className="editing">
+                                <div className="edit-row wrap">
+                                    <input className="in sm" type="date" value={draft.date}
+                                        onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+                                    <input className="in" value={draft.body}
+                                        onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && draft.body.trim() && draft.date) {
+                                                editEvent(id, l.id, draft.date, draft.body.trim());
+                                                setEditing(null);
+                                            }
+                                            if (e.key === 'Escape') setEditing(null);
+                                        }} />
+                                    <button className="mini" onClick={() => {
+                                        if (!draft.body.trim() || !draft.date) return;
+                                        editEvent(id, l.id, draft.date, draft.body.trim());
+                                        setEditing(null);
+                                    }}>Save</button>
+                                    <button className="mini ghost" onClick={() => setEditing(null)}>Cancel</button>
+                                    <button className="mini danger" onClick={() => {
+                                        if (confirm(`Delete "${l.body}"?`)) { deleteEvent(id, l.id); setEditing(null); }
+                                    }}>Delete</button>
+                                </div>
+                            </li>
+                        ) : (
+                            <li key={l.id ?? n}>
+                                <span className="log-d">{fmt(l.date)}</span>
+                                <span className="log-t">{l.body}</span>
+                                {l.id && (
+                                    <button className="log-x" title="Edit this entry"
+                                        onClick={() => { setEditing(l.id); setDraft({ date: l.date, body: l.body, wet: "" }); }}>✎</button>
                                 )}
                             </li>
                         ))}
@@ -669,7 +851,12 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
     );
 }
 
-const Sec = ({ title }) => <div className="sec">{title}</div>;
+const Sec = ({ title, onEdit }) => (
+    <div className="sec">
+        <span>{title}</span>
+        {onEdit && <button className="edit-btn sec-edit" title={`Edit ${title.toLowerCase()}`} onClick={onEdit}>✎</button>}
+    </div>
+);
 
 /* ================= STYLE ================= */
 
@@ -754,7 +941,19 @@ const CSS = `
 
 .cols{display:grid;grid-template-columns:1fr 320px;gap:34px;align-items:start;}
 @media(max-width:780px){.cols{grid-template-columns:1fr;gap:8px;}}
-.sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:24px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line);}
+.sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:24px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+.edit-btn{background:none;border:none;padding:0 4px;color:#4E5963;font-size:14px;line-height:1;cursor:pointer;transition:color .15s;}
+.edit-btn:hover{color:var(--amber);}
+.sec-edit{opacity:.6;}
+.sec:hover .sec-edit{opacity:1;}
+.head-read{flex:1;}
+.head-edit{flex:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.head-edit .in{flex:1 1 150px;font-family:var(--mono);}
+.in.sel{color-scheme:dark;cursor:pointer;}
+.in.ta{width:100%;font-family:var(--sans);line-height:1.55;resize:vertical;}
+.field-form{display:flex;flex-direction:column;gap:7px;}
+.field-form label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;}
+.empty-note{opacity:.5;}
 
 .chips{display:flex;flex-wrap:wrap;gap:6px;}
 .chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:11.5px;color:var(--dim);cursor:pointer;font-family:var(--sans);transition:color .15s,border-color .15s;}
@@ -789,9 +988,18 @@ const CSS = `
 .log li:last-child{border-bottom:none;}
 .log-d{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex:0 0 46px;padding-top:2px;}
 .log-t{font-size:12.5px;line-height:1.45;flex:1;}
-.log-x{background:none;border:none;padding:0 2px;color:#3E4A55;font-size:16px;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,color .15s;}
-.log li:hover .log-x{opacity:1;}
-.log-x:hover{color:var(--clay,#C1614F);}
+.log-x{background:none;border:none;padding:6px 8px;margin:-6px -4px -6px 0;color:#48535D;font-size:15px;line-height:1;cursor:pointer;opacity:.65;transition:opacity .15s,color .15s;}
+.log li:hover .log-x,.tbl tr:hover .log-x{opacity:1;}
+.log-x:hover{color:var(--amber);}
 .log-x:focus-visible{opacity:1;outline:2px solid var(--amber);outline-offset:2px;}
+.mini.danger{background:none;color:#A0524A;border-color:#3A2A2A;margin-left:auto;}
+.mini.danger:hover{color:#D4705F;border-color:#5A3733;}
+.x-cell{width:34px;text-align:right;padding-left:6px;}
+.edit-row{display:flex;gap:6px;align-items:center;width:100%;padding:4px 0;}
+.edit-row.wrap{flex-wrap:wrap;}
+.in.sm{flex:0 0 auto;width:auto;padding:6px 9px;font-size:11.5px;font-family:var(--mono);color-scheme:dark;}
+.mini.ghost{background:none;color:var(--dim);}
+.mini.ghost:hover{color:var(--bone);border-color:var(--line);}
+.log li.editing{padding:2px 0;}
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 `;
