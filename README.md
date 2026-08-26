@@ -19,6 +19,13 @@ Rules settled so far:
   vendor are two records, because the genetics can't be verified.
 - Splitting a lot leaves the parent's ID intact and decrements its remaining
   amount. Children record how much they took.
+- **Notes go where the fact lives.** Strain behaviour (hard to clone, aggressive,
+  slow to pin) belongs on the genetics line — it stays true for future
+  containers off that line. Anything specific to one jar or block goes on the
+  item. Species-wide parameters go on the species.
+- Contamination and failure are separate statuses. Contamination is an invader;
+  failure is everything else (PPO browning, dried out, never colonized). Both
+  require a reason, so contamination rate stays a real number.
 
 ## Built
 

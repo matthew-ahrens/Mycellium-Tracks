@@ -17,12 +17,20 @@ const STATUS = {
     colonizing: { label: "Colonizing", tone: "amber", live: true },
     colonized: { label: "Colonized", tone: "jade", live: true },
     fruiting: { label: "Fruiting", tone: "jade", live: true },
-    contaminated: { label: "Contaminated", tone: "clay" },
+    contaminated: { label: "Contaminated", tone: "clay", needsReason: true },
+    failed: { label: "Failed", tone: "rust", needsReason: true },
     consumed: { label: "Consumed", tone: "slate" },
     retired: { label: "Retired", tone: "slate" },
 };
 
-const TONE = { amber: "#E0A244", jade: "#5FB894", clay: "#C1614F", slate: "#5B6773" };
+/* Why it died. Contamination is an invader; failure is everything else -
+   keeping them apart means contamination rate stays a real number. */
+const REASONS = {
+    contaminated: ["Trichoderma", "Bacterial", "Cobweb", "Black mold", "Wet spot", "Unknown"],
+    failed: ["Browning / PPO", "Never colonized", "Dried out", "Heat stress", "Stalled", "Unknown"],
+};
+
+const TONE = { amber: "#E0A244", jade: "#5FB894", clay: "#C1614F", rust: "#9A6B45", slate: "#5B6773" };
 const FRUITS = ["bulk", "block"];
 
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
@@ -108,6 +116,7 @@ export default function App() {
                 substrate: r.substrate ?? '',
                 notes: r.notes ?? '',
                 dryWeight: r.dry_substrate_g ?? undefined,
+                failureReason: r.failure_reason ?? null,
                 harvests: (harvests ?? [])
                     .filter((h) => h.source_item_id === r.id)
                     .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g), lotId: h.id }))
@@ -126,25 +135,33 @@ export default function App() {
 
     const update = (id, fn) => setItems((p) => p.map((i) => (i.id === id ? fn(i) : i)));
 
-    const saveStatus = async (label, status) => {
+    const saveStatus = async (label, status, reason) => {
         const today = todayISO();
+        const patch = { status };
+        if (STATUS[status].needsReason) patch.failure_reason = reason || null;
+        else patch.failure_reason = null;
+
         const { data, error } = await supabase
             .from('items')
-            .update({ status })
+            .update(patch)
             .eq('label', label)
             .select('id')
             .single();
 
         if (error) { console.error(error); alert('Save failed - check console'); return; }
 
+        const body = reason ? `${STATUS[status].label} — ${reason}` : STATUS[status].label;
         const { data: ev } = await supabase.from('item_events').insert({
             item_id: data.id,
             happened_on: today,
             kind: 'status',
-            body: STATUS[status].label,
+            body,
         }).select('id').single();
 
-        update(label, (i) => ({ ...i, status, log: [...i.log, { id: ev?.id, date: today, body: STATUS[status].label, kind: 'status' }] }));
+        update(label, (i) => ({
+            ...i, status, failureReason: patch.failure_reason,
+            log: [...i.log, { id: ev?.id, date: today, body, kind: 'status' }],
+        }));
     };
 
     const saveNote = async (label, text) => {
@@ -272,6 +289,91 @@ export default function App() {
         if ('id' in patch && open === label) setOpen(patch.id);
     };
 
+    const saveGeneticsFields = async (genId, patch) => {
+        const cols = {};
+        if ('name' in patch) cols.name = patch.name.trim();
+        if ('code' in patch) cols.code = patch.code.trim().toUpperCase();
+        if ('source' in patch) cols.source = patch.source?.trim() || null;
+        if ('acquired_on' in patch) cols.acquired_on = patch.acquired_on || null;
+        if ('notes' in patch) cols.notes = patch.notes?.trim() || null;
+
+        const { error } = await supabase.from('genetics').update(cols).eq('id', genId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setGenetics((p) => p.map((g) => (g.id === genId ? { ...g, ...cols } : g)));
+    };
+
+    const saveSpeciesFields = async (speciesId, patch) => {
+        const cols = {
+            common_name: patch.common_name.trim(),
+            latin_name: patch.latin_name?.trim() || null,
+            fruiting_temp: patch.fruiting_temp?.trim() || null,
+            humidity: patch.humidity?.trim() || null,
+            fae: patch.fae?.trim() || null,
+            notes: patch.notes?.trim() || null,
+        };
+        const { error } = await supabase.from('species').update(cols).eq('id', speciesId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setSpecies((p) => p.map((s) => (s.id === speciesId ? { ...s, ...cols } : s)));
+    };
+
+    const addSpecies = async (fields) => {
+        const { data, error } = await supabase.from('species').insert({
+            common_name: fields.common_name.trim(),
+            latin_name: fields.latin_name?.trim() || null,
+            fruiting_temp: fields.fruiting_temp?.trim() || null,
+            humidity: fields.humidity?.trim() || null,
+            fae: fields.fae?.trim() || null,
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not add species - check console'); return; }
+        setSpecies((p) => [...p, data].sort((a, b) => a.common_name.localeCompare(b.common_name)));
+        return data;
+    };
+
+    /* A genetics line always starts with one physical container - the first
+       thing that actually sat on a shelf. Source lives on the line itself. */
+    const addGenetics = async (speciesId, fields, firstType) => {
+        const today = todayISO();
+        const code = fields.code.trim().toUpperCase();
+
+        const { data: gen, error } = await supabase.from('genetics').insert({
+            species_id: speciesId,
+            name: fields.name.trim(),
+            code,
+            source: fields.source?.trim() || null,
+            acquired_on: fields.acquired || null,
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not add line - check console'); return; }
+
+        const label = `${code}-${CODE[firstType]}1`;
+        const { data: item, error: itemErr } = await supabase.from('items').insert({
+            genetics_id: gen.id,
+            parent_id: null,
+            label,
+            type: firstType,
+            status: 'colonizing',
+            created_on: fields.acquired || today,
+        }).select('id').single();
+        if (itemErr) { console.error(itemErr); alert('Line added but first container failed - check console'); return; }
+
+        const { data: ev } = await supabase.from('item_events').insert({
+            item_id: item.id,
+            happened_on: fields.acquired || today,
+            kind: 'note',
+            body: fields.source?.trim() ? `Acquired - ${fields.source.trim()}` : 'Line started',
+        }).select('id').single();
+
+        setGenetics((p) => [...p, gen].sort((a, b) => a.name.localeCompare(b.name)));
+        setItems((p) => [...p, {
+            id: label, uid: item.id, geneticsId: gen.id, parent: null,
+            type: firstType, created: fields.acquired || today, status: 'colonizing',
+            where: '', substrate: '', notes: '', harvests: [], dryWeight: undefined,
+            log: [{ id: ev?.id, date: fields.acquired || today, kind: 'note', body: fields.source?.trim() ? `Acquired - ${fields.source.trim()}` : 'Line started' }],
+        }]);
+        return gen;
+    };
+
     const addChild = async (parentLabel, type) => {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
@@ -320,10 +422,13 @@ export default function App() {
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
+            onAddLine={(fields, firstType) => addGenetics(nav.speciesId, fields, firstType)}
+            onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
     } else {
         key = 'species';
         screen = <SpeciesGrid species={species} genetics={genetics} items={items}
+            onAdd={addSpecies}
             onOpen={(id) => go({ level: 'tree', speciesId: id })} />;
     }
 
@@ -379,8 +484,18 @@ function branchOf(items, geneticsId) {
 
 /* ---------------- SPECIES GRID ---------------- */
 
-function SpeciesGrid({ species, genetics, items, onOpen }) {
+function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
     const live = items.filter((i) => STATUS[i.status].live).length;
+    const [adding, setAdding] = useState(false);
+    const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", notes: "" });
+
+    const submit = async () => {
+        if (!f.common_name.trim()) return;
+        await onAdd(f);
+        setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", notes: "" });
+        setAdding(false);
+    };
+
     return (
         <div className="page">
             <div className="bar">
@@ -390,6 +505,50 @@ function SpeciesGrid({ species, genetics, items, onOpen }) {
                 </div>
                 <div className="tally"><span className="num">{live}</span><span className="tally-l">live<br />items</span></div>
             </div>
+
+            {adding && (
+                <div className="new-form">
+                    <div className="nf-title">New species</div>
+                    <div className="nf-grid">
+                        <div className="nf-field wide">
+                            <label>Common name</label>
+                            <input className="in" autoFocus value={f.common_name} placeholder="Chestnut"
+                                onChange={(e) => setF({ ...f, common_name: e.target.value })}
+                                onKeyDown={(e) => e.key === 'Enter' && submit()} />
+                        </div>
+                        <div className="nf-field wide">
+                            <label>Latin name</label>
+                            <input className="in" value={f.latin_name} placeholder="Pholiota adiposa"
+                                onChange={(e) => setF({ ...f, latin_name: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Fruiting temp</label>
+                            <input className="in" value={f.fruiting_temp} placeholder="55-65F"
+                                onChange={(e) => setF({ ...f, fruiting_temp: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Humidity</label>
+                            <input className="in" value={f.humidity} placeholder="90-95%"
+                                onChange={(e) => setF({ ...f, humidity: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>FAE</label>
+                            <input className="in" value={f.fae} placeholder="High"
+                                onChange={(e) => setF({ ...f, fae: e.target.value })} />
+                        </div>
+                        <div className="nf-field wide">
+                            <label>Notes</label>
+                            <textarea className="in ta" rows="2" value={f.notes}
+                                placeholder="Anything you want to remember about this species generally."
+                                onChange={(e) => setF({ ...f, notes: e.target.value })} />
+                        </div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={submit}>Add species</button>
+                        <button className="mini ghost" onClick={() => setAdding(false)}>Cancel</button>
+                    </div>
+                </div>
+            )}
 
             <div className="grid">
                 {species.map((s) => {
@@ -408,6 +567,12 @@ function SpeciesGrid({ species, genetics, items, onOpen }) {
                         </button>
                     );
                 })}
+                {!adding && (
+                    <button className="tile add-tile" onClick={() => setAdding(true)}>
+                        <span className="add-plus">+</span>
+                        <span className="add-label">Add a species</span>
+                    </button>
+                )}
             </div>
         </div>
     );
@@ -455,9 +620,15 @@ function GeneticsGrid({ species, genetics, items, onOpen, onBack }) {
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
+    const [addingLine, setAddingLine] = useState(false);
+    const [editLineId, setEditLineId] = useState(null);
+    const [editSp, setEditSp] = useState(false);
+    const [lf, setLf] = useState({});
+    const [sf, setSf] = useState({});
+    const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc" });
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
     const pos = useMemo(() => layout(items), [items]);
 
@@ -535,8 +706,145 @@ function Tree({ items, lines, species, onOpen, onBack }) {
                     <div className="eyebrow">{species?.latin_name}</div>
                     <h1>{species?.common_name}</h1>
                 </div>
-                <button className="sw" onClick={fit}>Fit</button>
+                <div className="bar-actions">
+                    <button className="sw" onClick={() => {
+                        setSf({
+                            common_name: species?.common_name ?? "", latin_name: species?.latin_name ?? "",
+                            fruiting_temp: species?.fruiting_temp ?? "", humidity: species?.humidity ?? "",
+                            fae: species?.fae ?? "", notes: species?.notes ?? "",
+                        });
+                        setEditSp(true);
+                    }}>✎ Species</button>
+                    <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
+                    <button className="sw" onClick={fit}>Fit</button>
+                </div>
             </div>
+
+            <div className="line-strip">
+                {lines.map((g) => (
+                    <span key={g.id} className="line-chip">
+                        <span className="lc-code">{g.code}</span>
+                        <span className="lc-name">{g.name}</span>
+                        <button className="edit-btn" title="Edit this line" onClick={() => {
+                            setLf({ name: g.name, code: g.code, source: g.source ?? "", acquired_on: g.acquired_on ?? "", notes: g.notes ?? "" });
+                            setEditLineId(g.id);
+                        }}>✎</button>
+                    </span>
+                ))}
+            </div>
+
+            {editSp && (
+                <div className="new-form">
+                    <div className="nf-title">Edit species</div>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Common name</label>
+                            <input className="in" value={sf.common_name} onChange={(e) => setSf({ ...sf, common_name: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Latin name</label>
+                            <input className="in" value={sf.latin_name} onChange={(e) => setSf({ ...sf, latin_name: e.target.value })} /></div>
+                        <div className="nf-field"><label>Fruiting temp</label>
+                            <input className="in" value={sf.fruiting_temp} onChange={(e) => setSf({ ...sf, fruiting_temp: e.target.value })} /></div>
+                        <div className="nf-field"><label>Humidity</label>
+                            <input className="in" value={sf.humidity} onChange={(e) => setSf({ ...sf, humidity: e.target.value })} /></div>
+                        <div className="nf-field"><label>FAE</label>
+                            <input className="in" value={sf.fae} onChange={(e) => setSf({ ...sf, fae: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Notes</label>
+                            <textarea className="in ta" rows="3" value={sf.notes} onChange={(e) => setSf({ ...sf, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={() => {
+                            if (!sf.common_name.trim()) return;
+                            onEditSpecies(species.id, sf); setEditSp(false);
+                        }}>Save</button>
+                        <button className="mini ghost" onClick={() => setEditSp(false)}>Cancel</button>
+                    </div>
+                </div>
+            )}
+
+            {editLineId && (
+                <div className="new-form">
+                    <div className="nf-title">Edit line</div>
+                    <p className="nf-help">
+                        The code is the label prefix for this line's containers. Changing it does not
+                        rename containers that already exist.
+                    </p>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Line name</label>
+                            <input className="in" value={lf.name} onChange={(e) => setLf({ ...lf, name: e.target.value })} /></div>
+                        <div className="nf-field"><label>Code</label>
+                            <input className="in mono-in" maxLength="5" value={lf.code}
+                                onChange={(e) => setLf({ ...lf, code: e.target.value.toUpperCase() })} /></div>
+                        <div className="nf-field"><label>Acquired</label>
+                            <input className="in" type="date" value={lf.acquired_on}
+                                onChange={(e) => setLf({ ...lf, acquired_on: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Source</label>
+                            <input className="in" value={lf.source} onChange={(e) => setLf({ ...lf, source: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Notes</label>
+                            <textarea className="in ta" rows="3" value={lf.notes}
+                                onChange={(e) => setLf({ ...lf, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={() => {
+                            if (!lf.name.trim() || !lf.code.trim()) return;
+                            onEditLine(editLineId, lf); setEditLineId(null);
+                        }}>Save</button>
+                        <button className="mini ghost" onClick={() => setEditLineId(null)}>Cancel</button>
+                    </div>
+                </div>
+            )}
+
+            {addingLine && (
+                <div className="new-form">
+                    <div className="nf-title">New genetics line — {species?.common_name}</div>
+                    <p className="nf-help">
+                        One line per acquisition. A second purchase of the same strain is a separate
+                        line, since you can't verify it's the same genetics.
+                    </p>
+                    <div className="nf-grid">
+                        <div className="nf-field wide">
+                            <label>Line name</label>
+                            <input className="in" autoFocus value={nf.name} placeholder="Chestnut A"
+                                onChange={(e) => setNf({ ...nf, name: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Code (label prefix)</label>
+                            <input className="in mono-in" value={nf.code} placeholder="CH" maxLength="5"
+                                onChange={(e) => setNf({ ...nf, code: e.target.value.toUpperCase() })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Acquired</label>
+                            <input className="in" type="date" value={nf.acquired}
+                                onChange={(e) => setNf({ ...nf, acquired: e.target.value })} />
+                        </div>
+                        <div className="nf-field wide">
+                            <label>Source</label>
+                            <input className="in" value={nf.source} placeholder="Commercial LC — Out-Grow"
+                                onChange={(e) => setNf({ ...nf, source: e.target.value })} />
+                        </div>
+                        <div className="nf-field wide">
+                            <label>First container — what actually arrived or got made</label>
+                            <select className="in sel" value={nf.firstType}
+                                onChange={(e) => setNf({ ...nf, firstType: e.target.value })}>
+                                {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
+                            </select>
+                        </div>
+                        <div className="nf-field wide">
+                            <label>Notes on this line</label>
+                            <textarea className="in ta" rows="3" value={nf.notes}
+                                placeholder="How it performs, quirks, anything about the genetics itself."
+                                onChange={(e) => setNf({ ...nf, notes: e.target.value })} />
+                        </div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={async () => {
+                            if (!nf.name.trim() || !nf.code.trim()) return;
+                            await onAddLine(nf, nf.firstType);
+                            setNf({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc" });
+                            setAddingLine(false);
+                        }}>Add line</button>
+                        <button className="mini ghost" onClick={() => setAddingLine(false)}>Cancel</button>
+                    </div>
+                </div>
+            )}
 
             <div className="canvas" ref={box} onWheel={onWheel} onPointerDown={onDown}>
                 <svg width="100%" height="100%">
@@ -601,7 +909,13 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
     const totalWet = it.harvests.reduce((s, h) => s + h.wet, 0);
     const be = it.dryWeight && totalWet ? ((totalWet / it.dryWeight) * 100).toFixed(1) : null;
 
-    const setStatus = (s) => saveStatus(id, s);
+    const [pendingStatus, setPendingStatus] = useState(null);
+    const [reason, setReason] = useState("");
+
+    const setStatus = (s) => {
+        if (STATUS[s].needsReason) { setPendingStatus(s); setReason(""); return; }
+        saveStatus(id, s);
+    };
     const addNote = () => {
         if (!note.trim()) return;
         saveNote(id, note.trim());
@@ -686,6 +1000,35 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                             <button key={s} className={`chip ${it.status === s ? "on" : ""}`} onClick={() => setStatus(s)}>{STATUS[s].label}</button>
                         ))}
                     </div>
+
+                    {pendingStatus && (
+                        <div className="reason-box">
+                            <div className="rb-title">Why? — {STATUS[pendingStatus].label}</div>
+                            <div className="chips">
+                                {REASONS[pendingStatus].map((r) => (
+                                    <button key={r} className={`chip ${reason === r ? "on" : ""}`} onClick={() => setReason(r)}>{r}</button>
+                                ))}
+                            </div>
+                            <div className="edit-row">
+                                <input className="in" value={reason} placeholder="or type your own"
+                                    onChange={(e) => setReason(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && reason.trim()) { saveStatus(id, pendingStatus, reason.trim()); setPendingStatus(null); }
+                                        if (e.key === 'Escape') setPendingStatus(null);
+                                    }} />
+                                <button className="mini" onClick={() => {
+                                    if (!reason.trim()) return;
+                                    saveStatus(id, pendingStatus, reason.trim());
+                                    setPendingStatus(null);
+                                }}>Save</button>
+                                <button className="mini ghost" onClick={() => setPendingStatus(null)}>Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {it.failureReason && !pendingStatus && (
+                        <p className="fail-note" style={{ color: tone }}>{st.label} — {it.failureReason}</p>
+                    )}
 
                     {FRUITS.includes(it.type) && (
                         <>
@@ -894,6 +1237,23 @@ const CSS = `
 .dormant{font-family:var(--mono);font-size:11px;color:#4E5963;white-space:nowrap;}
 .mini-edge{fill:none;stroke:#3A454F;stroke-width:1;}
 .spec-note{font-size:12.5px;color:var(--dim);font-style:italic;margin:12px 0 0;max-width:60ch;}
+.bar-actions{display:flex;gap:7px;}
+.add-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:118px;border-style:dashed;background:none;}
+.add-tile:hover{border-color:var(--amber);background:var(--panel);}
+.add-plus{font-size:26px;color:var(--amber);line-height:1;}
+.add-label{font-size:12.5px;color:var(--dim);}
+.new-form{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:20px;animation:pop .22s ease-out;}
+.nf-title{font-family:var(--serif);font-size:19px;margin-bottom:6px;}
+.nf-help{font-size:12px;color:var(--dim);line-height:1.5;margin:0 0 14px;max-width:60ch;}
+.nf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px;}
+.nf-field{display:flex;flex-direction:column;gap:5px;}
+.nf-field.wide{grid-column:1 / -1;}
+.nf-field label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+.mono-in{font-family:var(--mono);letter-spacing:.06em;}
+.line-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.line-chip{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:5px 8px 5px 12px;}
+.lc-code{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--amber);}
+.lc-name{font-size:12px;color:var(--dim);}
 .line-label{font-family:var(--serif);font-size:15px;fill:var(--bone);opacity:.72;}
 
 .bar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px;}
@@ -954,6 +1314,9 @@ const CSS = `
 .field-form{display:flex;flex-direction:column;gap:7px;}
 .field-form label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;}
 .empty-note{opacity:.5;}
+.reason-box{margin-top:12px;padding:13px;background:var(--panel);border:1px solid var(--line);border-radius:11px;animation:pop .2s ease-out;}
+.rb-title{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:9px;}
+.fail-note{font-size:12px;margin:10px 0 0;font-family:var(--mono);}
 
 .chips{display:flex;flex-wrap:wrap;gap:6px;}
 .chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:11.5px;color:var(--dim);cursor:pointer;font-family:var(--sans);transition:color .15s,border-color .15s;}
