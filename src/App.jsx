@@ -73,6 +73,8 @@ function hypha(a, b) {
 /* ================= APP ================= */
 
 export default function App() {
+    const [section, setSection] = useState('cultures');
+    const [library, setLibrary] = useState([]);
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
@@ -100,9 +102,11 @@ export default function App() {
             const { data: harvests } = await supabase.from('lots').select('*').eq('form', 'wet');
             const { data: sp } = await supabase.from('species').select('*').order('common_name');
             const { data: gen } = await supabase.from('genetics').select('*').order('name');
+            const { data: lib } = await supabase.from('library').select('*').order('created_at');
 
             setSpecies(sp ?? []);
             setGenetics(gen ?? []);
+            setLibrary(lib ?? []);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -316,6 +320,37 @@ export default function App() {
         setSpecies((p) => p.map((s) => (s.id === speciesId ? { ...s, ...cols } : s)));
     };
 
+    const addLibrary = async (fields) => {
+        const { data, error } = await supabase.from('library').insert({
+            species_id: fields.species_id || null,
+            title: fields.title.trim(),
+            kind: fields.kind,
+            url: fields.url?.trim() || null,
+            body: fields.body?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLibrary((p) => [...p, data]);
+    };
+
+    const editLibrary = async (entryId, fields) => {
+        const cols = {
+            species_id: fields.species_id || null,
+            title: fields.title.trim(),
+            kind: fields.kind,
+            url: fields.url?.trim() || null,
+            body: fields.body?.trim() || null,
+        };
+        const { error } = await supabase.from('library').update(cols).eq('id', entryId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLibrary((p) => p.map((e) => (e.id === entryId ? { ...e, ...cols } : e)));
+    };
+
+    const deleteLibrary = async (entryId) => {
+        const { error } = await supabase.from('library').delete().eq('id', entryId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setLibrary((p) => p.filter((e) => e.id !== entryId));
+    };
+
     const addSpecies = async (fields) => {
         const { data, error } = await supabase.from('species').insert({
             common_name: fields.common_name.trim(),
@@ -445,7 +480,20 @@ export default function App() {
     const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
 
     let screen, key;
-    if (open) {
+    if (section === 'library' || section === 'recipes') {
+        key = section;
+        screen = <Library entries={library.filter((e) => (section === 'recipes') === (e.kind === 'recipe'))}
+            species={species} mode={section}
+            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary} />;
+    } else if (section === 'inventory') {
+        key = 'inventory';
+        screen = <Placeholder title="Inventory"
+            body="Everything harvested lands here as a wet lot, then gets dried, ground, blended, extracted or split. Not built yet - the lots are already being recorded, so the data is accumulating." />;
+    } else if (section === 'calculators') {
+        key = 'calculators';
+        screen = <Placeholder title="Calculators"
+            body="Spawn ratios, substrate hydration, BE, recipe scaling. Not built yet." />;
+    } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
             onBack={() => { setDir('back'); setOpen(null); }}
@@ -466,10 +514,158 @@ export default function App() {
             onOpen={(id) => go({ level: 'tree', speciesId: id })} />;
     }
 
+    const NAV = [
+        ['cultures', 'Cultures', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
+        ['inventory', 'Inventory', 'M3 7h18v12H3zM3 7l2-3h14l2 3'],
+        ['library', 'Library', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
+        ['recipes', 'Recipes', 'M7 3v8a3 3 0 0 0 6 0V3M10 11v10M17 3c-1.5 2-2 4-2 6s.5 3 2 3v9'],
+        ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
+    ];
+
     return (
         <div className="root">
             <style>{CSS}</style>
-            <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
+            <div className="shell">
+                <nav className="side">
+                    <div className="brand">SporeDesk</div>
+                    {NAV.map(([k, label, d]) => (
+                        <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
+                            onClick={() => { setSection(k); setOpen(null); setDir('fwd'); }}>
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+                            <span>{label}</span>
+                        </button>
+                    ))}
+                </nav>
+                <main className="main">
+                    <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
+                </main>
+            </div>
+        </div>
+    );
+}
+
+function Placeholder({ title, body }) {
+    return (
+        <div className="page">
+            <div className="bar"><div><h1>{title}</h1></div></div>
+            <p className="nf-help" style={{ marginTop: 16 }}>{body}</p>
+        </div>
+    );
+}
+
+/* ---------------- LIBRARY / RECIPES ---------------- */
+
+const KINDS = { note: 'Written note', link: 'Link', video: 'Video', pdf: 'PDF (linked)', recipe: 'Recipe' };
+
+function Library({ entries, species, mode, onAdd, onEdit, onDelete }) {
+    const recipes = mode === 'recipes';
+    const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '' };
+    const [form, setForm] = useState(null);   // null | 'new' | entry id
+    const [f, setF] = useState(blank);
+    const [openId, setOpenId] = useState(null);
+
+    const submit = () => {
+        if (!f.title.trim()) return;
+        if (form === 'new') onAdd({ ...f, kind: recipes ? 'recipe' : f.kind });
+        else onEdit(form, { ...f, kind: recipes ? 'recipe' : f.kind });
+        setForm(null); setF(blank);
+    };
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">{recipes ? 'Mixes you make again and again' : 'Reference you want at the bench'}</div>
+                    <h1>{recipes ? 'Recipes' : 'Library'}</h1>
+                </div>
+                {form === null && (
+                    <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>
+                        + {recipes ? 'Add recipe' : 'Add entry'}
+                    </button>
+                )}
+            </div>
+
+            {form !== null && (
+                <div className="new-form">
+                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} {recipes ? 'recipe' : 'entry'}</div>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Title</label>
+                            <input className="in" autoFocus value={f.title}
+                                placeholder={recipes ? 'Homemade MEA - 8 oz jar' : 'Dual extraction sheet'}
+                                onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+                        {!recipes && (
+                            <div className="nf-field"><label>Kind</label>
+                                <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+                                    {Object.keys(KINDS).filter((k) => k !== 'recipe').map((k) => <option key={k} value={k}>{KINDS[k]}</option>)}
+                                </select></div>
+                        )}
+                        <div className="nf-field"><label>Species (optional)</label>
+                            <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
+                                <option value="">— applies to everything —</option>
+                                {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                            </select></div>
+                        <div className="nf-field wide"><label>Link (optional)</label>
+                            <input className="in" value={f.url} placeholder="https://…"
+                                onChange={(e) => setF({ ...f, url: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>{recipes ? 'Ingredients and method' : 'The actual content'}</label>
+                            <textarea className="in ta" rows="10" value={f.body}
+                                placeholder={recipes
+                                    ? '175 mL water\n3.5 g agar-agar\n3.5 g DME\n\nInstant Pot Mini, 30 min at max pressure.'
+                                    : 'Paste the text from your printed sheet here so it is searchable and on your phone.'}
+                                onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={submit}>Save</button>
+                        <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
+                        {form !== 'new' && (
+                            <button className="mini danger" onClick={() => {
+                                if (confirm(`Delete "${f.title}"?`)) { onDelete(form); setForm(null); }
+                            }}>Delete</button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {entries.length === 0 && form === null && (
+                <p className="nf-help" style={{ marginTop: 18 }}>
+                    Nothing here yet. {recipes
+                        ? 'Your agar and LC media recipes are the obvious first two.'
+                        : 'Paste in the text from your printed sheets - casing layer, dual extraction, spore prints - so they are searchable and on your phone.'}
+                </p>
+            )}
+
+            <div className="lib-list">
+                {entries.map((e) => {
+                    const sp = species.find((s) => s.id === e.species_id);
+                    const isOpen = openId === e.id;
+                    return (
+                        <div key={e.id} className={`lib-card ${isOpen ? 'open' : ''}`}>
+                            <button className="lib-head" onClick={() => setOpenId(isOpen ? null : e.id)}>
+                                <div>
+                                    <div className="lib-title">{e.title}</div>
+                                    <div className="lib-meta">
+                                        {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
+                                        {sp && <span className="lib-sp">{sp.common_name}</span>}
+                                    </div>
+                                </div>
+                                <span className="lib-chev">{isOpen ? '−' : '+'}</span>
+                            </button>
+                            {isOpen && (
+                                <div className="lib-body">
+                                    {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
+                                    {e.body && <pre className="lib-text">{e.body}</pre>}
+                                    {!e.url && !e.body && <p className="notes empty-note">No content saved.</p>}
+                                    <button className="mini ghost" onClick={() => {
+                                        setF({ title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '' });
+                                        setForm(e.id);
+                                    }}>Edit</button>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -1269,6 +1465,35 @@ const CSS = `
 }
 .root *{box-sizing:border-box;}
 .page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;}
+
+.shell{display:flex;min-height:100vh;}
+.side{flex:0 0 186px;border-right:1px solid var(--line);padding:22px 12px;display:flex;flex-direction:column;gap:3px;position:sticky;top:0;height:100vh;}
+.brand{font-family:var(--serif);font-size:19px;padding:0 10px 18px;color:var(--bone);}
+.nav-item{display:flex;align-items:center;gap:10px;background:none;border:none;border-radius:9px;padding:9px 10px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);text-align:left;transition:background .15s,color .15s;}
+.nav-item:hover{background:var(--panel);color:var(--bone);}
+.nav-item.on{background:var(--panel2);color:var(--amber);}
+.main{flex:1;min-width:0;}
+@media(max-width:760px){
+  .shell{flex-direction:column;}
+  .side{flex:none;height:auto;position:static;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:10px;}
+  .brand{display:none;}
+  .nav-item span{display:none;}
+  .nav-item{padding:10px 14px;}
+}
+
+.lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
+.lib-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:border-color .15s;}
+.lib-card:hover{border-color:#3E4A55;}
+.lib-card.open{border-color:var(--amber);}
+.lib-head{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;background:none;border:none;padding:14px 16px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);}
+.lib-title{font-family:var(--serif);font-size:17px;}
+.lib-meta{display:flex;gap:9px;margin-top:4px;}
+.lib-kind,.lib-sp{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+.lib-sp{color:var(--amber);opacity:.75;}
+.lib-chev{font-family:var(--mono);font-size:16px;color:var(--dim);}
+.lib-body{padding:0 16px 16px;border-top:1px solid var(--line);padding-top:14px;}
+.lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
+.lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:#C9C4BA;}
 
 /* screen transitions */
 .screen-in{animation:slideIn .42s cubic-bezier(.22,.68,.32,1);}
