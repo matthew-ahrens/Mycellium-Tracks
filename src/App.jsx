@@ -491,8 +491,7 @@ export default function App() {
             body="Everything harvested lands here as a wet lot, then gets dried, ground, blended, extracted or split. Not built yet - the lots are already being recorded, so the data is accumulating." />;
     } else if (section === 'calculators') {
         key = 'calculators';
-        screen = <Placeholder title="Calculators"
-            body="Spawn ratios, substrate hydration, BE, recipe scaling. Not built yet." />;
+        screen = <Calculators recipes={library.filter((e) => e.kind === 'recipe')} />;
     } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
@@ -550,6 +549,363 @@ function Placeholder({ title, body }) {
         <div className="page">
             <div className="bar"><div><h1>{title}</h1></div></div>
             <p className="nf-help" style={{ marginTop: 16 }}>{body}</p>
+        </div>
+    );
+}
+
+/* ---------------- CALCULATORS ---------------- */
+
+const DRY_YIELD = {
+    'Blue Oyster': 8.9, 'Chestnut': 10, 'Lion\'s Mane': 7, 'Shiitake': 11,
+    'Enoki': 6, 'Panellus stipticus': 8, 'Cordyceps militaris': 15, 'Reishi': 12,
+};
+
+function CalcCard({ title, sub, children }) {
+    return (
+        <div className="calc-card">
+            <div className="calc-head">
+                <div className="calc-title">{title}</div>
+                {sub && <div className="calc-sub">{sub}</div>}
+            </div>
+            <div className="calc-body">{children}</div>
+        </div>
+    );
+}
+
+function NumField({ label, value, onChange, placeholder, unit }) {
+    return (
+        <div className="calc-field">
+            <label>{label}</label>
+            <div className="calc-input-wrap">
+                <input className="in" inputMode="decimal" value={value} placeholder={placeholder}
+                    onChange={(e) => onChange(e.target.value)} />
+                {unit && <span className="calc-unit">{unit}</span>}
+            </div>
+        </div>
+    );
+}
+
+const n = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
+
+function SpawnRatio() {
+    const [grain, setGrain] = useState('');
+    const [bulk, setBulk] = useState('');
+    const [ratioTarget, setRatioTarget] = useState('5');
+    const g = n(grain), b = n(bulk), rt = n(ratioTarget);
+
+    /* Whichever field the person typed in most recently drives the other -
+       so "I have 500g grain" and "I have 2500g substrate" both work. */
+    const [lastEdited, setLastEdited] = useState(null);
+    const ratio = g && b ? (b / g) : null;
+    const impliedBulk = lastEdited === 'grain' && g && rt ? g * rt : null;
+    const impliedGrain = lastEdited === 'bulk' && b && rt ? b / rt : null;
+
+    return (
+        <CalcCard title="Spawn ratio" sub="Grain to bulk substrate - works either direction">
+            <NumField label="Grain (colonized spawn)" value={grain}
+                onChange={(v) => { setGrain(v); setLastEdited('grain'); }} placeholder="e.g. 500" unit="g" />
+            <NumField label="Bulk substrate" value={bulk}
+                onChange={(v) => { setBulk(v); setLastEdited('bulk'); }} placeholder="e.g. 2500" unit="g" />
+
+            {g && b ? (
+                <div className="calc-result">
+                    <strong>1 : {ratio.toFixed(1)}</strong>
+                    <span>1 part grain to {ratio.toFixed(1)} parts bulk</span>
+                </div>
+            ) : (g || b) && (
+                <>
+                    <NumField label="Target ratio (parts bulk per part grain)" value={ratioTarget}
+                        onChange={setRatioTarget} placeholder="5" unit="× grain" />
+                    {impliedBulk && (
+                        <div className="calc-result">
+                            <strong>{impliedBulk.toFixed(0)} g substrate</strong>
+                            <span>needed for {grain} g grain at 1:{ratioTarget}</span>
+                        </div>
+                    )}
+                    {impliedGrain && (
+                        <div className="calc-result">
+                            <strong>{impliedGrain.toFixed(0)} g grain</strong>
+                            <span>needed for {bulk} g substrate at 1:{ratioTarget}</span>
+                        </div>
+                    )}
+                </>
+            )}
+            <p className="calc-note">
+                Ratio is mostly about method, not species - how aggressive the culture is and how much
+                colonization time you're willing to trade for less spawn. 1:3 to 1:5 is a common range;
+                slower or less aggressive spawn does better closer to 1:3.
+            </p>
+        </CalcCard>
+    );
+}
+
+function Hydration() {
+    const [dry, setDry] = useState('');
+    const [ratio, setRatio] = useState('1.65');
+    const d = n(dry), r = n(ratio);
+    const water = d && r ? d * r : null;
+
+    return (
+        <CalcCard title="Substrate hydration" sub="Broth or water needed for a dry substrate weight">
+            <NumField label="Dry substrate weight" value={dry} onChange={setDry} placeholder="e.g. 200" unit="g" />
+            <NumField label="Ratio (mL per g)" value={ratio} onChange={setRatio} placeholder="1.65" unit="mL/g" />
+            {water && (
+                <div className="calc-result">
+                    <strong>{water.toFixed(0)} mL</strong>
+                    <span>of broth or water</span>
+                </div>
+            )}
+            <p className="calc-note">Default 1.65 mL/g is the cordyceps flat-bag ratio from your notes. Change it for other teks.</p>
+        </CalcCard>
+    );
+}
+
+function BECalc() {
+    const [wet, setWet] = useState('');
+    const [dry, setDry] = useState('');
+    const w = n(wet), d = n(dry);
+    const be = w && d ? (w / d) * 100 : null;
+
+    return (
+        <CalcCard title="Biological efficiency (BE)" sub="How much you got out, relative to what you put in">
+            <NumField label="Total wet harvest" value={wet} onChange={setWet} placeholder="e.g. 710.87" unit="g" />
+            <NumField label="Dry substrate weight" value={dry} onChange={setDry} placeholder="e.g. 950" unit="g" />
+            {be && (
+                <div className="calc-result">
+                    <strong>{be.toFixed(1)}%</strong>
+                    <span>{be >= 100 ? 'Excellent - over 100% is a very good block' : be >= 50 ? 'Solid, typical range for oysters' : 'On the low side for most species'}</span>
+                </div>
+            )}
+            <p className="calc-note">
+                BE is wet harvest weight as a percentage of dry substrate weight. 100% means you harvested
+                the same weight of mushrooms as the dry substrate you started with - genuinely good. Oysters
+                often land 50-100%+; slower species like chestnut and shiitake usually run lower. It only
+                means anything if the dry weight is real - an estimated dry weight gives an estimated BE.
+            </p>
+        </CalcCard>
+    );
+}
+
+function DryYield({ species }) {
+    const [wet, setWet] = useState('');
+    const [sp, setSp] = useState('Blue Oyster');
+    const w = n(wet);
+    const pct = DRY_YIELD[sp] ?? 10;
+    const dry = w ? w * (pct / 100) : null;
+
+    return (
+        <CalcCard title="Dry yield estimate" sub="Roughly what a wet harvest will weigh once dried">
+            <NumField label="Wet harvest weight" value={wet} onChange={setWet} placeholder="e.g. 300" unit="g" />
+            <div className="calc-field">
+                <label>Species</label>
+                <select className="in sel" value={sp} onChange={(e) => setSp(e.target.value)}>
+                    {Object.keys(DRY_YIELD).map((s) => <option key={s} value={s}>{s} (~{DRY_YIELD[s]}%)</option>)}
+                </select>
+            </div>
+            {dry && (
+                <div className="calc-result">
+                    <strong>~{dry.toFixed(0)} g dry</strong>
+                    <span>at ~{pct}% typical for {sp}</span>
+                </div>
+            )}
+            <p className="calc-note">
+                Blue Oyster's 8.9% is your own measured figure. The rest are species-typical estimates until
+                you weigh a real wet-to-dry run for each - worth doing once per species.
+            </p>
+        </CalcCard>
+    );
+}
+
+function MediaScaler({ recipes }) {
+    const [recipeId, setRecipeId] = useState('');
+    const [baseVol, setBaseVol] = useState('175');
+    const [target, setTarget] = useState('');
+    const recipe = recipes.find((r) => r.id === recipeId);
+    const bv = n(baseVol), t = n(target);
+    const factor = bv && t ? t / bv : null;
+
+    /* Pulls "175 mL" or "3.5 g" style lines out of a recipe's saved text
+       and scales each number by the same factor. */
+    const scaledLines = recipe && factor ? recipe.body?.split('\n').map((line) => {
+        const m = line.match(/^([\d.]+)\s*(mL|g|mg|oz)\b(.*)$/i);
+        if (!m) return line;
+        const val = parseFloat(m[1]) * factor;
+        return `${val % 1 === 0 ? val : val.toFixed(2)} ${m[2]}${m[3]}`;
+    }) : null;
+
+    return (
+        <CalcCard title="Recipe scaler" sub="Scale a saved recipe to a different volume">
+            <div className="calc-field">
+                <label>Recipe</label>
+                <select className="in sel" value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
+                    <option value="">— pick a saved recipe —</option>
+                    {recipes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                </select>
+            </div>
+            <NumField label="This recipe's base volume" value={baseVol} onChange={setBaseVol} placeholder="175" unit="mL" />
+            <NumField label="Target volume" value={target} onChange={setTarget} placeholder="e.g. 500" unit="mL" />
+            {!recipe && recipes.length === 0 && (
+                <p className="calc-note">No recipes saved yet. Add one under Recipes with amounts like "175 mL water" or "3.5 g DME" on their own lines, and it'll scale here.</p>
+            )}
+            {scaledLines && (
+                <div className="calc-result block">
+                    <strong>At {target} mL:</strong>
+                    <pre className="lib-text" style={{ marginTop: 8 }}>{scaledLines.join('\n')}</pre>
+                </div>
+            )}
+        </CalcCard>
+    );
+}
+
+/* Straight mass/volume conversions are exact. Grain-by-volume is not a real
+   unit - it's mass divided by an approximate density, so it's kept separate
+   and clearly labeled as approximate rather than folded into the same table. */
+const MASS = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+const VOLUME = { mL: 1, L: 1000, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, 'fl oz': 29.5735 };
+const GRAIN_DENSITY = {
+    'Rye berries (dry)': 0.78, 'Millet (dry)': 0.72, 'Wild bird seed / milo (dry)': 0.75,
+    'Popcorn (dry)': 0.72, 'Brown rice (dry)': 0.80,
+};
+
+function UnitConverter() {
+    const [kind, setKind] = useState('mass');
+    const [val, setVal] = useState('');
+    const [from, setFrom] = useState('g');
+    const [to, setTo] = useState('oz');
+    const table = kind === 'mass' ? MASS : VOLUME;
+    const v = n(val);
+    const result = v ? (v * table[from]) / table[to] : null;
+
+    return (
+        <CalcCard title="Unit converter" sub="Mass and volume, exact conversions">
+            <div className="calc-field">
+                <label>Type</label>
+                <select className="in sel" value={kind} onChange={(e) => { setKind(e.target.value); setFrom(e.target.value === 'mass' ? 'g' : 'mL'); setTo(e.target.value === 'mass' ? 'oz' : 'cup'); }}>
+                    <option value="mass">Mass (weight)</option>
+                    <option value="volume">Volume</option>
+                </select>
+            </div>
+            <NumField label="Amount" value={val} onChange={setVal} placeholder="e.g. 100" />
+            <div className="calc-row2">
+                <div className="calc-field">
+                    <label>From</label>
+                    <select className="in sel" value={from} onChange={(e) => setFrom(e.target.value)}>
+                        {Object.keys(table).map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                </div>
+                <div className="calc-field">
+                    <label>To</label>
+                    <select className="in sel" value={to} onChange={(e) => setTo(e.target.value)}>
+                        {Object.keys(table).map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                </div>
+            </div>
+            {result !== null && (
+                <div className="calc-result">
+                    <strong>{result < 1 ? result.toFixed(3) : result.toFixed(2)} {to}</strong>
+                    <span>{val} {from} exactly</span>
+                </div>
+            )}
+        </CalcCard>
+    );
+}
+
+function GrainVolume() {
+    const [amount, setAmount] = useState('');
+    const [dir, setDir] = useState('massToVol');   // massToVol | volToMass
+    const [grain, setGrain] = useState('Rye berries (dry)');
+    const [massUnit, setMassUnit] = useState('g');
+    const [volUnit, setVolUnit] = useState('cup');
+    const a = n(amount);
+    const density = GRAIN_DENSITY[grain];   // g per mL
+
+    let result = null;
+    if (a && dir === 'massToVol') {
+        const grams = a * MASS[massUnit];
+        const mL = grams / density;
+        result = { val: mL / VOLUME[volUnit], unit: volUnit };
+    } else if (a && dir === 'volToMass') {
+        const mL = a * VOLUME[volUnit];
+        const grams = mL * density;
+        result = { val: grams / MASS[massUnit], unit: massUnit };
+    }
+
+    return (
+        <CalcCard title="Grain: weight ↔ volume" sub="Approximate - grain density varies by moisture and how packed it is">
+            <div className="calc-field">
+                <label>Grain type</label>
+                <select className="in sel" value={grain} onChange={(e) => setGrain(e.target.value)}>
+                    {Object.keys(GRAIN_DENSITY).map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+            </div>
+            <div className="calc-field">
+                <label>Direction</label>
+                <select className="in sel" value={dir} onChange={(e) => setDir(e.target.value)}>
+                    <option value="massToVol">I know the weight, want volume</option>
+                    <option value="volToMass">I know the volume, want weight</option>
+                </select>
+            </div>
+            {dir === 'massToVol' ? (
+                <div className="calc-row2">
+                    <NumField label="Weight" value={amount} onChange={setAmount} placeholder="e.g. 500" />
+                    <div className="calc-field"><label>Unit</label>
+                        <select className="in sel" value={massUnit} onChange={(e) => setMassUnit(e.target.value)}>
+                            {Object.keys(MASS).map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select></div>
+                </div>
+            ) : (
+                <div className="calc-row2">
+                    <NumField label="Volume" value={amount} onChange={setAmount} placeholder="e.g. 2" />
+                    <div className="calc-field"><label>Unit</label>
+                        <select className="in sel" value={volUnit} onChange={(e) => setVolUnit(e.target.value)}>
+                            {Object.keys(VOLUME).map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select></div>
+                </div>
+            )}
+            {dir === 'massToVol' && (
+                <div className="calc-field"><label>Show volume as</label>
+                    <select className="in sel" value={volUnit} onChange={(e) => setVolUnit(e.target.value)}>
+                        {Object.keys(VOLUME).map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select></div>
+            )}
+            {dir === 'volToMass' && (
+                <div className="calc-field"><label>Show weight as</label>
+                    <select className="in sel" value={massUnit} onChange={(e) => setMassUnit(e.target.value)}>
+                        {Object.keys(MASS).map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select></div>
+            )}
+            {result && (
+                <div className="calc-result">
+                    <strong>≈ {result.val.toFixed(2)} {result.unit}</strong>
+                    <span>using {density} g/mL for {grain.toLowerCase()}</span>
+                </div>
+            )}
+            <p className="calc-note">
+                Approximate on purpose - grain volume depends on moisture and how settled it is in the
+                container. Fine for "how big a jar do I need," not precise enough for a recipe ratio.
+            </p>
+        </CalcCard>
+    );
+}
+
+function Calculators({ recipes }) {
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Numbers you'd otherwise do in your head</div>
+                    <h1>Calculators</h1>
+                </div>
+            </div>
+            <div className="calc-grid">
+                <SpawnRatio />
+                <Hydration />
+                <BECalc />
+                <DryYield />
+                <MediaScaler recipes={recipes} />
+                <UnitConverter />
+                <GrainVolume />
+            </div>
         </div>
     );
 }
@@ -1494,6 +1850,24 @@ const CSS = `
 .lib-body{padding:0 16px 16px;border-top:1px solid var(--line);padding-top:14px;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:#C9C4BA;}
+
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:22px;}
+.calc-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
+.calc-head{margin-bottom:14px;}
+.calc-title{font-family:var(--serif);font-size:19px;}
+.calc-sub{font-size:11.5px;color:var(--dim);margin-top:3px;}
+.calc-body{display:flex;flex-direction:column;gap:12px;}
+.calc-field{display:flex;flex-direction:column;gap:5px;}
+.calc-field label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+.calc-input-wrap{position:relative;display:flex;align-items:center;}
+.calc-input-wrap .in{padding-right:44px;}
+.calc-unit{position:absolute;right:11px;font-family:var(--mono);font-size:10.5px;color:var(--dim);pointer-events:none;}
+.calc-result{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:3px;animation:pop .2s ease-out;}
+.calc-result strong{font-family:var(--mono);font-size:20px;font-weight:400;color:var(--amber);}
+.calc-result span{font-size:11.5px;color:var(--dim);}
+.calc-result.block{align-items:flex-start;}
+.calc-note{font-size:11px;color:#5B6773;line-height:1.55;margin:0;}
+.calc-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 
 /* screen transitions */
 .screen-in{animation:slideIn .42s cubic-bezier(.22,.68,.32,1);}
