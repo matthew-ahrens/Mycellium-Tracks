@@ -374,6 +374,39 @@ export default function App() {
         return gen;
     };
 
+    /* Deleting a container splices it out: its children are adopted by its
+       parent, so a mistaken middle node can be removed without orphaning
+       everything below it. */
+    const deleteItem = async (label) => {
+        const item = items.find((i) => i.id === label);
+        const parent = items.find((i) => i.id === item.parent);
+        const kids = items.filter((i) => i.parent === label);
+
+        if (kids.length) {
+            const { error } = await supabase.from('items')
+                .update({ parent_id: parent?.uid ?? null }).eq('parent_id', item.uid);
+            if (error) { console.error(error); alert('Could not reparent children - check console'); return; }
+        }
+
+        await supabase.from('lots').delete().eq('source_item_id', item.uid);
+        const { error } = await supabase.from('items').delete().eq('id', item.uid);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+
+        setItems((p) => p
+            .filter((i) => i.id !== label)
+            .map((i) => (i.parent === label ? { ...i, parent: parent?.id ?? null } : i)));
+        setOpen(parent?.id ?? null);
+    };
+
+    const reparentItem = async (label, newParentLabel) => {
+        const item = items.find((i) => i.id === label);
+        const np = newParentLabel ? items.find((i) => i.id === newParentLabel) : null;
+        const { error } = await supabase.from('items')
+            .update({ parent_id: np?.uid ?? null }).eq('id', item.uid);
+        if (error) { console.error(error); alert('Could not reparent - check console'); return; }
+        setItems((p) => p.map((i) => (i.id === label ? { ...i, parent: np?.id ?? null } : i)));
+    };
+
     const addChild = async (parentLabel, type) => {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
@@ -418,7 +451,8 @@ export default function App() {
             onBack={() => { setDir('back'); setOpen(null); }}
             onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
-            editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields} />;
+            editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
+            deleteItem={deleteItem} reparentItem={reparentItem} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
@@ -889,7 +923,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields }) {
+function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -902,6 +936,15 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
     const [f, setF] = useState({});                 // field drafts
 
     const kids = items.filter((i) => i.parent === id);
+
+    /* Everything below this item. Excluded from the parent dropdown so an
+       item can't be reparented under its own descendant and orphan a loop. */
+    const descendants = (() => {
+        const out = [];
+        const walk = (lbl) => items.filter((i) => i.parent === lbl).forEach((c) => { out.push(c.id); walk(c.id); });
+        walk(id);
+        return out;
+    })();
     const chain = [];
     { let c = it; while (c) { chain.unshift(c); c = items.find((i) => i.id === c.parent); } }
 
@@ -944,15 +987,28 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                             {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
                         </select>
                         <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
+                        <select className="in sel" value={f.parent ?? ""} onChange={(e) => setF({ ...f, parent: e.target.value })}>
+                            <option value="">— no parent (start of the line) —</option>
+                            {items.filter((c) => c.id !== id && !descendants.includes(c.id))
+                                .map((c) => <option key={c.id} value={c.id}>came from {c.id}</option>)}
+                        </select>
                         <button className="mini" onClick={() => {
                             const patch = {};
                             if (f.id?.trim() && f.id.trim() !== it.id) patch.id = f.id.trim();
                             if (f.type && f.type !== it.type) patch.type = f.type;
                             if ((f.created || null) !== it.created) patch.created = f.created || null;
                             if (Object.keys(patch).length) saveItemFields(id, patch);
+                            if ((f.parent || null) !== (it.parent || null)) reparentItem(patch.id ?? id, f.parent || null);
                             setEditHead(false);
                         }}>Save</button>
                         <button className="mini ghost" onClick={() => setEditHead(false)}>Cancel</button>
+                        <button className="mini danger" onClick={() => {
+                            const kids = items.filter((c) => c.parent === id);
+                            const msg = kids.length
+                                ? `Delete ${it.id}? Its ${kids.length} child container${kids.length > 1 ? 's' : ''} will attach to ${it.parent ?? 'nothing (they become roots)'} instead.`
+                                : `Delete ${it.id}? This also removes its harvests and history.`;
+                            if (confirm(msg)) deleteItem(id);
+                        }}>Delete</button>
                     </div>
                 ) : (
                     <div className="head-read">
@@ -963,7 +1019,7 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                 {!editHead && (
                     <>
                         <button className="edit-btn" title="Edit label, type, start date"
-                            onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "" }); setEditHead(true); }}>✎</button>
+                            onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
                         <span className="pill" style={{ color: tone, borderColor: tone }}>{st.label}</span>
                     </>
                 )}

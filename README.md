@@ -61,6 +61,20 @@ required. This is the bar for "done" on CRUD.
 - Mobile layout pass — tree canvas, detail page, forms all need touch sizing
 - Lineage highlight has no mobile equivalent (hover doesn't exist on touch)
 
+### QR labels
+Print a sticker per container, scan it at the bench, land straight on that
+item's page. The QR generation itself is easy — a small library and an hour.
+The prerequisites are the actual work:
+
+- **URL routing first** — nav is React state right now, so no item has an
+  address a code could point at. Needs real routes (`/item/BO-GR1`).
+- Then deployment + auth, since a phone scanning a sticker needs a live URL.
+- Then: QR per item, a printable sheet layout for label stock, and a scan
+  landing page that handles not-being-logged-in-yet.
+
+Stacks on the same prerequisites as the phone goal above — do those and this
+mostly falls out.
+
 ### Photos
 - Thumbnail per genetics and/or per item
 - Photos attached to history entries, so growth is a visual timeline
