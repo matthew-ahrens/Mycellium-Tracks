@@ -75,6 +75,8 @@ function hypha(a, b) {
 export default function App() {
     const [section, setSection] = useState('cultures');
     const [library, setLibrary] = useState([]);
+    const [equipment, setEquipment] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
@@ -103,10 +105,14 @@ export default function App() {
             const { data: sp } = await supabase.from('species').select('*').order('common_name');
             const { data: gen } = await supabase.from('genetics').select('*').order('name');
             const { data: lib } = await supabase.from('library').select('*').order('created_at');
+            const { data: eq } = await supabase.from('equipment').select('*').order('category').order('name');
+            const { data: sup } = await supabase.from('suppliers').select('*').order('name');
 
             setSpecies(sp ?? []);
             setGenetics(gen ?? []);
             setLibrary(lib ?? []);
+            setEquipment(eq ?? []);
+            setSuppliers(sup ?? []);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -351,6 +357,64 @@ export default function App() {
         setLibrary((p) => p.filter((e) => e.id !== entryId));
     };
 
+    const addEquipment = async (fields) => {
+        const { data, error } = await supabase.from('equipment').insert({
+            name: fields.name.trim(),
+            category: fields.category?.trim() || null,
+            status: fields.status || 'active',
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setEquipment((p) => [...p, data]);
+    };
+
+    const editEquipment = async (id, fields) => {
+        const cols = {
+            name: fields.name.trim(),
+            category: fields.category?.trim() || null,
+            status: fields.status,
+            notes: fields.notes?.trim() || null,
+        };
+        const { error } = await supabase.from('equipment').update(cols).eq('id', id);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setEquipment((p) => p.map((e) => (e.id === id ? { ...e, ...cols } : e)));
+    };
+
+    const deleteEquipment = async (id) => {
+        const { error } = await supabase.from('equipment').delete().eq('id', id);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setEquipment((p) => p.filter((e) => e.id !== id));
+    };
+
+    const addSupplier = async (fields) => {
+        const { data, error } = await supabase.from('suppliers').insert({
+            name: fields.name.trim(),
+            category: fields.category?.trim() || null,
+            rating: fields.rating || 'unproven',
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setSuppliers((p) => [...p, data]);
+    };
+
+    const editSupplier = async (id, fields) => {
+        const cols = {
+            name: fields.name.trim(),
+            category: fields.category?.trim() || null,
+            rating: fields.rating,
+            notes: fields.notes?.trim() || null,
+        };
+        const { error } = await supabase.from('suppliers').update(cols).eq('id', id);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setSuppliers((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
+    };
+
+    const deleteSupplier = async (id) => {
+        const { error } = await supabase.from('suppliers').delete().eq('id', id);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setSuppliers((p) => p.filter((s) => s.id !== id));
+    };
+
     const addSpecies = async (fields) => {
         const { data, error } = await supabase.from('species').insert({
             common_name: fields.common_name.trim(),
@@ -483,8 +547,10 @@ export default function App() {
     if (section === 'library' || section === 'recipes') {
         key = section;
         screen = <Library entries={library.filter((e) => (section === 'recipes') === (e.kind === 'recipe'))}
-            species={species} mode={section}
-            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary} />;
+            species={species} mode={section} equipment={equipment} suppliers={suppliers}
+            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
+            onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
+            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
     } else if (section === 'inventory') {
         key = 'inventory';
         screen = <Placeholder title="Inventory"
@@ -913,9 +979,189 @@ function Calculators({ recipes }) {
 /* ---------------- LIBRARY / RECIPES ---------------- */
 
 const KINDS = { note: 'Written note', link: 'Link', video: 'Video', pdf: 'PDF (linked)', recipe: 'Recipe' };
+const SUPPLIER_RATING = {
+    trusted: { label: 'Trusted', tone: 'jade' },
+    mixed: { label: 'Mixed', tone: 'amber' },
+    unproven: { label: 'Unproven', tone: 'slate' },
+    avoid: { label: 'Avoid', tone: 'clay' },
+};
 
-function Library({ entries, species, mode, onAdd, onEdit, onDelete }) {
+function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
+    const blank = { name: '', category: '', rating: 'unproven', notes: '' };
+    const [form, setForm] = useState(null);
+    const [f, setF] = useState(blank);
+
+    const submit = () => {
+        if (!f.name.trim()) return;
+        if (form === 'new') onAdd(f); else onEdit(form, f);
+        setForm(null); setF(blank);
+    };
+
+    const order = ['trusted', 'mixed', 'unproven', 'avoid'];
+    const sorted = [...suppliers].sort((a, b) => order.indexOf(a.rating) - order.indexOf(b.rating));
+
+    return (
+        <>
+            <div className="bar" style={{ marginTop: 4 }}>
+                <div className="eyebrow">Track record - what's proven, what to skip</div>
+                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add supplier</button>}
+            </div>
+
+            {form !== null && (
+                <div className="new-form">
+                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} supplier</div>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Name</label>
+                            <input className="in" autoFocus value={f.name} placeholder="e.g. North Spore"
+                                onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>What you buy from them</label>
+                            <input className="in" value={f.category} placeholder="Fruiting blocks, LC, grain…"
+                                onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
+                        <div className="nf-field"><label>Rating</label>
+                            <select className="in sel" value={f.rating} onChange={(e) => setF({ ...f, rating: e.target.value })}>
+                                {Object.keys(SUPPLIER_RATING).map((r) => <option key={r} value={r}>{SUPPLIER_RATING[r].label}</option>)}
+                            </select></div>
+                        <div className="nf-field wide"><label>Notes - what actually happened</label>
+                            <textarea className="in ta" rows="4" value={f.notes}
+                                placeholder="Specific outcomes, not vibes - what shipped, what failed, what you'd reorder"
+                                onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={submit}>Save</button>
+                        <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
+                        {form !== 'new' && (
+                            <button className="mini danger" onClick={() => {
+                                if (confirm(`Remove "${f.name}"?`)) { onDelete(form); setForm(null); }
+                            }}>Delete</button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            <div className="lib-list">
+                {sorted.map((s) => {
+                    const isOpen = form === s.id;
+                    const r = SUPPLIER_RATING[s.rating] ?? SUPPLIER_RATING.unproven;
+                    return (
+                        <div key={s.id} className="lib-card">
+                            <button className="lib-head" onClick={() => {
+                                setF({ name: s.name, category: s.category ?? '', rating: s.rating, notes: s.notes ?? '' });
+                                setForm(isOpen ? null : s.id);
+                            }}>
+                                <div>
+                                    <div className="lib-title">{s.name}</div>
+                                    <div className="lib-meta">
+                                        {s.category && <span className="lib-sp">{s.category}</span>}
+                                    </div>
+                                </div>
+                                <span className={`pill tone-${r.tone}`}>{r.label}</span>
+                            </button>
+                            {s.notes && !isOpen && (
+                                <div className="lib-body" style={{ paddingTop: 0, borderTop: 'none' }}>
+                                    <p className="notes" style={{ fontSize: 12 }}>{s.notes}</p>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            {suppliers.length === 0 && form === null && (
+                <p className="nf-help" style={{ marginTop: 18 }}>No suppliers logged yet.</p>
+            )}
+        </>
+    );
+}
+
+const EQUIP_STATUS = {
+    active: { label: 'Active', tone: 'jade' },
+    needs_repair: { label: 'Needs repair', tone: 'amber' },
+    broken: { label: 'Broken', tone: 'clay' },
+    retired: { label: 'Retired', tone: 'slate' },
+    wishlist: { label: 'Wishlist', tone: 'slate' },
+};
+
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete }) {
+    const blank = { name: '', category: '', status: 'active', notes: '' };
+    const [form, setForm] = useState(null);
+    const [f, setF] = useState(blank);
+
+    const submit = () => {
+        if (!f.name.trim()) return;
+        if (form === 'new') onAdd(f); else onEdit(form, f);
+        setForm(null); setF(blank);
+    };
+
+    const groups = {};
+    equipment.forEach((e) => { (groups[e.category || 'Uncategorized'] ||= []).push(e); });
+
+    return (
+        <>
+            <div className="bar" style={{ marginTop: 4 }}>
+                <div className="eyebrow">Gear you'd want an assistant to already know about</div>
+                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add item</button>}
+            </div>
+
+            {form !== null && (
+                <div className="new-form">
+                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} equipment</div>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Name</label>
+                            <input className="in" autoFocus value={f.name} placeholder="e.g. Presto 23qt pressure canner"
+                                onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+                        <div className="nf-field"><label>Category</label>
+                            <input className="in" value={f.category} placeholder="Sterilization, Environment, Processing…"
+                                onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
+                        <div className="nf-field"><label>Status</label>
+                            <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                                {Object.keys(EQUIP_STATUS).map((s) => <option key={s} value={s}>{EQUIP_STATUS[s].label}</option>)}
+                            </select></div>
+                        <div className="nf-field wide"><label>Notes</label>
+                            <textarea className="in ta" rows="2" value={f.notes}
+                                placeholder="Model quirks, what broke, what you'd upgrade to"
+                                onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={submit}>Save</button>
+                        <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
+                        {form !== 'new' && (
+                            <button className="mini danger" onClick={() => {
+                                if (confirm(`Remove "${f.name}" from the list?`)) { onDelete(form); setForm(null); }
+                            }}>Delete</button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {Object.keys(groups).sort().map((cat) => (
+                <div key={cat}>
+                    <div className="sec" style={{ marginTop: 22 }}><span>{cat}</span></div>
+                    <div className="equip-list">
+                        {groups[cat].map((e) => {
+                            const st = EQUIP_STATUS[e.status] ?? EQUIP_STATUS.active;
+                            return (
+                                <button key={e.id} className="equip-row" onClick={() => {
+                                    setF({ name: e.name, category: e.category ?? '', status: e.status, notes: e.notes ?? '' });
+                                    setForm(e.id);
+                                }}>
+                                    <span className="equip-name">{e.name}</span>
+                                    {e.notes && <span className="equip-note">{e.notes}</span>}
+                                    <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+            {equipment.length === 0 && form === null && (
+                <p className="nf-help" style={{ marginTop: 18 }}>No equipment listed yet.</p>
+            )}
+        </>
+    );
+}
+
+function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier }) {
     const recipes = mode === 'recipes';
+    const [tab, setTab] = useState('entries');
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '' };
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const [f, setF] = useState(blank);
@@ -935,12 +1181,27 @@ function Library({ entries, species, mode, onAdd, onEdit, onDelete }) {
                     <div className="eyebrow">{recipes ? 'Mixes you make again and again' : 'Reference you want at the bench'}</div>
                     <h1>{recipes ? 'Recipes' : 'Library'}</h1>
                 </div>
-                {form === null && (
+                {form === null && tab === 'entries' && (
                     <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>
                         + {recipes ? 'Add recipe' : 'Add entry'}
                     </button>
                 )}
             </div>
+
+            {!recipes && (
+                <div className="tabs">
+                    <button className={`tab ${tab === 'entries' ? 'on' : ''}`} onClick={() => { setTab('entries'); setForm(null); }}>Reference</button>
+                    <button className={`tab ${tab === 'equipment' ? 'on' : ''}`} onClick={() => { setTab('equipment'); setForm(null); }}>Equipment</button>
+                    <button className={`tab ${tab === 'suppliers' ? 'on' : ''}`} onClick={() => { setTab('suppliers'); setForm(null); }}>Suppliers</button>
+                </div>
+            )}
+
+            {tab === 'equipment' && !recipes ? (
+                <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip} />
+            ) : tab === 'suppliers' && !recipes ? (
+                <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
+            ) : (
+            <>
 
             {form !== null && (
                 <div className="new-form">
@@ -1022,6 +1283,8 @@ function Library({ entries, species, mode, onAdd, onEdit, onDelete }) {
                     );
                 })}
             </div>
+            </>
+            )}
         </div>
     );
 }
@@ -1850,6 +2113,16 @@ const CSS = `
 .lib-body{padding:0 16px 16px;border-top:1px solid var(--line);padding-top:14px;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:#C9C4BA;}
+
+.tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
+.tab{background:none;border:none;padding:9px 4px;margin-right:18px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab:hover{color:var(--bone);}
+.tab.on{color:var(--amber);border-bottom-color:var(--amber);}
+.equip-list{display:flex;flex-direction:column;gap:6px;}
+.equip-row{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);transition:border-color .15s;}
+.equip-row:hover{border-color:#3E4A55;}
+.equip-name{font-size:13px;flex:0 0 auto;}
+.equip-note{font-size:11.5px;color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:22px;}
 .calc-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
