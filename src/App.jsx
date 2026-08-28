@@ -77,6 +77,9 @@ export default function App() {
     const [library, setLibrary] = useState([]);
     const [equipment, setEquipment] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
+    const [lots, setLots] = useState([]);
+    const [lotLinks, setLotLinks] = useState([]);
+    const [openLot, setOpenLot] = useState(null);
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
@@ -107,12 +110,16 @@ export default function App() {
             const { data: lib } = await supabase.from('library').select('*').order('created_at');
             const { data: eq } = await supabase.from('equipment').select('*').order('category').order('name');
             const { data: sup } = await supabase.from('suppliers').select('*').order('name');
+            const { data: allLots } = await supabase.from('lots').select('*').order('harvested_on', { nullsFirst: false });
+            const { data: links } = await supabase.from('lot_links').select('*');
 
             setSpecies(sp ?? []);
             setGenetics(gen ?? []);
             setLibrary(lib ?? []);
             setEquipment(eq ?? []);
             setSuppliers(sup ?? []);
+            setLots(allLots ?? []);
+            setLotLinks(links ?? []);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -415,6 +422,64 @@ export default function App() {
         setSuppliers((p) => p.filter((s) => s.id !== id));
     };
 
+    /* remaining = what it started with, minus everything drawn out of it via
+       lot_links, minus anything logged as lost. Never stored - always derived,
+       so a lot can't drift out of sync with its own history. */
+    const lotRemaining = (lotId, lotsArr = lots, linksArr = lotLinks) => {
+        const lot = lotsArr.find((l) => l.id === lotId);
+        if (!lot) return 0;
+        const taken = linksArr.filter((k) => k.parent_lot_id === lotId).reduce((s, k) => s + Number(k.amount_taken_g), 0);
+        return Number(lot.amount_g) - taken - Number(lot.lost_g || 0);
+    };
+
+    /* One action covers both transform (one source) and merge/blend (several
+       sources) - the only difference is how many rows go into lot_links. */
+    const processLot = async (sources, fields) => {
+        const today = todayISO();
+        const { data: newLot, error } = await supabase.from('lots').insert({
+            label: fields.label.trim(),
+            form: fields.form,
+            amount_g: fields.amount,
+            harvested_on: today,
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+
+        const linkRows = sources.map((s) => ({ parent_lot_id: s.lotId, child_lot_id: newLot.id, amount_taken_g: s.amount }));
+        const { data: newLinks, error: linkErr } = await supabase.from('lot_links').insert(linkRows).select('*');
+        if (linkErr) { console.error(linkErr); alert('Lot saved but links failed - check console'); return; }
+
+        setLots((p) => [...p, newLot]);
+        setLotLinks((p) => [...p, ...newLinks]);
+        setOpenLot(newLot.id);
+    };
+
+    const logLoss = async (lotId, amount, reason) => {
+        const lot = lots.find((l) => l.id === lotId);
+        const newLost = Number(lot.lost_g || 0) + amount;
+        const note = `${lot.notes ? lot.notes + '\n' : ''}Lost ${amount}g on ${todayISO()}${reason ? ' - ' + reason : ''}`;
+        const { error } = await supabase.from('lots').update({ lost_g: newLost, notes: note }).eq('id', lotId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLots((p) => p.map((l) => (l.id === lotId ? { ...l, lost_g: newLost, notes: note } : l)));
+    };
+
+    const saveLotFields = async (lotId, patch) => {
+        const { error } = await supabase.from('lots').update(patch).eq('id', lotId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLots((p) => p.map((l) => (l.id === lotId ? { ...l, ...patch } : l)));
+    };
+
+    const deleteLot = async (lotId) => {
+        const hasChildren = lotLinks.some((k) => k.parent_lot_id === lotId);
+        if (hasChildren) { alert('This lot has material processed from it - remove that first, or it stays as history.'); return; }
+        await supabase.from('lot_links').delete().eq('child_lot_id', lotId);
+        const { error } = await supabase.from('lots').delete().eq('id', lotId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setLots((p) => p.filter((l) => l.id !== lotId));
+        setLotLinks((p) => p.filter((k) => k.child_lot_id !== lotId));
+        setOpenLot(null);
+    };
+
     const addSpecies = async (fields) => {
         const { data, error } = await supabase.from('species').insert({
             common_name: fields.common_name.trim(),
@@ -552,9 +617,13 @@ export default function App() {
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
     } else if (section === 'inventory') {
-        key = 'inventory';
-        screen = <Placeholder title="Inventory"
-            body="Everything harvested lands here as a wet lot, then gets dried, ground, blended, extracted or split. Not built yet - the lots are already being recorded, so the data is accumulating." />;
+        key = openLot ? 'lot-' + openLot : 'inventory';
+        screen = openLot
+            ? <LotDetail lots={lots} lotLinks={lotLinks} lotId={openLot} items={items} genetics={genetics} species={species}
+                remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={setOpenLot}
+                onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot} />
+            : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
+                remaining={lotRemaining} onOpen={setOpenLot} />;
     } else if (section === 'calculators') {
         key = 'calculators';
         screen = <Calculators recipes={library.filter((e) => e.kind === 'recipe')} />;
@@ -595,7 +664,7 @@ export default function App() {
                     <div className="brand">SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
-                            onClick={() => { setSection(k); setOpen(null); setDir('fwd'); }}>
+                            onClick={() => { setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
@@ -971,6 +1040,323 @@ function Calculators({ recipes }) {
                 <MediaScaler recipes={recipes} />
                 <UnitConverter />
                 <GrainVolume />
+            </div>
+        </div>
+    );
+}
+
+/* ---------------- INVENTORY ---------------- */
+
+const LOT_FORMS = {
+    wet: 'Wet', dried: 'Dried', powder: 'Powder', tincture: 'Tincture',
+    capsules: 'Capsules', extract: 'Extract', other: 'Other',
+};
+
+/* Below this many grams, a lot reads as "used up." Comfortably bigger than a
+   rounding slip (174.1 entered instead of 174.11) but far too small to hide
+   a real remainder. */
+const LOT_EPS = 0.05;
+
+/* Traces a lot's genetics upward through the merge graph and returns the
+   set of species involved - a raw harvest has one, a blend can have several. */
+function lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species, seen = new Set()) {
+    if (seen.has(lotId)) return [];
+    seen.add(lotId);
+    const lot = lots.find((l) => l.id === lotId);
+    if (!lot) return [];
+    if (lot.source_item_id) {
+        const item = items.find((i) => i.uid === lot.source_item_id);
+        const gen = genetics.find((g) => g.id === item?.geneticsId);
+        const sp = species.find((s) => s.id === gen?.species_id);
+        return sp ? [sp.common_name] : [];
+    }
+    const parents = lotLinks.filter((k) => k.child_lot_id === lotId);
+    const names = new Set();
+    parents.forEach((p) => lotSpeciesNames(p.parent_lot_id, lots, lotLinks, items, genetics, species, seen).forEach((n) => names.add(n)));
+    return [...names];
+}
+
+function LotCard({ lot, rem, sp, onOpen }) {
+    const pct = lot.amount_g ? (rem / lot.amount_g) * 100 : 0;
+    const used = rem <= LOT_EPS;
+    return (
+        <button className={`lot-card ${used ? 'used' : ''}`} onClick={() => onOpen(lot.id)}>
+            <div className="lot-top">
+                <span className={`pill tone-${used ? 'slate' : 'amber'}`}>{LOT_FORMS[lot.form] ?? lot.form}</span>
+                <span className="lot-sp">{sp.length ? sp.join(' + ') : 'unknown origin'}</span>
+            </div>
+            <div className="lot-label">{lot.label || 'Untitled lot'}</div>
+            <div className="lot-amt">
+                <strong>{rem % 1 === 0 ? rem : rem.toFixed(1)} g</strong>
+                <span> / {lot.amount_g} g</span>
+            </div>
+            {!used && <div className="lot-bar"><div className="lot-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></div>}
+            {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on)}</div>}
+        </button>
+    );
+}
+
+function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen }) {
+    const [formFilter, setFormFilter] = useState('all');
+    const [hideUsed, setHideUsed] = useState(true);
+
+    const withRem = lots.map((l) => ({ lot: l, rem: remaining(l.id) }));
+    const visible = withRem
+        .filter((x) => formFilter === 'all' || x.lot.form === formFilter)
+        .filter((x) => !hideUsed || x.rem > LOT_EPS)
+        .sort((a, b) => (b.lot.harvested_on ?? '').localeCompare(a.lot.harvested_on ?? ''));
+
+    const totalsByForm = {};
+    lots.forEach((l) => { totalsByForm[l.form] = (totalsByForm[l.form] ?? 0) + remaining(l.id); });
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Everything that's been harvested, and what it became</div>
+                    <h1>Inventory</h1>
+                </div>
+            </div>
+
+            <div className="inv-totals">
+                {Object.keys(LOT_FORMS).filter((f) => totalsByForm[f] > LOT_EPS).map((f) => (
+                    <div key={f} className="inv-total"><strong>{totalsByForm[f].toFixed(0)}g</strong><span>{LOT_FORMS[f]}</span></div>
+                ))}
+                {lots.length === 0 && <p className="nf-help">Nothing yet - log a flush on a fruiting item and it lands here automatically.</p>}
+            </div>
+
+            <div className="tabs">
+                <button className={`tab ${formFilter === 'all' ? 'on' : ''}`} onClick={() => setFormFilter('all')}>All</button>
+                {Object.keys(LOT_FORMS).map((f) => (
+                    <button key={f} className={`tab ${formFilter === f ? 'on' : ''}`} onClick={() => setFormFilter(f)}>{LOT_FORMS[f]}</button>
+                ))}
+                <button className="sw" style={{ marginLeft: 'auto' }} onClick={() => setHideUsed(!hideUsed)}>
+                    {hideUsed ? 'Show used up' : 'Hide used up'}
+                </button>
+            </div>
+
+            <div className="lot-grid">
+                {visible.map(({ lot, rem }) => (
+                    <LotCard key={lot.id} lot={lot} rem={rem}
+                        sp={lotSpeciesNames(lot.id, lots, lotLinks, items, genetics, species)}
+                        onOpen={onOpen} />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+/* ---------------- LOT DETAIL ---------------- */
+
+function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete }) {
+    const lot = lots.find((l) => l.id === lotId);
+    const [editing, setEditing] = useState(false);
+    const [f, setF] = useState({});
+    const [processing, setProcessing] = useState(false);
+    const [losing, setLosing] = useState(false);
+    const [lossAmt, setLossAmt] = useState('');
+    const [lossReason, setLossReason] = useState('');
+
+    if (!lot) return <div className="page"><button className="back" onClick={onBack}>← Inventory</button></div>;
+
+    const rem = remaining(lotId);
+    const sp = lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species);
+    const parents = lotLinks.filter((k) => k.child_lot_id === lotId);
+    const children = lotLinks.filter((k) => k.parent_lot_id === lotId);
+    const available = lots.filter((l) => l.id !== lotId && remaining(l.id) > LOT_EPS);
+
+    return (
+        <div className="page">
+            <button className="back" onClick={onBack}>← Inventory</button>
+
+            <div className="d-head">
+                <div className="d-mark" style={{ borderColor: rem > LOT_EPS ? TONE.amber : TONE.slate }}>
+                    <span style={{ background: rem > LOT_EPS ? TONE.amber : TONE.slate }} />
+                </div>
+                {editing ? (
+                    <div className="head-edit">
+                        <input className="in" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="label" />
+                        <select className="in sel" value={f.form} onChange={(e) => setF({ ...f, form: e.target.value })}>
+                            {Object.keys(LOT_FORMS).map((k) => <option key={k} value={k}>{LOT_FORMS[k]}</option>)}
+                        </select>
+                        <input className="in sm" type="date" value={f.harvested_on ?? ''} onChange={(e) => setF({ ...f, harvested_on: e.target.value })} />
+                        <button className="mini" onClick={() => {
+                            onSave(lotId, { label: f.label.trim(), form: f.form, harvested_on: f.harvested_on || null });
+                            setEditing(false);
+                        }}>Save</button>
+                        <button className="mini ghost" onClick={() => setEditing(false)}>Cancel</button>
+                        <button className="mini danger" onClick={() => {
+                            if (confirm(`Delete "${lot.label}"?`)) onDelete(lotId);
+                        }}>Delete</button>
+                    </div>
+                ) : (
+                    <div className="head-read">
+                        <h1 className="d-id" style={{ fontFamily: 'var(--serif)', fontSize: 25 }}>{lot.label || 'Untitled lot'}</h1>
+                        <div className="d-sub">{LOT_FORMS[lot.form] ?? lot.form} · {sp.length ? sp.join(' + ') : 'unknown origin'}{lot.harvested_on ? ` · ${fmt(lot.harvested_on)}` : ''}</div>
+                    </div>
+                )}
+                {!editing && (
+                    <button className="edit-btn" title="Edit"
+                        onClick={() => { setF({ label: lot.label ?? '', form: lot.form, harvested_on: lot.harvested_on ?? '' }); setEditing(true); }}>✎</button>
+                )}
+            </div>
+
+            <div className="lot-amount-hero">
+                <div><strong>{rem % 1 === 0 ? rem : rem.toFixed(1)} g</strong><span>remaining</span></div>
+                <div><strong>{lot.amount_g} g</strong><span>started with</span></div>
+                {Number(lot.lost_g) > 0 && <div><strong style={{ color: TONE.clay }}>{lot.lost_g} g</strong><span>used up</span></div>}
+            </div>
+
+            <div className="cols">
+                <div>
+                    <Sec title="Process into a new lot" />
+                    {!processing ? (
+                        <button className="cta" disabled={rem <= LOT_EPS} onClick={() => setProcessing(true)}>
+                            {rem <= LOT_EPS ? 'Nothing left to process' : 'Dry, grind, blend, or extract'}
+                        </button>
+                    ) : (
+                        <ProcessForm sourceLot={lot} sourceRemaining={rem} available={available} remaining={remaining}
+                            onSubmit={(sources, fields) => { onProcess(sources, fields); setProcessing(false); }}
+                            onCancel={() => setProcessing(false)} />
+                    )}
+
+                    <Sec title="Used up" />
+                    {!losing ? (
+                        <button className="mini ghost" disabled={rem <= LOT_EPS} onClick={() => setLosing(true)}>Log eaten, given away, sampled, or lost</button>
+                    ) : (
+                        <div className="field-form">
+                            <NumField label="Amount" value={lossAmt} onChange={setLossAmt} placeholder="e.g. 5" unit="g" />
+                            <label style={{ marginTop: 4 }}>What happened to it</label>
+                            <div className="chips">
+                                {['Cooked & eaten', 'Given away', 'Sample / taste test', 'Spilled', 'Other'].map((r) => (
+                                    <button key={r} className={`chip ${lossReason === r ? 'on' : ''}`} onClick={() => setLossReason(r)}>{r}</button>
+                                ))}
+                            </div>
+                            <input className="in" value={lossReason} onChange={(e) => setLossReason(e.target.value)}
+                                placeholder="or type your own" style={{ marginTop: 4 }} />
+                            <div className="edit-row">
+                                <button className="mini" onClick={() => {
+                                    const g = n(lossAmt);
+                                    if (!g || g > rem) return;
+                                    onLoss(lotId, g, lossReason.trim());
+                                    setLosing(false); setLossAmt(''); setLossReason('');
+                                }}>Save</button>
+                                <button className="mini ghost" onClick={() => setLosing(false)}>Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <Sec title="Made from" />
+                    {parents.length ? (
+                        <div className="lineage-list">
+                            {parents.map((k) => {
+                                const pl = lots.find((l) => l.id === k.parent_lot_id);
+                                return pl ? (
+                                    <button key={k.id} className="lnk-row" onClick={() => onOpen(pl.id)}>
+                                        <span>{pl.label}</span><span className="lnk-amt">{k.amount_taken_g}g used</span>
+                                    </button>
+                                ) : null;
+                            })}
+                        </div>
+                    ) : <p className="notes empty-note">This is an original harvest - nothing feeds into it.</p>}
+
+                    <Sec title="Went into" />
+                    {children.length ? (
+                        <div className="lineage-list">
+                            {children.map((k) => {
+                                const cl = lots.find((l) => l.id === k.child_lot_id);
+                                return cl ? (
+                                    <button key={k.id} className="lnk-row" onClick={() => onOpen(cl.id)}>
+                                        <span>{cl.label}</span><span className="lnk-amt">took {k.amount_taken_g}g</span>
+                                    </button>
+                                ) : null;
+                            })}
+                        </div>
+                    ) : <p className="notes empty-note">Nothing made from this yet.</p>}
+                </div>
+
+                <div>
+                    <Sec title="Notes" />
+                    {lot.notes
+                        ? <p className="notes">{lot.notes.split('\n').map((line, n2) => <span key={n2}>{line}<br /></span>)}</p>
+                        : <p className="notes empty-note">No notes.</p>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ProcessForm({ sourceLot, sourceRemaining, available, remaining, onSubmit, onCancel }) {
+    const [rows, setRows] = useState([{ lotId: sourceLot.id, amount: String(sourceRemaining) }]);
+    const [form, setForm] = useState('dried');
+    const [amount, setAmount] = useState('');
+    const [label, setLabel] = useState('');
+    const [notes, setNotes] = useState('');
+    const [picking, setPicking] = useState(false);
+
+    const setRowAmt = (i, v) => setRows((r) => r.map((row, idx) => (idx === i ? { ...row, amount: v } : row)));
+    const removeRow = (i) => setRows((r) => r.filter((_, idx) => idx !== i));
+    const addSource = (lotId) => {
+        setRows((r) => [...r, { lotId, amount: String(remaining(lotId)) }]);
+        setPicking(false);
+    };
+
+    const valid = rows.every((r) => n(r.amount) > 0) && label.trim() && n(amount) > 0;
+
+    return (
+        <div className="new-form">
+            <div className="nf-title">New lot from {rows.length > 1 ? `${rows.length} sources` : sourceLot.label}</div>
+            <p className="nf-help">
+                One source is a transform (dry it, grind it). Add more sources to blend species or batches together.
+                The amount you enter here is what actually gets used up from each - the rest stays where it is.
+            </p>
+
+            <div className="process-rows">
+                {rows.map((row, i) => {
+                    const rowLot = i === 0 ? sourceLot : available.find((l) => l.id === row.lotId);
+                    const cap = i === 0 ? sourceRemaining : remaining(row.lotId);
+                    return (
+                        <div key={row.lotId} className="process-row">
+                            <span className="pr-label">{rowLot?.label ?? '?'}</span>
+                            <input className="in sm" inputMode="decimal" value={row.amount}
+                                onChange={(e) => setRowAmt(i, e.target.value)} />
+                            <span className="pr-cap">/ {cap.toFixed(1)}g avail</span>
+                            {i > 0 && <button className="log-x" onClick={() => removeRow(i)}>×</button>}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {!picking ? (
+                <button className="mini ghost" onClick={() => setPicking(true)}>+ Add another source lot</button>
+            ) : (
+                <div className="chips">
+                    {available.filter((l) => !rows.some((r) => r.lotId === l.id)).map((l) => (
+                        <button key={l.id} className="chip go" onClick={() => addSource(l.id)}>{l.label} ({LOT_FORMS[l.form]})</button>
+                    ))}
+                    <button className="chip" onClick={() => setPicking(false)}>Cancel</button>
+                </div>
+            )}
+
+            <div className="nf-grid" style={{ marginTop: 14 }}>
+                <div className="nf-field"><label>Resulting form</label>
+                    <select className="in sel" value={form} onChange={(e) => setForm(e.target.value)}>
+                        {Object.keys(LOT_FORMS).map((k) => <option key={k} value={k}>{LOT_FORMS[k]}</option>)}
+                    </select></div>
+                <div className="nf-field"><label>Weighed amount (once done)</label>
+                    <input className="in" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 40" /></div>
+                <div className="nf-field wide"><label>Label</label>
+                    <input className="in" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Blue Oyster dried batch 1" /></div>
+                <div className="nf-field wide"><label>Notes</label>
+                    <textarea className="in ta" rows="2" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+            </div>
+
+            <div className="edit-row">
+                <button className="mini" disabled={!valid} onClick={() => {
+                    const sources = rows.map((r) => ({ lotId: r.lotId, amount: n(r.amount) }));
+                    onSubmit(sources, { form, amount: n(amount), label, notes });
+                }}>Create lot</button>
+                <button className="mini ghost" onClick={onCancel}>Cancel</button>
             </div>
         </div>
     );
@@ -2292,5 +2678,37 @@ const CSS = `
 .mini.ghost{background:none;color:var(--dim);}
 .mini.ghost:hover{color:var(--bone);border-color:var(--line);}
 .log li.editing{padding:2px 0;}
+
+.inv-totals{display:flex;flex-wrap:wrap;gap:22px;margin:20px 0 8px;}
+.inv-total{display:flex;flex-direction:column;gap:2px;}
+.inv-total strong{font-family:var(--mono);font-size:20px;color:var(--amber);font-weight:400;}
+.inv-total span{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
+.lot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:16px;}
+.lot-card{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px;color:inherit;cursor:pointer;font-family:var(--sans);transition:border-color .15s,transform .15s;}
+.lot-card:hover{border-color:#3E4A55;transform:translateY(-1px);}
+.lot-card.used{opacity:.55;}
+.lot-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px;}
+.lot-sp{font-size:10.5px;color:var(--dim);text-align:right;}
+.lot-label{font-family:var(--serif);font-size:15.5px;margin-bottom:8px;}
+.lot-amt strong{font-family:var(--mono);font-size:16px;font-weight:400;}
+.lot-amt span{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.lot-bar{height:3px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden;}
+.lot-bar-fill{height:100%;background:var(--amber);}
+.lot-date{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:7px;}
+.lot-amount-hero{display:flex;gap:26px;margin:18px 0 6px;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+.lot-amount-hero div{display:flex;flex-direction:column;gap:2px;}
+.lot-amount-hero strong{font-family:var(--mono);font-size:22px;font-weight:400;}
+.lot-amount-hero span{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
+.lineage-list{display:flex;flex-direction:column;gap:6px;}
+.lnk-row{display:flex;justify-content:space-between;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:9px 12px;color:inherit;cursor:pointer;font-size:12.5px;text-align:left;font-family:var(--sans);}
+.lnk-row:hover{border-color:var(--amber);}
+.lnk-amt{font-family:var(--mono);font-size:11px;color:var(--dim);}
+.process-rows{display:flex;flex-direction:column;gap:7px;margin-bottom:8px;}
+.process-row{display:flex;align-items:center;gap:9px;}
+.pr-label{font-size:12.5px;flex:1;}
+.pr-cap{font-family:var(--mono);font-size:10.5px;color:var(--dim);}
+
+.tab:disabled,.cta:disabled,.mini:disabled{opacity:.4;cursor:not-allowed;}
+
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 `;
