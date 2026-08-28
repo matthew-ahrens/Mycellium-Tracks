@@ -2621,8 +2621,9 @@ function Lightbox({ photo, url, onClose, onDelete }) {
 /* Sits on the item page, the equipment edit form, or the Gallery itself.
    `attach` carries whatever this strip's photos should be tagged with -
    { itemId } or { equipmentId } or {} for a plain unattached gallery shot.
-   capture="environment" opens the phone's back camera directly on mobile
-   rather than just a file picker. */
+   Deliberately no `capture` attribute on the file input - that forces
+   mobile browsers straight into the camera and hides the "choose from
+   library" option, which is exactly what's needed to backlog old photos. */
 function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, label }) {
     const [adding, setAdding] = useState(false);
     const [caption, setCaption] = useState('');
@@ -2657,7 +2658,7 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, label }) {
                         placeholder="caption (optional)" onKeyDown={(e) => e.key === 'Enter' && pick()} />
                     <button className="mini" onClick={pick}>Choose photo</button>
                     <button className="mini ghost" onClick={() => setAdding(false)}>Cancel</button>
-                    <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                    <input ref={fileRef} type="file" accept="image/*"
                         style={{ display: 'none' }} onChange={onFile} />
                 </div>
             )}
