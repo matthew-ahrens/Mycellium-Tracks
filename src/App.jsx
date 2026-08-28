@@ -2790,8 +2790,8 @@ const CSS = `
 .equip-list{display:flex;flex-direction:column;gap:6px;}
 .equip-row{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);transition:border-color .15s;}
 .equip-row:hover{border-color:#3E4A55;}
-.equip-name{font-size:13px;flex:0 0 auto;}
-.equip-note{font-size:11.5px;color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.equip-name{font-size:13px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.equip-note{font-size:11.5px;color:var(--dim);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .equip-thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex:0 0 auto;background:var(--panel2);}
 .equip-thumb-empty{border:1px dashed var(--line);}
 
@@ -2884,7 +2884,7 @@ const CSS = `
 .d-mark span{width:13px;height:13px;border-radius:50%;display:block;}
 .d-id{font-family:var(--mono);font-size:25px;font-weight:400;margin:0;letter-spacing:.01em;}
 .d-sub{font-size:12.5px;color:var(--dim);margin-top:4px;}
-.pill{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:20px;padding:3px 10px;}
+.pill{margin-left:auto;flex-shrink:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;border:1px solid;border-radius:20px;padding:3px 10px;}
 
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:14px 0 20px;}
 .crumb{background:none;border:none;font-family:var(--mono);font-size:11px;color:var(--dim);cursor:pointer;padding:2px 3px;}
