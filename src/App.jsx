@@ -1184,7 +1184,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                 {Object.keys(LOT_FORMS).map((f) => (
                     <button key={f} className={`tab ${formFilter === f ? 'on' : ''}`} onClick={() => setFormFilter(f)}>{LOT_FORMS[f]}</button>
                 ))}
-                <button className="sw" style={{ marginLeft: 'auto' }} onClick={() => setHideUsed(!hideUsed)}>
+                <button className="sw tabs-toggle" onClick={() => setHideUsed(!hideUsed)}>
                     {hideUsed ? 'Show used up' : 'Hide used up'}
                 </button>
             </div>
@@ -2656,6 +2656,7 @@ const CSS = `
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
   background:var(--ground);color:var(--bone);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;max-width:100vw;
 }
 .root *{box-sizing:border-box;}
 .page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;}
@@ -2689,10 +2690,12 @@ const CSS = `
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:#C9C4BA;}
 
-.tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
+.tabs{display:flex;flex-wrap:wrap;row-gap:8px;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
 .tab{background:none;border:none;padding:9px 4px;margin-right:18px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;}
 .tab:hover{color:var(--bone);}
 .tab.on{color:var(--amber);border-bottom-color:var(--amber);}
+.tabs-toggle{margin-left:auto;margin-bottom:8px;}
+@media(max-width:640px){.tabs-toggle{margin-left:0;}}
 .equip-list{display:flex;flex-direction:column;gap:6px;}
 .equip-row{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);transition:border-color .15s;}
 .equip-row:hover{border-color:#3E4A55;}
@@ -2759,7 +2762,7 @@ const CSS = `
 .lc-name{font-size:12px;color:var(--dim);}
 .line-label{font-family:var(--serif);font-size:15px;fill:var(--bone);opacity:.72;}
 
-.bar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px;}
+.bar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px;flex-wrap:wrap;row-gap:10px;}
 .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);font-style:italic;}
 .bar h1{font-family:var(--serif);font-weight:400;font-size:30px;margin:5px 0 0;}
 .sw{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:var(--sans);}
