@@ -510,18 +510,21 @@ export default function App() {
     };
 
     /* Upload goes straight from the browser to Supabase Storage, then a row
-       tracks where it lives, what item it belongs to, and optionally which
-       history entry it documents. */
-    const addPhoto = async (itemUid, file, { eventId, caption } = {}) => {
+       tracks where it lives. It can attach to an item, to equipment, or to
+       nothing at all - a plain gallery photo isn't required to be about
+       anything. */
+    const addPhoto = async (file, { itemId, equipmentId, eventId, caption } = {}) => {
         const today = todayISO();
         const ext = file.name.split('.').pop() || 'jpg';
-        const path = `${itemUid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const folder = itemId || equipmentId || 'general';
+        const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
         const { error: upErr } = await supabase.storage.from('photos').upload(path, file);
         if (upErr) { console.error(upErr); alert('Upload failed - check console'); return; }
 
         const { data, error } = await supabase.from('photos').insert({
-            item_id: itemUid, event_id: eventId || null, storage_path: path,
+            item_id: itemId || null, equipment_id: equipmentId || null,
+            event_id: eventId || null, storage_path: path,
             caption: caption?.trim() || null, taken_on: today,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -679,7 +682,8 @@ export default function App() {
             species={species} mode={section} equipment={equipment} suppliers={suppliers}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
-            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
+            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
+            photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -690,8 +694,8 @@ export default function App() {
                 remaining={lotRemaining} onOpen={setOpenLot} onAddManual={addManualLot} />;
     } else if (section === 'gallery') {
         key = 'gallery';
-        screen = <Gallery photos={photos} items={items} genetics={genetics} species={species}
-            photoUrl={photoUrl} onDelete={deletePhoto}
+        screen = <Gallery photos={photos} items={items} genetics={genetics} species={species} equipment={equipment}
+            photoUrl={photoUrl} onDelete={deletePhoto} onAddPhoto={addPhoto}
             onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
     } else if (section === 'calculators') {
         key = 'calculators';
@@ -1587,7 +1591,7 @@ const EQUIP_STATUS = {
     wishlist: { label: 'Wishlist', tone: 'slate' },
 };
 
-function EquipmentTab({ equipment, onAdd, onEdit, onDelete }) {
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto }) {
     const blank = { name: '', category: '', status: 'active', notes: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -1627,6 +1631,12 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete }) {
                                 placeholder="Model quirks, what broke, what you'd upgrade to"
                                 onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
                     </div>
+
+                    {form !== 'new' && (
+                        <PhotoStrip attach={{ equipmentId: form }} photos={photos.filter((p) => p.equipment_id === form)}
+                            photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDeletePhoto} label="Photo (optional)" />
+                    )}
+
                     <div className="edit-row">
                         <button className="mini" onClick={submit}>Save</button>
                         <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
@@ -1645,11 +1655,15 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete }) {
                     <div className="equip-list">
                         {groups[cat].map((e) => {
                             const st = EQUIP_STATUS[e.status] ?? EQUIP_STATUS.active;
+                            const thumb = photos.find((p) => p.equipment_id === e.id);
                             return (
                                 <button key={e.id} className="equip-row" onClick={() => {
                                     setF({ name: e.name, category: e.category ?? '', status: e.status, notes: e.notes ?? '' });
                                     setForm(e.id);
                                 }}>
+                                    {thumb
+                                        ? <img className="equip-thumb" src={photoUrl(thumb.storage_path)} alt="" />
+                                        : <span className="equip-thumb equip-thumb-empty" />}
                                     <span className="equip-name">{e.name}</span>
                                     {e.notes && <span className="equip-note">{e.notes}</span>}
                                     <span className={`pill tone-${st.tone}`}>{st.label}</span>
@@ -1666,7 +1680,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete }) {
     );
 }
 
-function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier }) {
+function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, photos, photoUrl, onAddPhoto, onDeletePhoto }) {
     const recipes = mode === 'recipes';
     const [tab, setTab] = useState('entries');
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '' };
@@ -1704,7 +1718,8 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
             )}
 
             {tab === 'equipment' && !recipes ? (
-                <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip} />
+                <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
+                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} />
             ) : tab === 'suppliers' && !recipes ? (
                 <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
             ) : (
@@ -2358,7 +2373,7 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                 ))}
             </div>
 
-            <PhotoStrip itemUid={it.uid} photos={photos.filter((p) => p.item_id === it.uid)}
+            <PhotoStrip attach={{ itemId: it.uid }} photos={photos.filter((p) => p.item_id === it.uid)}
                 photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} />
 
             <div className="actions">
@@ -2603,9 +2618,12 @@ function Lightbox({ photo, url, onClose, onDelete }) {
     );
 }
 
-/* Sits on the item page. capture="environment" opens the phone's back
-   camera directly on mobile rather than just a file picker. */
-function PhotoStrip({ itemUid, photos, photoUrl, onAdd, onDelete }) {
+/* Sits on the item page, the equipment edit form, or the Gallery itself.
+   `attach` carries whatever this strip's photos should be tagged with -
+   { itemId } or { equipmentId } or {} for a plain unattached gallery shot.
+   capture="environment" opens the phone's back camera directly on mobile
+   rather than just a file picker. */
+function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, label }) {
     const [adding, setAdding] = useState(false);
     const [caption, setCaption] = useState('');
     const [lightbox, setLightbox] = useState(null);
@@ -2615,13 +2633,14 @@ function PhotoStrip({ itemUid, photos, photoUrl, onAdd, onDelete }) {
     const onFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        onAdd(itemUid, file, { caption });
+        onAdd(file, { ...attach, caption });
         setCaption(''); setAdding(false);
         e.target.value = '';
     };
 
     return (
         <div className="photo-strip-wrap">
+            {label && <div className="sec"><span>{label}</span></div>}
             <div className="photo-strip">
                 {photos.map((p) => (
                     <button key={p.id} className="photo-thumb" onClick={() => setLightbox(p)}>
@@ -2649,7 +2668,7 @@ function PhotoStrip({ itemUid, photos, photoUrl, onAdd, onDelete }) {
 
 /* ---------------- GALLERY ---------------- */
 
-function Gallery({ photos, items, genetics, species, photoUrl, onDelete, onOpenItem }) {
+function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDelete, onOpenItem, onAddPhoto }) {
     const [speciesFilter, setSpeciesFilter] = useState('all');
     const [lightbox, setLightbox] = useState(null);
 
@@ -2657,7 +2676,8 @@ function Gallery({ photos, items, genetics, species, photoUrl, onDelete, onOpenI
         const item = items.find((i) => i.uid === p.item_id);
         const gen = genetics.find((g) => g.id === item?.geneticsId);
         const sp = species.find((s) => s.id === gen?.species_id);
-        return { photo: p, item, sp };
+        const eq = equipment.find((e) => e.id === p.equipment_id);
+        return { photo: p, item, sp, eq };
     });
 
     const visible = withMeta
@@ -2677,18 +2697,21 @@ function Gallery({ photos, items, genetics, species, photoUrl, onDelete, onOpenI
                 </select>
             </div>
 
+            <PhotoStrip attach={{}} photos={[]} photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDelete}
+                label="Add a photo not tied to anything in particular" />
+
             {visible.length === 0 && (
                 <p className="nf-help" style={{ marginTop: 18 }}>
-                    No photos yet - add one from any item's page, and it shows up here too.
+                    No photos yet - add one from any item's page, from equipment, or right above, and it shows up here too.
                 </p>
             )}
 
             <div className="gallery-grid">
-                {visible.map(({ photo, item, sp }) => (
-                    <button key={photo.id} className="gallery-tile" onClick={() => setLightbox({ photo, item })}>
+                {visible.map(({ photo, item, sp, eq }) => (
+                    <button key={photo.id} className="gallery-tile" onClick={() => setLightbox({ photo, item, eq })}>
                         <img src={photoUrl(photo.storage_path)} alt={photo.caption ?? ''} />
                         <div className="gallery-meta">
-                            <span>{item?.id ?? '?'}</span>
+                            <span>{item?.id ?? eq?.name ?? 'General'}</span>
                             <span className="gallery-sp">{sp?.common_name ?? ''}</span>
                         </div>
                     </button>
@@ -2768,6 +2791,8 @@ const CSS = `
 .equip-row:hover{border-color:#3E4A55;}
 .equip-name{font-size:13px;flex:0 0 auto;}
 .equip-note{font-size:11.5px;color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.equip-thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex:0 0 auto;background:var(--panel2);}
+.equip-thumb-empty{border:1px dashed var(--line);}
 
 .calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:22px;}
 .calc-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
