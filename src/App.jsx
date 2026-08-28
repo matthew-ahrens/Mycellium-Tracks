@@ -734,6 +734,7 @@ export default function App() {
     return (
         <div className="root">
             <style>{CSS}</style>
+            <div className="mobile-brand">SporeDesk</div>
             <div className="shell">
                 <nav className="side">
                     <div className="brand">SporeDesk</div>
@@ -2759,10 +2760,12 @@ const CSS = `
 .nav-item:hover{background:var(--panel);color:var(--bone);}
 .nav-item.on{background:var(--panel2);color:var(--amber);}
 .main{flex:1;min-width:0;}
+.mobile-brand{display:none;}
 @media(max-width:760px){
   .shell{flex-direction:column;}
   .side{flex:none;height:auto;position:static;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:10px;}
   .brand{display:none;}
+  .mobile-brand{display:block;font-family:var(--serif);font-size:18px;color:var(--bone);padding:14px 16px 6px;}
   .nav-item span{display:none;}
   .nav-item{padding:10px 14px;}
 }
