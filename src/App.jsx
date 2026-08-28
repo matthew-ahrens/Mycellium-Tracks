@@ -481,6 +481,23 @@ export default function App() {
         setLots((p) => p.map((l) => (l.id === lotId ? { ...l, ...patch } : l)));
     };
 
+    /* Standalone entry - no source item, no lot_links parent. For material
+       that's real but doesn't have a clean paper trail back to a specific
+       flush (backfilling the cabinet, something found later, etc). Species
+       is tagged directly since there's no item to trace it through. */
+    const addManualLot = async (fields) => {
+        const { data, error } = await supabase.from('lots').insert({
+            label: fields.label.trim(),
+            form: fields.form,
+            amount_g: fields.amount,
+            species_id: fields.speciesId || null,
+            harvested_on: fields.date || todayISO(),
+            notes: fields.notes?.trim() || null,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLots((p) => [...p, data]);
+    };
+
     const deleteLot = async (lotId) => {
         const hasChildren = lotLinks.some((k) => k.parent_lot_id === lotId);
         if (hasChildren) { alert('This lot has material processed from it - remove that first, or it stays as history.'); return; }
@@ -670,7 +687,7 @@ export default function App() {
                 remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={setOpenLot}
                 onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
-                remaining={lotRemaining} onOpen={setOpenLot} />;
+                remaining={lotRemaining} onOpen={setOpenLot} onAddManual={addManualLot} />;
     } else if (section === 'gallery') {
         key = 'gallery';
         screen = <Gallery photos={photos} items={items} genetics={genetics} species={species}
@@ -1124,6 +1141,10 @@ function lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species, seen =
         const sp = species.find((s) => s.id === gen?.species_id);
         return sp ? [sp.common_name] : [];
     }
+    if (lot.species_id) {
+        const sp = species.find((s) => s.id === lot.species_id);
+        if (sp) return [sp.common_name];
+    }
     const parents = lotLinks.filter((k) => k.child_lot_id === lotId);
     const names = new Set();
     parents.forEach((p) => lotSpeciesNames(p.parent_lot_id, lots, lotLinks, items, genetics, species, seen).forEach((n) => names.add(n)));
@@ -1150,9 +1171,12 @@ function LotCard({ lot, rem, sp, onOpen }) {
     );
 }
 
-function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen }) {
+function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen, onAddManual }) {
     const [formFilter, setFormFilter] = useState('all');
     const [hideUsed, setHideUsed] = useState(true);
+    const [adding, setAdding] = useState(false);
+    const blank = { label: '', form: 'dried', amount: '', speciesId: '', date: '', notes: '' };
+    const [f, setF] = useState(blank);
 
     const withRem = lots.map((l) => ({ lot: l, rem: remaining(l.id) }));
     const visible = withRem
@@ -1170,7 +1194,50 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                     <div className="eyebrow">Everything that's been harvested, and what it became</div>
                     <h1>Inventory</h1>
                 </div>
+                {!adding && <button className="sw" onClick={() => { setF(blank); setAdding(true); }}>+ Add lot</button>}
             </div>
+
+            {adding && (
+                <div className="new-form">
+                    <div className="nf-title">Add a lot</div>
+                    <p className="nf-help">
+                        For material that's real but doesn't trace cleanly back to a specific flush -
+                        backfilling from the cabinet, something you found later. Tag the species directly
+                        since there's no item to trace it through.
+                    </p>
+                    <div className="nf-grid">
+                        <div className="nf-field wide"><label>Label</label>
+                            <input className="in" autoFocus value={f.label} placeholder="e.g. Blue Oyster dried, unknown flush breakdown"
+                                onChange={(e) => setF({ ...f, label: e.target.value })} /></div>
+                        <div className="nf-field"><label>Form</label>
+                            <select className="in sel" value={f.form} onChange={(e) => setF({ ...f, form: e.target.value })}>
+                                {Object.keys(LOT_FORMS).map((k) => <option key={k} value={k}>{LOT_FORMS[k]}</option>)}
+                            </select></div>
+                        <div className="nf-field"><label>Amount on hand (g)</label>
+                            <input className="in" inputMode="decimal" value={f.amount} placeholder="e.g. 40"
+                                onChange={(e) => setF({ ...f, amount: e.target.value })} /></div>
+                        <div className="nf-field"><label>Species (optional)</label>
+                            <select className="in sel" value={f.speciesId} onChange={(e) => setF({ ...f, speciesId: e.target.value })}>
+                                <option value="">— unknown / mixed —</option>
+                                {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                            </select></div>
+                        <div className="nf-field"><label>Date (optional)</label>
+                            <input className="in" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Notes</label>
+                            <textarea className="in ta" rows="2" value={f.notes} placeholder="why there's no clean trail, if worth remembering"
+                                onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={() => {
+                            const amt = n(f.amount);
+                            if (!f.label.trim() || !amt) return;
+                            onAddManual({ ...f, amount: amt });
+                            setAdding(false);
+                        }}>Add lot</button>
+                        <button className="mini ghost" onClick={() => setAdding(false)}>Cancel</button>
+                    </div>
+                </div>
+            )}
 
             <div className="inv-totals">
                 {Object.keys(LOT_FORMS).filter((f) => totalsByForm[f] > LOT_EPS).map((f) => (
