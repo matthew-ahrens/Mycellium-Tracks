@@ -381,6 +381,7 @@ export default function App() {
             name: fields.name.trim(),
             category: fields.category?.trim() || null,
             status: fields.status || 'active',
+            quantity: fields.quantity === '' || fields.quantity == null ? null : Number(fields.quantity),
             notes: fields.notes?.trim() || null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -392,11 +393,22 @@ export default function App() {
             name: fields.name.trim(),
             category: fields.category?.trim() || null,
             status: fields.status,
+            quantity: fields.quantity === '' || fields.quantity == null ? null : Number(fields.quantity),
             notes: fields.notes?.trim() || null,
         };
         const { error } = await supabase.from('equipment').update(cols).eq('id', id);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setEquipment((p) => p.map((e) => (e.id === id ? { ...e, ...cols } : e)));
+    };
+
+    /* Separate from the full edit form on purpose - restocking or using one
+       up should be a single tap, not open-form/change/save. */
+    const bumpEquipmentQty = async (id, delta) => {
+        const item = equipment.find((e) => e.id === id);
+        const next = Math.max(0, (item?.quantity ?? 0) + delta);
+        const { error } = await supabase.from('equipment').update({ quantity: next }).eq('id', id);
+        if (error) { console.error(error); return; }
+        setEquipment((p) => p.map((e) => (e.id === id ? { ...e, quantity: next } : e)));
     };
 
     const deleteEquipment = async (id) => {
@@ -683,7 +695,8 @@ export default function App() {
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
-            photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} />;
+            photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
+            onBumpEquipQty={bumpEquipmentQty} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -1592,8 +1605,8 @@ const EQUIP_STATUS = {
     wishlist: { label: 'Wishlist', tone: 'slate' },
 };
 
-function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto }) {
-    const blank = { name: '', category: '', status: 'active', notes: '' };
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpQty }) {
+    const blank = { name: '', category: '', status: 'active', quantity: '', notes: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
 
@@ -1627,6 +1640,9 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
                             <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
                                 {Object.keys(EQUIP_STATUS).map((s) => <option key={s} value={s}>{EQUIP_STATUS[s].label}</option>)}
                             </select></div>
+                        <div className="nf-field"><label>Quantity (optional)</label>
+                            <input className="in" inputMode="numeric" value={f.quantity} placeholder="leave blank if not a count"
+                                onChange={(e) => setF({ ...f, quantity: e.target.value.replace(/[^\d]/g, '') })} /></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="2" value={f.notes}
                                 placeholder="Model quirks, what broke, what you'd upgrade to"
@@ -1657,18 +1673,28 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
                         {groups[cat].map((e) => {
                             const st = EQUIP_STATUS[e.status] ?? EQUIP_STATUS.active;
                             const thumb = photos.find((p) => p.equipment_id === e.id);
+                            const tracked = e.quantity !== null && e.quantity !== undefined;
                             return (
-                                <button key={e.id} className="equip-row" onClick={() => {
-                                    setF({ name: e.name, category: e.category ?? '', status: e.status, notes: e.notes ?? '' });
-                                    setForm(e.id);
-                                }}>
-                                    {thumb
-                                        ? <img className="equip-thumb" src={photoUrl(thumb.storage_path)} alt="" />
-                                        : <span className="equip-thumb equip-thumb-empty" />}
-                                    <span className="equip-name">{e.name}</span>
-                                    {e.notes && <span className="equip-note">{e.notes}</span>}
-                                    <span className={`pill tone-${st.tone}`}>{st.label}</span>
-                                </button>
+                                <div key={e.id} className="equip-row">
+                                    <button className="equip-row-main" onClick={() => {
+                                        setF({ name: e.name, category: e.category ?? '', status: e.status, quantity: e.quantity ?? '', notes: e.notes ?? '' });
+                                        setForm(e.id);
+                                    }}>
+                                        {thumb
+                                            ? <img className="equip-thumb" src={photoUrl(thumb.storage_path)} alt="" />
+                                            : <span className="equip-thumb equip-thumb-empty" />}
+                                        <span className="equip-name">{e.name}</span>
+                                        {e.notes && <span className="equip-note">{e.notes}</span>}
+                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                    </button>
+                                    {tracked && (
+                                        <div className="equip-qty">
+                                            <button className="qty-btn" onClick={() => onBumpQty(e.id, -1)}>−</button>
+                                            <span className={`qty-num ${e.quantity === 0 ? 'zero' : ''}`}>{e.quantity}</span>
+                                            <button className="qty-btn" onClick={() => onBumpQty(e.id, 1)}>+</button>
+                                        </div>
+                                    )}
+                                </div>
                             );
                         })}
                     </div>
@@ -1681,7 +1707,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
     );
 }
 
-function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, photos, photoUrl, onAddPhoto, onDeletePhoto }) {
+function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty }) {
     const recipes = mode === 'recipes';
     const [tab, setTab] = useState('entries');
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '' };
@@ -1720,7 +1746,8 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
 
             {tab === 'equipment' && !recipes ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
-                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} />
+                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
+                    onBumpQty={onBumpEquipQty} />
             ) : tab === 'suppliers' && !recipes ? (
                 <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
             ) : (
@@ -2791,12 +2818,18 @@ const CSS = `
 .tabs-toggle{margin-left:auto;margin-bottom:8px;}
 @media(max-width:640px){.tabs-toggle{margin-left:0;}}
 .equip-list{display:flex;flex-direction:column;gap:6px;}
-.equip-row{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);transition:border-color .15s;}
+.equip-row{display:flex;align-items:stretch;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;transition:border-color .15s;}
 .equip-row:hover{border-color:#3E4A55;}
+.equip-row-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;background:none;border:none;padding:11px 14px;color:inherit;cursor:pointer;text-align:left;font-family:var(--sans);}
 .equip-name{font-size:13px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .equip-note{font-size:11.5px;color:var(--dim);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .equip-thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex:0 0 auto;background:var(--panel2);}
 .equip-thumb-empty{border:1px dashed var(--line);}
+.equip-qty{display:flex;align-items:center;gap:6px;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
+.qty-btn{width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
+.qty-btn:hover{color:var(--amber);border-color:var(--amber);}
+.qty-num{font-family:var(--mono);font-size:13px;min-width:1.5em;text-align:center;}
+.qty-num.zero{color:var(--clay);}
 
 .calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:22px;}
 .calc-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
