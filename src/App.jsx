@@ -80,6 +80,8 @@ export default function App() {
     const [lots, setLots] = useState([]);
     const [lotLinks, setLotLinks] = useState([]);
     const [openLot, setOpenLot] = useState(null);
+    const [photos, setPhotos] = useState([]);
+    const [photoUrls, setPhotoUrls] = useState({});
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
@@ -112,6 +114,15 @@ export default function App() {
             const { data: sup } = await supabase.from('suppliers').select('*').order('name');
             const { data: allLots } = await supabase.from('lots').select('*').order('harvested_on', { nullsFirst: false });
             const { data: links } = await supabase.from('lot_links').select('*');
+            const { data: pics } = await supabase.from('photos').select('*').order('created_at');
+
+            if (pics?.length) {
+                const { data: signed } = await supabase.storage.from('photos')
+                    .createSignedUrls(pics.map((p) => p.storage_path), 21600); // 6 hours
+                const urlMap = {};
+                (signed ?? []).forEach((s) => { if (s.signedUrl) urlMap[s.path] = s.signedUrl; });
+                setPhotoUrls(urlMap);
+            }
 
             setSpecies(sp ?? []);
             setGenetics(gen ?? []);
@@ -120,6 +131,7 @@ export default function App() {
             setSuppliers(sup ?? []);
             setLots(allLots ?? []);
             setLotLinks(links ?? []);
+            setPhotos(pics ?? []);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -480,6 +492,41 @@ export default function App() {
         setOpenLot(null);
     };
 
+    /* Upload goes straight from the browser to Supabase Storage, then a row
+       tracks where it lives, what item it belongs to, and optionally which
+       history entry it documents. */
+    const addPhoto = async (itemUid, file, { eventId, caption } = {}) => {
+        const today = todayISO();
+        const ext = file.name.split('.').pop() || 'jpg';
+        const path = `${itemUid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+        const { error: upErr } = await supabase.storage.from('photos').upload(path, file);
+        if (upErr) { console.error(upErr); alert('Upload failed - check console'); return; }
+
+        const { data, error } = await supabase.from('photos').insert({
+            item_id: itemUid, event_id: eventId || null, storage_path: path,
+            caption: caption?.trim() || null, taken_on: today,
+        }).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+
+        const { data: signed } = await supabase.storage.from('photos').createSignedUrl(path, 21600);
+        if (signed?.signedUrl) setPhotoUrls((p) => ({ ...p, [path]: signed.signedUrl }));
+
+        setPhotos((p) => [...p, data]);
+    };
+
+    const deletePhoto = async (photo) => {
+        await supabase.storage.from('photos').remove([photo.storage_path]);
+        const { error } = await supabase.from('photos').delete().eq('id', photo.id);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setPhotos((p) => p.filter((x) => x.id !== photo.id));
+    };
+
+    /* Bucket is private now, so photos need signed, time-limited URLs
+       rather than a plain public link. Keyed by storage path so every
+       photoUrl(path) call site stays unchanged. */
+    const photoUrl = (path) => photoUrls[path] ?? '';
+
     const addSpecies = async (fields) => {
         const { data, error } = await supabase.from('species').insert({
             common_name: fields.common_name.trim(),
@@ -624,6 +671,11 @@ export default function App() {
                 onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onOpen={setOpenLot} />;
+    } else if (section === 'gallery') {
+        key = 'gallery';
+        screen = <Gallery photos={photos} items={items} genetics={genetics} species={species}
+            photoUrl={photoUrl} onDelete={deletePhoto}
+            onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
     } else if (section === 'calculators') {
         key = 'calculators';
         screen = <Calculators recipes={library.filter((e) => e.kind === 'recipe')} />;
@@ -634,10 +686,11 @@ export default function App() {
             onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
-            deleteItem={deleteItem} reparentItem={reparentItem} />;
+            deleteItem={deleteItem} reparentItem={reparentItem}
+            photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
-        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen}
+        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos}
             onAddLine={(fields, firstType) => addGenetics(nav.speciesId, fields, firstType)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
@@ -651,6 +704,7 @@ export default function App() {
     const NAV = [
         ['cultures', 'Cultures', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
         ['inventory', 'Inventory', 'M3 7h18v12H3zM3 7l2-3h14l2 3'],
+        ['gallery', 'Gallery', 'M4 4h16v16H4zM4 15l4-4 3 3 5-5 4 4M9 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
         ['library', 'Library', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
         ['recipes', 'Recipes', 'M7 3v8a3 3 0 0 0 6 0V3M10 11v10M17 3c-1.5 2-2 4-2 6s.5 3 2 3v9'],
         ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
@@ -1855,7 +1909,7 @@ function GeneticsGrid({ species, genetics, items, onOpen, onBack }) {
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, photos }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [addingLine, setAddingLine] = useState(false);
@@ -2100,6 +2154,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                         ))}
                         {items.map((i) => {
                             const p = pos[i.id], st = STATUS[i.status], tone = TONE[st.tone], r = radius(p.depth);
+                            const hasPhoto = photos.some((ph) => ph.item_id === i.uid);
                             return (
                                 <g key={i.id} className={`node ${hover && !litChain.includes(i.id) ? "faded" : ""}`}
                                     style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
@@ -2109,6 +2164,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                                     {st.live && <circle r={r + 6} fill={tone} className="pulse" />}
                                     <circle r={r} fill="#111720" stroke={tone} strokeWidth="1.9" />
                                     {st.tone !== "slate" && <circle r={r * 0.42} fill={tone} />}
+                                    {hasPhoto && <circle cx={r * 0.72} cy={-r * 0.72} r="2.6" className="photo-dot" />}
                                     <text y={r + 17} className="n-id" textAnchor="middle">{i.id}</text>
                                     <text y={r + 30} className="n-sub" textAnchor="middle">{TYPES[i.type]}{days(i.created) !== null ? ` · d${days(i.created)}` : ""}</text>
                                 </g>
@@ -2124,7 +2180,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem }) {
+function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, photos, photoUrl, addPhoto, deletePhoto }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -2234,6 +2290,9 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                     </span>
                 ))}
             </div>
+
+            <PhotoStrip itemUid={it.uid} photos={photos.filter((p) => p.item_id === it.uid)}
+                photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} />
 
             <div className="actions">
                 {!picking ? (
@@ -2457,6 +2516,136 @@ const Sec = ({ title, onEdit }) => (
         {onEdit && <button className="edit-btn sec-edit" title={`Edit ${title.toLowerCase()}`} onClick={onEdit}>✎</button>}
     </div>
 );
+
+/* ---------------- PHOTOS ---------------- */
+
+function Lightbox({ photo, url, onClose, onDelete }) {
+    return (
+        <div className="lb-scrim" onClick={onClose}>
+            <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
+                <img src={url} alt={photo.caption ?? ''} className="lb-img" />
+                <div className="lb-bar">
+                    <span>{photo.taken_on ? fmt(photo.taken_on) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
+                    <div>
+                        <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(photo); onClose(); } }}>Delete</button>
+                        <button className="mini ghost" onClick={onClose}>Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* Sits on the item page. capture="environment" opens the phone's back
+   camera directly on mobile rather than just a file picker. */
+function PhotoStrip({ itemUid, photos, photoUrl, onAdd, onDelete }) {
+    const [adding, setAdding] = useState(false);
+    const [caption, setCaption] = useState('');
+    const [lightbox, setLightbox] = useState(null);
+    const fileRef = useRef(null);
+
+    const pick = () => fileRef.current?.click();
+    const onFile = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        onAdd(itemUid, file, { caption });
+        setCaption(''); setAdding(false);
+        e.target.value = '';
+    };
+
+    return (
+        <div className="photo-strip-wrap">
+            <div className="photo-strip">
+                {photos.map((p) => (
+                    <button key={p.id} className="photo-thumb" onClick={() => setLightbox(p)}>
+                        <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} />
+                    </button>
+                ))}
+                <button className="photo-add" onClick={() => setAdding(true)}>
+                    <span>+</span>
+                </button>
+            </div>
+            {adding && (
+                <div className="photo-add-form">
+                    <input className="in" value={caption} onChange={(e) => setCaption(e.target.value)}
+                        placeholder="caption (optional)" onKeyDown={(e) => e.key === 'Enter' && pick()} />
+                    <button className="mini" onClick={pick}>Choose photo</button>
+                    <button className="mini ghost" onClick={() => setAdding(false)}>Cancel</button>
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                        style={{ display: 'none' }} onChange={onFile} />
+                </div>
+            )}
+            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} />}
+        </div>
+    );
+}
+
+/* ---------------- GALLERY ---------------- */
+
+function Gallery({ photos, items, genetics, species, photoUrl, onDelete, onOpenItem }) {
+    const [speciesFilter, setSpeciesFilter] = useState('all');
+    const [lightbox, setLightbox] = useState(null);
+
+    const withMeta = photos.map((p) => {
+        const item = items.find((i) => i.uid === p.item_id);
+        const gen = genetics.find((g) => g.id === item?.geneticsId);
+        const sp = species.find((s) => s.id === gen?.species_id);
+        return { photo: p, item, sp };
+    });
+
+    const visible = withMeta
+        .filter((x) => speciesFilter === 'all' || x.sp?.id === speciesFilter)
+        .sort((a, b) => (b.photo.taken_on ?? '').localeCompare(a.photo.taken_on ?? ''));
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Every photo, across every culture</div>
+                    <h1>Gallery</h1>
+                </div>
+                <select className="in sel" style={{ width: 'auto' }} value={speciesFilter} onChange={(e) => setSpeciesFilter(e.target.value)}>
+                    <option value="all">All species</option>
+                    {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                </select>
+            </div>
+
+            {visible.length === 0 && (
+                <p className="nf-help" style={{ marginTop: 18 }}>
+                    No photos yet - add one from any item's page, and it shows up here too.
+                </p>
+            )}
+
+            <div className="gallery-grid">
+                {visible.map(({ photo, item, sp }) => (
+                    <button key={photo.id} className="gallery-tile" onClick={() => setLightbox({ photo, item })}>
+                        <img src={photoUrl(photo.storage_path)} alt={photo.caption ?? ''} />
+                        <div className="gallery-meta">
+                            <span>{item?.id ?? '?'}</span>
+                            <span className="gallery-sp">{sp?.common_name ?? ''}</span>
+                        </div>
+                    </button>
+                ))}
+            </div>
+
+            {lightbox && (
+                <div className="lb-scrim" onClick={() => setLightbox(null)}>
+                    <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
+                        <img src={photoUrl(lightbox.photo.storage_path)} alt={lightbox.photo.caption ?? ''} className="lb-img" />
+                        <div className="lb-bar">
+                            <span>{lightbox.photo.taken_on ? fmt(lightbox.photo.taken_on) : ''}{lightbox.photo.caption ? ' · ' + lightbox.photo.caption : ''}</span>
+                            <div>
+                                {lightbox.item && <button className="mini ghost" onClick={() => onOpenItem(lightbox.item.id)}>Open {lightbox.item.id}</button>}
+                                <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(lightbox.photo); setLightbox(null); } }}>Delete</button>
+                                <button className="mini ghost" onClick={() => setLightbox(null)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 /* ================= STYLE ================= */
 
@@ -2709,6 +2898,29 @@ const CSS = `
 .pr-cap{font-family:var(--mono);font-size:10.5px;color:var(--dim);}
 
 .tab:disabled,.cta:disabled,.mini:disabled{opacity:.4;cursor:not-allowed;}
+
+.photo-dot{fill:var(--amber);stroke:#111720;stroke-width:1;}
+.photo-strip-wrap{margin-bottom:22px;}
+.photo-strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;}
+.photo-thumb{flex:0 0 auto;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer;background:var(--panel);}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.photo-add{flex:0 0 auto;width:64px;height:64px;border-radius:9px;border:1px dashed var(--line);background:none;color:var(--dim);cursor:pointer;font-size:20px;}
+.photo-add:hover{border-color:var(--amber);color:var(--amber);}
+.photo-add-form{display:flex;gap:7px;align-items:center;margin-top:9px;flex-wrap:wrap;}
+.photo-add-form .in{flex:1 1 160px;}
+
+.lb-scrim{position:fixed;inset:0;background:rgba(8,10,13,.88);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;animation:pop .18s ease-out;}
+.lb-frame{max-width:min(92vw,760px);max-height:88vh;display:flex;flex-direction:column;background:var(--panel);border-radius:14px;overflow:hidden;border:1px solid var(--line);}
+.lb-img{max-width:100%;max-height:74vh;object-fit:contain;background:#000;}
+.lb-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;font-size:12px;color:var(--dim);}
+.lb-bar div{display:flex;gap:8px;}
+
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:18px;}
+.gallery-tile{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer;background:var(--panel);}
+.gallery-tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
+.gallery-tile:hover img{transform:scale(1.04);}
+.gallery-meta{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;background:linear-gradient(transparent,rgba(0,0,0,.75));display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--bone);}
+.gallery-sp{color:var(--amber);}
 
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 `;
