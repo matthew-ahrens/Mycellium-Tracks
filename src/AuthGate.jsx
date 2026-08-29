@@ -56,7 +56,7 @@ export default function AuthGate({ children }) {
   }
 
   if (session === undefined) {
-    return <div style={{ background: '#0E1216', minHeight: '100vh' }} />
+    return <div style={{ background: '#B3966B', minHeight: '100vh' }} />
   }
 
   if (!session) {
@@ -88,16 +88,16 @@ export default function AuthGate({ children }) {
 
 const AUTH_CSS = `
 .auth-card{
-  max-width:340px;margin:14vh auto;padding:28px;background:#161B21;border:1px solid #2A333C;
+  max-width:340px;margin:14vh auto;padding:28px;background:#241811;border:1px solid #4A3826;
   border-radius:16px;display:flex;flex-direction:column;gap:10px;font-family:system-ui,-apple-system,sans-serif;
 }
-.auth-brand{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-size:24px;color:#E9E4D9;}
-.auth-sub{font-size:12.5px;color:#8D97A1;margin-bottom:10px;}
-.auth-card label{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#8D97A1;margin-top:6px;}
-.auth-card input{background:#1C232B;border:1px solid #2A333C;border-radius:8px;padding:10px 12px;color:#E9E4D9;font-size:13.5px;}
-.auth-card input:focus{outline:none;border-color:#E0A244;}
-.auth-card button[type=submit]{margin-top:14px;background:#E0A244;color:#141922;border:none;border-radius:9px;padding:11px;font-size:13.5px;font-weight:600;cursor:pointer;}
+.auth-brand{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-size:24px;color:#6B2717;}
+.auth-sub{font-size:12.5px;color:#A6927A;margin-bottom:10px;}
+.auth-card label{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#A6927A;margin-top:6px;}
+.auth-card input{background:#2F2216;border:1px solid #4A3826;border-radius:8px;padding:10px 12px;color:#EDE3D0;font-size:13.5px;}
+.auth-card input:focus{outline:none;border-color:#D6934A;}
+.auth-card button[type=submit]{margin-top:14px;background:#D6934A;color:#241811;border:none;border-radius:9px;padding:11px;font-size:13.5px;font-weight:600;cursor:pointer;}
 .auth-card button[type=submit]:disabled{opacity:.6;cursor:default;}
-.auth-error{background:#2A1A18;border:1px solid #5A3733;color:#D4705F;font-size:12px;padding:8px 10px;border-radius:8px;}
-body{background:#0E1216;margin:0;}
+.auth-error{background:#2E1710;border:1px solid #6B2717;color:#D4886B;font-size:12px;padding:8px 10px;border-radius:8px;}
+body{background:#B3966B;margin:0;}
 `

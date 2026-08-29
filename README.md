@@ -50,15 +50,17 @@ item to trace it through), full lineage view (made-from / went-into).
 **Library** — Reference (your instruction sheets, general + Cordyceps
 tagged), Equipment (category-grouped, status, optional quantity with a
 tap +/- stepper, optional photo), Suppliers (rated, sorted by trust),
-Recipes (separate section, feeds the recipe scaler).
+Recipes (structured ingredient rows — amount/unit/name, not free text —
+with a live batch-size scaler right on the card: type a target or tap a
+×2/×3/×5 chip and every ingredient recomputes in place. Ingredient names
+autocomplete from ones already used elsewhere, via a native datalist).
 
 **Photos** — upload from item pages, equipment, or standalone via Gallery.
 Species filter in Gallery. Native camera-or-library chooser (no forced
 camera jump). Signed URLs, 6hr expiry, private bucket.
 
 **Calculators** — spawn ratio (either direction), hydration, BE, dry yield
-estimate, recipe scaler (reads a saved recipe's amounts directly), unit
-converter, grain weight<->volume (flagged approximate).
+estimate, unit converter, grain weight<->volume (flagged approximate).
 
 **Auth + security** — email/password sign-in, no self-serve sign-up. RLS on
 all 10 tables and the storage bucket. Deployed on Vercel, connected to
@@ -68,6 +70,70 @@ GitHub for auto-deploy on push.
 collapses to a horizontal icon strip with its own brand header. Fixed:
 tab-row wrap, header-bar wrap, equipment row text truncation (was pushing
 the status pill off-screen), global overflow-x safety net.
+
+## Visual redesign — direction decided, not yet applied to the app
+
+Current app is cold dark grays (blue-black `--ground`, cold `--dim`/`--line`).
+Decided this doesn't read as mushroom-y. New direction, worked out through a
+round of mockups (not yet in `App.jsx` - this is still just the plan):
+
+- **Global page background flips to a warm tan/beige** rather than staying
+  dark - a real departure from "dark mode, just warmer." Page-level text
+  (headings/chrome sitting directly on the page, not inside a card) switches
+  to dark brown, not cream.
+- **Cards/panels stay dark** (the old near-black-brown family) - so the
+  page reads as dark objects sitting on a warm work surface, not as a
+  uniformly dark or uniformly light app. High contrast between the two
+  levels is the point, not a flaw.
+- **Reishi-lacquer rust-mahogany as a signature accent**, used sparingly on
+  purpose: the wordmark, and a refined "contaminated" status color. Amber
+  stays the everyday primary-action color. Jade shifted to a mossy olive
+  earlier in the process so it doesn't read as a foreign cold-green dropped
+  into a warm palette.
+- **Status pills need a real fix regardless of final colors**: they're
+  currently outlined text with no background fill, which only works because
+  they've always sat on near-black. On a lighter page they become unreadable.
+  Fix (validated in the mockup, not yet in the app): solid color fill per
+  status, with a contrasting text color from that same family - self
+  contained, works on any background.
+
+Approximate values from the last approved mockup (`palette-composite.html`,
+generated during the design conversation - worth regenerating/refining
+before treating these as final):
+
+```
+page bg:      #B3966B      page text:     #2B2013 (headings), #5E4C36 (dim)
+card panel:   #241811      card panel2:   #2F2216      card line: #4A3826
+card text:    #EDE3D0      card dim:      #A6927A
+amber:        #D6934A      jade (olive):  #7FA66A      slate: #8A7862
+reishi (wordmark): #6B2717   reishi (status pill fill): #8C3B26
+```
+
+Next session: apply this to the real CSS custom properties in `App.jsx`,
+audit every place a pill/badge currently relies on outlined-text-on-dark
+(there may be more than the ones caught in the mockup), and sanity check
+contrast on every screen, not just the ones mocked up (species grid, tree,
+item detail, calculators, inventory cards, equipment rows, gallery).
+
+## Big design ideas — logged, not scoped
+
+- **Species-specific background texture behind the lineage tree canvas** -
+  a subtle pattern hinting at that species' actual cap, sitting low-opacity
+  behind the tree so each species' page has a distinct visual signature.
+  Chestnut's scaly cap, lion's mane's icicle spines, reishi's concentric
+  zonation, oyster staying a plain smooth field. Two very different scopes
+  depending on how literal:
+  - **Tractable**: simple procedural/generative SVG patterns per species,
+    keyed to one or two characteristics (dot scatter, vertical lines,
+    concentric rings) rather than literal imagery. Real but bounded -
+    roughly an evening of pattern work.
+  - **Full version**: actual illustrated or generated cap-surface artwork
+    per species, plus getting it to sit correctly behind a pan/zoomable
+    canvas without becoming noise or a performance problem. A genuinely
+    different, much larger project - closer to commissioning real art
+    nine times over than a styling pass.
+  Worth deciding which scope before starting, rather than drifting from
+  "simple pattern" into "full illustration" mid-build.
 
 ## Known gaps
 
