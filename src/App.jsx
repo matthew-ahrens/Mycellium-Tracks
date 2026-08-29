@@ -352,6 +352,10 @@ export default function App() {
             kind: fields.kind,
             url: fields.url?.trim() || null,
             body: fields.body?.trim() || null,
+            category: fields.category?.trim() || null,
+            yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
+            yield_unit: fields.yield_unit || null,
+            ingredients: fields.ingredients?.length ? fields.ingredients : null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setLibrary((p) => [...p, data]);
@@ -364,6 +368,10 @@ export default function App() {
             kind: fields.kind,
             url: fields.url?.trim() || null,
             body: fields.body?.trim() || null,
+            category: fields.category?.trim() || null,
+            yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
+            yield_unit: fields.yield_unit || null,
+            ingredients: fields.ingredients?.length ? fields.ingredients : null,
         };
         const { error } = await supabase.from('library').update(cols).eq('id', entryId);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -712,7 +720,7 @@ export default function App() {
             onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
     } else if (section === 'calculators') {
         key = 'calculators';
-        screen = <Calculators recipes={library.filter((e) => e.kind === 'recipe')} />;
+        screen = <Calculators />;
     } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
@@ -940,44 +948,47 @@ function DryYield({ species }) {
     );
 }
 
-function MediaScaler({ recipes }) {
-    const [recipeId, setRecipeId] = useState('');
-    const [baseVol, setBaseVol] = useState('175');
-    const [target, setTarget] = useState('');
-    const recipe = recipes.find((r) => r.id === recipeId);
-    const bv = n(baseVol), t = n(target);
-    const factor = bv && t ? t / bv : null;
-
-    /* Pulls "175 mL" or "3.5 g" style lines out of a recipe's saved text
-       and scales each number by the same factor. */
-    const scaledLines = recipe && factor ? recipe.body?.split('\n').map((line) => {
-        const m = line.match(/^([\d.]+)\s*(mL|g|mg|oz)\b(.*)$/i);
-        if (!m) return line;
-        const val = parseFloat(m[1]) * factor;
-        return `${val % 1 === 0 ? val : val.toFixed(2)} ${m[2]}${m[3]}`;
-    }) : null;
+/* Lives inside an expanded recipe card. Owns its own target-amount state,
+   defaulting to the recipe's stored batch size - scales every ingredient
+   live as you type or tap a multiplier, no separate calculator needed. */
+function RecipeIngredients({ recipe }) {
+    const [target, setTarget] = useState(recipe.yield_amount != null ? String(recipe.yield_amount) : '');
+    const t = n(target);
+    const factor = recipe.yield_amount && t ? t / recipe.yield_amount : null;
 
     return (
-        <CalcCard title="Recipe scaler" sub="Scale a saved recipe to a different volume">
-            <div className="calc-field">
-                <label>Recipe</label>
-                <select className="in sel" value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
-                    <option value="">— pick a saved recipe —</option>
-                    {recipes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
-                </select>
-            </div>
-            <NumField label="This recipe's base volume" value={baseVol} onChange={setBaseVol} placeholder="175" unit="mL" />
-            <NumField label="Target volume" value={target} onChange={setTarget} placeholder="e.g. 500" unit="mL" />
-            {!recipe && recipes.length === 0 && (
-                <p className="calc-note">No recipes saved yet. Add one under Recipes with amounts like "175 mL water" or "3.5 g DME" on their own lines, and it'll scale here.</p>
-            )}
-            {scaledLines && (
-                <div className="calc-result block">
-                    <strong>At {target} mL:</strong>
-                    <pre className="lib-text" style={{ marginTop: 8 }}>{scaledLines.join('\n')}</pre>
+        <div className="recipe-scale">
+            {recipe.yield_amount != null && (
+                <div className="rs-row">
+                    <span className="rs-label">Batch size</span>
+                    <input className="in sm" inputMode="decimal" value={target}
+                        onChange={(e) => setTarget(e.target.value)} />
+                    <span className="rs-unit">{recipe.yield_unit}</span>
+                    <div className="chips">
+                        {[0.5, 2, 3, 5].map((m) => (
+                            <button key={m} className="chip"
+                                onClick={() => setTarget(String(recipe.yield_amount * m))}>×{m}</button>
+                        ))}
+                    </div>
                 </div>
             )}
-        </CalcCard>
+            <table className="ing-table">
+                <tbody>
+                    {recipe.ingredients.map((row, i) => {
+                        const amt = n(row.amount);
+                        const scaled = amt != null && factor ? amt * factor : amt;
+                        return (
+                            <tr key={i}>
+                                <td className="ing-amt">
+                                    {scaled != null ? (scaled % 1 === 0 ? scaled : scaled.toFixed(2)) : row.amount}{row.unit}
+                                </td>
+                                <td>{row.name}</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
     );
 }
 
@@ -1112,7 +1123,7 @@ function GrainVolume() {
     );
 }
 
-function Calculators({ recipes }) {
+function Calculators() {
     return (
         <div className="page">
             <div className="bar">
@@ -1126,7 +1137,6 @@ function Calculators({ recipes }) {
                 <Hydration />
                 <BECalc />
                 <DryYield />
-                <MediaScaler recipes={recipes} />
                 <UnitConverter />
                 <GrainVolume />
             </div>
@@ -1504,6 +1514,7 @@ function ProcessForm({ sourceLot, sourceRemaining, available, remaining, onSubmi
 /* ---------------- LIBRARY / RECIPES ---------------- */
 
 const KINDS = { note: 'Written note', link: 'Link', video: 'Video', pdf: 'PDF (linked)', recipe: 'Recipe' };
+const RECIPE_CATEGORIES = ['Agar media', 'LC media', 'Grain spawn', 'Bulk substrate', 'Nutrient broth', 'Casing mix', 'Extraction', 'Capsule blend', 'Other'];
 const SUPPLIER_RATING = {
     trusted: { label: 'Trusted', tone: 'jade' },
     mixed: { label: 'Mixed', tone: 'amber' },
@@ -1710,10 +1721,18 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
 function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty }) {
     const recipes = mode === 'recipes';
     const [tab, setTab] = useState('entries');
-    const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '' };
+    const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
+        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [] };
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(null);
+
+    /* Every ingredient name already used anywhere in Recipes, so typing one
+       in offers the browser's native autocomplete instead of retyping it
+       fresh - and keeps spelling consistent across recipes over time. */
+    const knownIngredients = [...new Set(
+        entries.flatMap((e) => e.ingredients?.map((row) => row.name?.trim()).filter(Boolean) ?? [])
+    )].sort();
 
     const submit = () => {
         if (!f.title.trim()) return;
@@ -1775,12 +1794,59 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                         <div className="nf-field wide"><label>Link (optional)</label>
                             <input className="in" value={f.url} placeholder="https://…"
                                 onChange={(e) => setF({ ...f, url: e.target.value })} /></div>
-                        <div className="nf-field wide"><label>{recipes ? 'Ingredients and method' : 'The actual content'}</label>
+
+                        {recipes ? (
+                            <>
+                                <div className="nf-field"><label>Category</label>
+                                    <select className="in sel" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
+                                        <option value="">— pick one —</option>
+                                        {RECIPE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                                    </select></div>
+                                <div className="nf-field"><label>This recipe makes (finished liquid, not jar size)</label>
+                                    <div className="calc-row2">
+                                        <input className="in" inputMode="decimal" value={f.yield_amount} placeholder="e.g. 175"
+                                            onChange={(e) => setF({ ...f, yield_amount: e.target.value })} />
+                                        <select className="in sel" value={f.yield_unit} onChange={(e) => setF({ ...f, yield_unit: e.target.value })}>
+                                            {[...Object.keys(VOLUME), ...Object.keys(MASS)].map((u) => <option key={u} value={u}>{u}</option>)}
+                                        </select>
+                                    </div></div>
+
+                                <div className="nf-field wide">
+                                    <label>Ingredients, at that batch size</label>
+                                    <div className="ing-rows">
+                                        {f.ingredients.map((row, i) => (
+                                            <div key={i} className="ing-row">
+                                                <input className="in sm" inputMode="decimal" value={row.amount} placeholder="amt"
+                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r) })} />
+                                                <select className="in sel ing-unit" value={row.unit}
+                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, unit: e.target.value } : r) })}>
+                                                    <option value="">count</option>
+                                                    {[...Object.keys(VOLUME), ...Object.keys(MASS)].map((u) => <option key={u} value={u}>{u}</option>)}
+                                                </select>
+                                                <input className="in" value={row.name} placeholder="ingredient" list="ingredient-names"
+                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, name: e.target.value } : r) })} />
+                                                <button className="log-x" onClick={() => setF({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) })}>×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button className="mini ghost" style={{ marginTop: 7 }}
+                                        onClick={() => setF({ ...f, ingredients: [...f.ingredients, { amount: '', unit: '', name: '' }] })}>+ Add ingredient</button>
+                                    <datalist id="ingredient-names">
+                                        {knownIngredients.map((name) => <option key={name} value={name} />)}
+                                    </datalist>
+                                </div>
+
+                                <div className="nf-field wide"><label>Method / notes</label>
+                                    <textarea className="in ta" rows="6" value={f.body}
+                                        placeholder="Instant Pot Mini, 30 min at max pressure. Pours brown and translucent."
+                                        onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
+                            </>
+                        ) : (
+                        <div className="nf-field wide"><label>The actual content</label>
                             <textarea className="in ta" rows="10" value={f.body}
-                                placeholder={recipes
-                                    ? '175 mL water\n3.5 g agar-agar\n3.5 g DME\n\nInstant Pot Mini, 30 min at max pressure.'
-                                    : 'Paste the text from your printed sheet here so it is searchable and on your phone.'}
+                                placeholder="Paste the text from your printed sheet here so it is searchable and on your phone."
                                 onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
+                        )}
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={submit}>Save</button>
@@ -1813,6 +1879,8 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                                     <div className="lib-title">{e.title}</div>
                                     <div className="lib-meta">
                                         {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
+                                        {recipes && e.category && <span className="lib-kind">{e.category}</span>}
+                                        {recipes && e.yield_amount && <span className="lib-kind">makes {e.yield_amount}{e.yield_unit}</span>}
                                         {sp && <span className="lib-sp">{sp.common_name}</span>}
                                     </div>
                                 </div>
@@ -1821,10 +1889,15 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                             {isOpen && (
                                 <div className="lib-body">
                                     {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
+                                    {recipes && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
                                     {e.body && <pre className="lib-text">{e.body}</pre>}
-                                    {!e.url && !e.body && <p className="notes empty-note">No content saved.</p>}
+                                    {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
                                     <button className="mini ghost" onClick={() => {
-                                        setF({ title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '' });
+                                        setF({
+                                            title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
+                                            category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
+                                            ingredients: e.ingredients ?? [],
+                                        });
                                         setForm(e.id);
                                     }}>Edit</button>
                                 </div>
@@ -2798,6 +2871,11 @@ const CSS = `
 }
 
 .lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
+.recipe-scale{margin-bottom:4px;}
+.rs-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:11px;padding-bottom:11px;border-bottom:1px solid var(--line);}
+.rs-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
+.rs-row .in.sm{width:70px;}
+.rs-unit{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-right:4px;}
 .lib-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:border-color .15s;}
 .lib-card:hover{border-color:#3E4A55;}
 .lib-card.open{border-color:var(--amber);}
@@ -2810,6 +2888,14 @@ const CSS = `
 .lib-body{padding:0 16px 16px;border-top:1px solid var(--line);padding-top:14px;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:#C9C4BA;}
+.ing-rows{display:flex;flex-direction:column;gap:6px;}
+.ing-row{display:flex;gap:6px;align-items:center;}
+.ing-row .in.sm{width:64px;flex:0 0 auto;}
+.ing-unit{width:72px;flex:0 0 auto;font-family:var(--mono);font-size:11.5px;}
+.ing-table{border-collapse:collapse;margin-bottom:13px;}
+.ing-table td{padding:3px 0;font-size:12.5px;border-bottom:1px solid var(--line);}
+.ing-table td:last-child{border-bottom:none;}
+.ing-amt{font-family:var(--mono);color:var(--amber);padding-right:14px;white-space:nowrap;}
 
 .tabs{display:flex;flex-wrap:wrap;row-gap:8px;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
 .tab{background:none;border:none;padding:9px 4px;margin-right:18px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;}
