@@ -17,10 +17,28 @@ export default function AuthGate({ children }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
-    return () => sub.subscription.unsubscribe()
-  }, [])
+    /* If this hangs or fails - flaky connection, stale token, Supabase
+       briefly unreachable - fall back to the sign-in screen instead of
+       leaving the app stuck on a bare colored div forever with no error
+       and no way out. */
+    const timeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), 8000));
+    Promise.race([supabase.auth.getSession(), timeout])
+      .then((result) => {
+        if (result === 'timeout') {
+          console.error('Session check timed out after 8s');
+          setSession(null);
+        } else {
+          setSession(result.data.session);
+        }
+      })
+      .catch((ex) => {
+        console.error('Session check failed', ex);
+        setSession(null);
+      });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault()
