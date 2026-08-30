@@ -993,6 +993,58 @@ function RecipeIngredients({ recipe }) {
     );
 }
 
+/* Capsule blends scale differently from lab media: the per-capsule dose is
+   FIXED regardless of batch size (a capsule holds what it holds) - what
+   scales is the total weight to weigh out, driven by capsule count and a
+   spillage buffer. Genuinely different math from RecipeIngredients above,
+   not a variant of it. */
+function CapsuleBlendCard({ recipe, species }) {
+    const [count, setCount] = useState(recipe.yield_amount != null ? String(recipe.yield_amount) : '');
+    const c = n(count);
+    const buffer = n(recipe.buffer_pct) || 0;
+    const multiplier = c ? c * (1 + buffer / 100) : null;
+    const totalPerCapsule = recipe.ingredients.reduce((s, r) => s + (n(r.mg) || 0), 0);
+
+    return (
+        <div className="recipe-scale">
+            <div className="rs-row">
+                <span className="rs-label">Capsule count</span>
+                <input className="in sm" inputMode="numeric" value={count}
+                    onChange={(e) => setCount(e.target.value)} />
+                {buffer > 0 && <span className="rs-unit">+{buffer}% buffer</span>}
+                <div className="chips">
+                    {[100, 200, 300].map((m) => (
+                        <button key={m} className="chip" onClick={() => setCount(String(m))}>{m}</button>
+                    ))}
+                </div>
+            </div>
+            <table className="ing-table">
+                <thead>
+                    <tr><th></th><th>mg / capsule</th><th>total to weigh</th></tr>
+                </thead>
+                <tbody>
+                    {recipe.ingredients.map((row, i) => {
+                        const sp = species.find((s) => s.id === row.species_id);
+                        const mg = n(row.mg);
+                        const totalMg = mg != null && multiplier ? mg * multiplier : null;
+                        const totalG = totalMg != null ? totalMg / 1000 : null;
+                        return (
+                            <tr key={i}>
+                                <td>{sp?.common_name ?? 'Unknown species'}</td>
+                                <td className="ing-amt">{mg}mg</td>
+                                <td className="ing-amt">{totalG != null ? (totalG % 1 === 0 ? totalG : totalG.toFixed(2)) : '—'}g</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+            <p className={`calc-note ${totalPerCapsule > 500 ? 'over-limit' : ''}`} style={{ marginTop: 8 }}>
+                {totalPerCapsule}mg per capsule{totalPerCapsule > 500 ? ' — over a standard 500mg 00 capsule fill' : ' — fits a standard 500mg 00 capsule'}
+            </p>
+        </div>
+    );
+}
+
 /* Straight mass/volume conversions are exact. Grain-by-volume is not a real
    unit - it's mass divided by an approximate density, so it's kept separate
    and clearly labeled as approximate rather than folded into the same table. */
@@ -1734,7 +1786,7 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
     const recipes = mode === 'recipes';
     const [tab, setTab] = useState('entries');
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
-        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [] };
+        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '' };
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(null);
@@ -1765,7 +1817,9 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                         <div className="lib-title">{e.title}</div>
                         <div className="lib-meta">
                             {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
-                            {recipes && e.yield_amount && <span className="lib-kind">makes {e.yield_amount}{e.yield_unit}</span>}
+                            {recipes && e.yield_amount && <span className="lib-kind">
+                                {e.category === 'Capsule blend' ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
+                            </span>}
                             {sp && <span className="lib-sp">{sp.common_name}</span>}
                         </div>
                     </div>
@@ -1774,14 +1828,17 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                 {isOpen && (
                     <div className="lib-body">
                         {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
-                        {recipes && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                        {recipes && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
+                            <CapsuleBlendCard recipe={e} species={species} />
+                        )}
+                        {recipes && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
                         {e.body && <pre className="lib-text">{e.body}</pre>}
                         {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
                         <button className="mini ghost" onClick={() => {
                             setF({
                                 title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
                                 category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
-                                ingredients: e.ingredients ?? [],
+                                ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '',
                             });
                             setForm(e.id);
                         }}>Edit</button>
@@ -1848,7 +1905,14 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                         {recipes ? (
                             <>
                                 <div className="nf-field"><label>Category</label>
-                                    <select className="in sel" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
+                                    <select className="in sel" value={f.category} onChange={(e) => {
+                                        const wasCapsule = f.category === 'Capsule blend';
+                                        const isCapsule = e.target.value === 'Capsule blend';
+                                        /* The two ingredient shapes ({amount,unit,name} vs {species_id,mg})
+                                           aren't compatible - clear rows when crossing that line so a
+                                           half-filled row from one shape can't leak into the other. */
+                                        setF({ ...f, category: e.target.value, ingredients: wasCapsule !== isCapsule ? [] : f.ingredients });
+                                    }}>
                                         <option value="">— pick one —</option>
                                         {RECIPE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                                     </select></div>
@@ -2913,6 +2977,9 @@ const CSS = `
 .ing-table td{padding:3px 0;font-size:12.5px;border-bottom:1px solid var(--line);}
 .ing-table td:last-child{border-bottom:none;}
 .ing-amt{font-family:var(--mono);color:var(--amber);padding-right:14px;white-space:nowrap;}
+.ing-unit-label{font-family:var(--mono);font-size:10px;color:var(--dim);flex:0 0 auto;}
+.ing-table th{text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:400;padding-bottom:5px;}
+.calc-note.over-limit{color:var(--rust);}
 
 .tabs{display:flex;flex-wrap:wrap;row-gap:8px;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
 .tab{background:none;border:none;padding:9px 4px;margin-right:18px;color:var(--ink-dim);font-size:13px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;}
