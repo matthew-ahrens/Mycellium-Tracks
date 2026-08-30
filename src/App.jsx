@@ -362,6 +362,7 @@ export default function App() {
             yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
+            buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setLibrary((p) => [...p, data]);
@@ -378,6 +379,7 @@ export default function App() {
             yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
+            buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
         };
         const { error } = await supabase.from('library').update(cols).eq('id', entryId);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -1850,39 +1852,82 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
                                         <option value="">— pick one —</option>
                                         {RECIPE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                                     </select></div>
-                                <div className="nf-field"><label>This recipe makes (finished liquid, not jar size)</label>
-                                    <div className="calc-row2">
-                                        <input className="in" inputMode="decimal" value={f.yield_amount} placeholder="e.g. 175"
-                                            onChange={(e) => setF({ ...f, yield_amount: e.target.value })} />
-                                        <select className="in sel" value={f.yield_unit} onChange={(e) => setF({ ...f, yield_unit: e.target.value })}>
-                                            {[...Object.keys(VOLUME), ...Object.keys(MASS)].map((u) => <option key={u} value={u}>{u}</option>)}
-                                        </select>
-                                    </div></div>
 
-                                <div className="nf-field wide">
-                                    <label>Ingredients, at that batch size</label>
-                                    <div className="ing-rows">
-                                        {f.ingredients.map((row, i) => (
-                                            <div key={i} className="ing-row">
-                                                <input className="in sm" inputMode="decimal" value={row.amount} placeholder="amt"
-                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r) })} />
-                                                <select className="in sel ing-unit" value={row.unit}
-                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, unit: e.target.value } : r) })}>
-                                                    <option value="">count</option>
+                                {f.category === 'Capsule blend' ? (
+                                    <>
+                                        <div className="nf-field"><label>Capsule count</label>
+                                            <input className="in" inputMode="numeric" value={f.yield_amount} placeholder="e.g. 100"
+                                                onChange={(e) => setF({ ...f, yield_amount: e.target.value, yield_unit: 'capsules' })} /></div>
+                                        <div className="nf-field"><label>Buffer (spillage margin, %)</label>
+                                            <input className="in" inputMode="decimal" value={f.buffer_pct} placeholder="e.g. 3"
+                                                onChange={(e) => setF({ ...f, buffer_pct: e.target.value })} /></div>
+
+                                        <div className="nf-field wide">
+                                            <label>Species, dose per capsule</label>
+                                            <div className="ing-rows">
+                                                {f.ingredients.map((row, i) => (
+                                                    <div key={i} className="ing-row">
+                                                        <select className="in sel" style={{ flex: 1 }} value={row.species_id ?? ''}
+                                                            onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, species_id: e.target.value } : r) })}>
+                                                            <option value="">— pick species —</option>
+                                                            {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                                                        </select>
+                                                        <input className="in sm" inputMode="decimal" value={row.mg ?? ''} placeholder="mg"
+                                                            onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, mg: e.target.value } : r) })} />
+                                                        <span className="ing-unit-label">mg/cap</span>
+                                                        <button className="log-x" onClick={() => setF({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) })}>×</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <button className="mini ghost" style={{ marginTop: 7 }}
+                                                onClick={() => setF({ ...f, ingredients: [...f.ingredients, { species_id: '', mg: '' }] })}>+ Add species</button>
+                                            {f.ingredients.length > 0 && (() => {
+                                                const total = f.ingredients.reduce((s, r) => s + (parseFloat(r.mg) || 0), 0);
+                                                return (
+                                                    <p className={`calc-note ${total > 500 ? 'over-limit' : ''}`} style={{ marginTop: 8 }}>
+                                                        {total}mg per capsule{total > 500 ? ' — over a standard 500mg 00 capsule fill' : total > 0 ? ' — fits a standard 500mg 00 capsule' : ''}
+                                                    </p>
+                                                );
+                                            })()}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="nf-field"><label>This recipe makes (finished liquid, not jar size)</label>
+                                            <div className="calc-row2">
+                                                <input className="in" inputMode="decimal" value={f.yield_amount} placeholder="e.g. 175"
+                                                    onChange={(e) => setF({ ...f, yield_amount: e.target.value })} />
+                                                <select className="in sel" value={f.yield_unit} onChange={(e) => setF({ ...f, yield_unit: e.target.value })}>
                                                     {[...Object.keys(VOLUME), ...Object.keys(MASS)].map((u) => <option key={u} value={u}>{u}</option>)}
                                                 </select>
-                                                <input className="in" value={row.name} placeholder="ingredient" list="ingredient-names"
-                                                    onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, name: e.target.value } : r) })} />
-                                                <button className="log-x" onClick={() => setF({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) })}>×</button>
+                                            </div></div>
+
+                                        <div className="nf-field wide">
+                                            <label>Ingredients, at that batch size</label>
+                                            <div className="ing-rows">
+                                                {f.ingredients.map((row, i) => (
+                                                    <div key={i} className="ing-row">
+                                                        <input className="in sm" inputMode="decimal" value={row.amount} placeholder="amt"
+                                                            onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r) })} />
+                                                        <select className="in sel ing-unit" value={row.unit}
+                                                            onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, unit: e.target.value } : r) })}>
+                                                            <option value="">count</option>
+                                                            {[...Object.keys(VOLUME), ...Object.keys(MASS)].map((u) => <option key={u} value={u}>{u}</option>)}
+                                                        </select>
+                                                        <input className="in" value={row.name} placeholder="ingredient" list="ingredient-names"
+                                                            onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, name: e.target.value } : r) })} />
+                                                        <button className="log-x" onClick={() => setF({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) })}>×</button>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        ))}
-                                    </div>
-                                    <button className="mini ghost" style={{ marginTop: 7 }}
-                                        onClick={() => setF({ ...f, ingredients: [...f.ingredients, { amount: '', unit: '', name: '' }] })}>+ Add ingredient</button>
-                                    <datalist id="ingredient-names">
-                                        {knownIngredients.map((name) => <option key={name} value={name} />)}
-                                    </datalist>
-                                </div>
+                                            <button className="mini ghost" style={{ marginTop: 7 }}
+                                                onClick={() => setF({ ...f, ingredients: [...f.ingredients, { amount: '', unit: '', name: '' }] })}>+ Add ingredient</button>
+                                            <datalist id="ingredient-names">
+                                                {knownIngredients.map((name) => <option key={name} value={name} />)}
+                                            </datalist>
+                                        </div>
+                                    </>
+                                )}
 
                                 <div className="nf-field wide"><label>Method / notes</label>
                                     <textarea className="in ta" rows="6" value={f.body}
