@@ -54,6 +54,20 @@ Recipes (structured ingredient rows — amount/unit/name, not free text —
 with a live batch-size scaler right on the card: type a target or tap a
 ×2/×3/×5 chip and every ingredient recomputes in place. Ingredient names
 autocomplete from ones already used elsewhere, via a native datalist).
+Recipe library also covers agar media, LC media, grain spawn, bulk
+substrate, casing mixes, and nutrient broth — populated with real recipes,
+not just the original handful.
+
+**Capsule blends** — a distinct recipe category with its own math, since
+a capsule's per-dose amount is fixed regardless of batch size (unlike
+lab media, which scales linearly). Each ingredient is a species picked
+from the real species list plus a dose in mg/capsule, not free text.
+Batch size is capsule count, with an optional spillage buffer %. The
+open card shows total mg/capsule against a 500mg 00-capsule reference,
+and a live table of how much of each species to actually weigh out for
+N capsules. Switching a recipe's category to/from "Capsule blend" clears
+ingredient rows, since the two shapes ({amount,unit,name} vs
+{species_id,mg}) aren't compatible with each other.
 
 **Photos** — upload from item pages, equipment, or standalone via Gallery.
 Species filter in Gallery. Native camera-or-library chooser (no forced
@@ -137,8 +151,38 @@ defined anywhere — those pills were rendering colorless. Now defined
   Once that exists, QR generation itself is small — a library and an hour.
 - **Search** across items/lots/library — fine at current scale, won't stay
   fine.
-- **Recipe scaler** only parses lines shaped like "175 mL water" — a
-  differently-formatted saved recipe won't scale.
+- **Capsule blend card reported as "not displaying"** (2026-08-30) - data
+  confirmed correct in the DB (right species, right mg doses, right capsule
+  count) but Matt says the scaling table isn't showing. Not yet root-caused
+  - could be a real render bug in `CapsuleBlendCard`, or a UX mismatch
+  (expecting a live preview while still filling out the add/edit form,
+  which doesn't exist - the table currently only appears after saving and
+  reopening the card). Next session: confirm which, with an actual
+  screenshot rather than guessing further.
+
+## From today's notes (2026-08-30) - not yet addressed
+
+- **Unused sterile media log.** Somewhere to track agar plates / LC jars
+  that are made and sitting ready, but not yet inoculated into anything -
+  tagged to which recipe made them. Distinct from `items` (which are
+  inoculated cultures in the lineage tree) and `lots` (harvested material).
+  Real, well-scoped feature, not yet designed.
+- **Species/strain templates for fast setup.** A quick-add path for common
+  species (e.g. "Lion's Mane" with sensible defaults pre-filled) instead of
+  the full add-species form every time. Explicitly framed around a future
+  public version of the app, where this would save new growers real time.
+- **Tiered pricing idea** (mentioned alongside the templates note): a
+  simpler free/basic tier for newer growers, a paid tier unlocking the
+  full advanced toolset. Business-model note, not a build task - logged so
+  it isn't lost, nothing to design yet.
+- **Native desktop app + customer-facing website + eventual App Store
+  distribution, subscription-based.** The big one. Not a feature request -
+  a question of whether the whole foundation should change. Right now this
+  is one person's data with no user separation at all (see "Single-user
+  app" under Rules, above); a real multi-customer product needs actual
+  per-user data isolation, which is a different database design, not a
+  setting to flip. Flagged as needing its own dedicated conversation before
+  any code gets written toward it - that conversation hasn't happened yet.
 
 ## Running it
 
