@@ -1373,7 +1373,13 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                         <button className="mini ghost" disabled={rem <= LOT_EPS} onClick={() => setLosing(true)}>Log eaten, given away, sampled, or lost</button>
                     ) : (
                         <div className="field-form">
-                            <NumField label="Amount" value={lossAmt} onChange={setLossAmt} placeholder="e.g. 5" unit="g" />
+                            <div className="edit-row">
+                                <NumField label="Amount" value={lossAmt} onChange={setLossAmt} placeholder="e.g. 5" unit="g" />
+                                <button className="chip" style={{ marginTop: 18 }}
+                                    onClick={() => setLossAmt(String(rem))}>
+                                    All ({rem % 1 === 0 ? rem : rem.toFixed(1)}g)
+                                </button>
+                            </div>
                             <label style={{ marginTop: 4 }}>What happened to it</label>
                             <div className="chips">
                                 {['Cooked & eaten', 'Given away', 'Sample / taste test', 'Spilled', 'Other'].map((r) => (
@@ -3056,16 +3062,14 @@ const CSS = `
 .log li:hover .log-x,.tbl tr:hover .log-x{opacity:1;}
 .log-x:hover{color:var(--amber);}
 .log-x:focus-visible{opacity:1;outline:2px solid var(--amber);outline-offset:2px;}
-.mini.danger{background:none;color:var(--rust);border-color:var(--border-warm);margin-left:auto;}
+.mini.danger{background:var(--panel2);color:var(--rust);border-color:var(--border-warm);margin-left:auto;}
 .mini.danger:hover{color:var(--clay);border-color:var(--rust);}
 .x-cell{width:34px;text-align:right;padding-left:6px;}
 .edit-row{display:flex;gap:6px;align-items:center;width:100%;padding:4px 0;}
 .edit-row.wrap{flex-wrap:wrap;}
 .in.sm{flex:0 0 auto;width:auto;padding:6px 9px;font-size:11.5px;font-family:var(--mono);color-scheme:dark;}
-.mini.ghost{background:none;color:var(--dim);}
-.mini.ghost:hover{color:var(--bone);border-color:var(--line);}
-.field-form .mini.ghost,.head-edit .mini.ghost,.tbl .mini.ghost{color:var(--ink-dim);}
-.field-form .mini.ghost:hover,.head-edit .mini.ghost:hover,.tbl .mini.ghost:hover{color:var(--ink);border-color:var(--line);}
+.mini.ghost{background:var(--panel2);border-color:var(--line);color:var(--dim);}
+.mini.ghost:hover{color:var(--bone);border-color:var(--border-warm);}
 .log li.editing{padding:2px 0;}
 
 .inv-totals{display:flex;flex-wrap:wrap;gap:22px;margin:20px 0 8px;}
