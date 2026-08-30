@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient'
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
 /* ================= DATA ================= */
 
@@ -345,6 +345,12 @@ export default function App() {
         setSpecies((p) => p.map((s) => (s.id === speciesId ? { ...s, ...cols } : s)));
     };
 
+    const toggleSpeciesHidden = async (speciesId, hidden) => {
+        const { error } = await supabase.from('species').update({ hidden }).eq('id', speciesId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setSpecies((p) => p.map((s) => (s.id === speciesId ? { ...s, hidden } : s)));
+    };
+
     const addLibrary = async (fields) => {
         const { data, error } = await supabase.from('library').insert({
             species_id: fields.species_id || null,
@@ -431,6 +437,7 @@ export default function App() {
             category: fields.category?.trim() || null,
             rating: fields.rating || 'unproven',
             notes: fields.notes?.trim() || null,
+            website: fields.website?.trim() || null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setSuppliers((p) => [...p, data]);
@@ -442,6 +449,7 @@ export default function App() {
             category: fields.category?.trim() || null,
             rating: fields.rating,
             notes: fields.notes?.trim() || null,
+            website: fields.website?.trim() || null,
         };
         const { error } = await supabase.from('suppliers').update(cols).eq('id', id);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -723,9 +731,9 @@ export default function App() {
         screen = <Calculators />;
     } else if (open) {
         key = 'detail-' + open;
-        screen = <Detail items={mine} id={open} culture={openCulture} species={sp}
+        screen = <Detail items={mine} id={open} culture={openCulture}
             onBack={() => { setDir('back'); setOpen(null); }}
-            onOpen={setOpen} update={update} addChild={addChild} saveStatus={saveStatus}
+            onOpen={setOpen} addChild={addChild} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem}
@@ -734,7 +742,7 @@ export default function App() {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos}
             onAddLine={(fields, firstType) => addGenetics(nav.speciesId, fields, firstType)}
-            onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields}
+            onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
     } else {
         key = 'species';
@@ -772,15 +780,6 @@ export default function App() {
                     <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
                 </main>
             </div>
-        </div>
-    );
-}
-
-function Placeholder({ title, body }) {
-    return (
-        <div className="page">
-            <div className="bar"><div><h1>{title}</h1></div></div>
-            <p className="nf-help" style={{ marginTop: 16 }}>{body}</p>
         </div>
     );
 }
@@ -918,7 +917,7 @@ function BECalc() {
     );
 }
 
-function DryYield({ species }) {
+function DryYield() {
     const [wet, setWet] = useState('');
     const [sp, setSp] = useState('Blue Oyster');
     const w = n(wet);
@@ -1386,8 +1385,9 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                             <div className="edit-row">
                                 <button className="mini" onClick={() => {
                                     const g = n(lossAmt);
-                                    if (!g || g > rem) return;
-                                    onLoss(lotId, g, lossReason.trim());
+                                    if (!g) { alert('Enter an amount.'); return; }
+                                    if (g > rem + LOT_EPS) { alert(`Only ${rem % 1 === 0 ? rem : rem.toFixed(1)}g remaining.`); return; }
+                                    onLoss(lotId, Math.min(g, rem), lossReason.trim());
                                     setLosing(false); setLossAmt(''); setLossReason('');
                                 }}>Save</button>
                                 <button className="mini ghost" onClick={() => setLosing(false)}>Cancel</button>
@@ -1523,7 +1523,7 @@ const SUPPLIER_RATING = {
 };
 
 function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
-    const blank = { name: '', category: '', rating: 'unproven', notes: '' };
+    const blank = { name: '', category: '', rating: 'unproven', notes: '', website: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
 
@@ -1553,6 +1553,9 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
                         <div className="nf-field wide"><label>What you buy from them</label>
                             <input className="in" value={f.category} placeholder="Fruiting blocks, LC, grain…"
                                 onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Website (optional)</label>
+                            <input className="in" value={f.website} placeholder="https://…"
+                                onChange={(e) => setF({ ...f, website: e.target.value })} /></div>
                         <div className="nf-field"><label>Rating</label>
                             <select className="in sel" value={f.rating} onChange={(e) => setF({ ...f, rating: e.target.value })}>
                                 {Object.keys(SUPPLIER_RATING).map((r) => <option key={r} value={r}>{SUPPLIER_RATING[r].label}</option>)}
@@ -1581,7 +1584,7 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
                     return (
                         <div key={s.id} className="lib-card">
                             <button className="lib-head" onClick={() => {
-                                setF({ name: s.name, category: s.category ?? '', rating: s.rating, notes: s.notes ?? '' });
+                                setF({ name: s.name, category: s.category ?? '', rating: s.rating, notes: s.notes ?? '', website: s.website ?? '' });
                                 setForm(isOpen ? null : s.id);
                             }}>
                                 <div>
@@ -1592,9 +1595,10 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
                                 </div>
                                 <span className={`pill tone-${r.tone}`}>{r.label}</span>
                             </button>
-                            {s.notes && !isOpen && (
+                            {!isOpen && (s.website || s.notes) && (
                                 <div className="lib-body" style={{ paddingTop: 0, borderTop: 'none' }}>
-                                    <p className="notes" style={{ fontSize: 12 }}>{s.notes}</p>
+                                    {s.website && <a className="lib-link" href={s.website} target="_blank" rel="noreferrer">{s.website}</a>}
+                                    {s.notes && <p className="notes" style={{ fontSize: 12 }}>{s.notes}</p>}
                                 </div>
                             )}
                         </div>
@@ -1869,7 +1873,7 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
             )}
 
             <div className="lib-list">
-                {entries.map((e) => {
+                {(recipes ? [...entries].sort((a, b) => a.title.localeCompare(b.title)) : entries).map((e) => {
                     const sp = species.find((s) => s.id === e.species_id);
                     const isOpen = openId === e.id;
                     return (
@@ -1912,54 +1916,15 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
     );
 }
 
-/* ---------------- MINI BRANCH GLYPH ---------------- */
-
-function MiniTree({ nodes }) {
-    const W = 74, H = 38, pad = 7;
-    if (!nodes.length) return <svg width={W} height={H} />;
-    const maxD = Math.max(1, ...nodes.map((n) => n.depth));
-    const step = (W - pad * 2) / Math.max(1, maxD);
-    const byDepth = {};
-    nodes.forEach((n) => { (byDepth[n.depth] ||= []).push(n); });
-    const pos = {};
-    nodes.forEach((n) => {
-        const row = byDepth[n.depth];
-        const i = row.indexOf(n);
-        const y = row.length === 1 ? H / 2 : pad + ((H - pad * 2) * i) / (row.length - 1);
-        pos[n.item.id] = { x: pad + n.depth * step, y };
-    });
-    return (
-        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-            {nodes.map((n) => {
-                const p = n.item.parent && pos[n.item.parent];
-                if (!p) return null;
-                const c = pos[n.item.id];
-                return <path key={'e' + n.item.id} className="mini-edge"
-                    d={`M${p.x} ${p.y} C ${(p.x + c.x) / 2} ${p.y}, ${(p.x + c.x) / 2} ${c.y}, ${c.x} ${c.y}`} />;
-            })}
-            {nodes.map((n) => {
-                const c = pos[n.item.id];
-                const live = STATUS[n.item.status].live;
-                return <circle key={n.item.id} cx={c.x} cy={c.y} r={live ? 3.2 : 2.3}
-                    fill={TONE[STATUS[n.item.status].tone]} opacity={live ? 1 : .55} />;
-            })}
-        </svg>
-    );
-}
-
-function branchOf(items, geneticsId) {
-    const mine = items.filter((i) => i.geneticsId === geneticsId);
-    const kids = (id) => mine.filter((i) => i.parent === id);
-    const walk = (n, d) => [{ item: n, depth: d }, ...kids(n.id).flatMap((k) => walk(k, d + 1))];
-    return mine.filter((i) => !i.parent).flatMap((r) => walk(r, 0));
-}
-
 /* ---------------- SPECIES GRID ---------------- */
 
 function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
     const live = items.filter((i) => STATUS[i.status].live).length;
     const [adding, setAdding] = useState(false);
+    const [showHidden, setShowHidden] = useState(false);
     const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", notes: "" });
+    const hiddenCount = species.filter((s) => s.hidden).length;
+    const visible = showHidden ? species : species.filter((s) => !s.hidden);
 
     const submit = async () => {
         if (!f.common_name.trim()) return;
@@ -1975,7 +1940,14 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
                     <div className="eyebrow">Cultures on the shelf</div>
                     <h1>Species</h1>
                 </div>
-                <div className="tally"><span className="num">{live}</span><span className="tally-l">live<br />items</span></div>
+                <div className="bar-actions">
+                    {hiddenCount > 0 && (
+                        <button className="sw" onClick={() => setShowHidden((v) => !v)}>
+                            {showHidden ? 'Hide hidden species' : `Show hidden species (${hiddenCount})`}
+                        </button>
+                    )}
+                    <div className="tally"><span className="num">{live}</span><span className="tally-l">live<br />items</span></div>
+                </div>
             </div>
 
             {adding && (
@@ -2023,18 +1995,18 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
             )}
 
             <div className="grid">
-                {species.map((s) => {
+                {visible.map((s) => {
                     const lines = genetics.filter((g) => g.species_id === s.id);
                     const ids = lines.map((g) => g.id);
                     const mine = items.filter((i) => ids.includes(i.geneticsId));
                     const liveN = mine.filter((i) => STATUS[i.status].live).length;
                     return (
-                        <button key={s.id} className="tile" onClick={() => onOpen(s.id)}>
+                        <button key={s.id} className="tile" onClick={() => onOpen(s.id)} style={s.hidden ? { opacity: .55 } : undefined}>
                             <div className="tile-name">{s.common_name}</div>
                             <div className="tile-latin">{s.latin_name}</div>
                             <div className="tile-foot">
                                 <span className="src">{lines.length} {lines.length === 1 ? 'line' : 'lines'}</span>
-                                <span className={liveN ? 'live-c' : 'dormant'}>{liveN ? `${liveN} live` : 'dormant'}</span>
+                                <span className={liveN ? 'live-c' : 'dormant'}>{s.hidden ? 'hidden' : liveN ? `${liveN} live` : 'dormant'}</span>
                             </div>
                         </button>
                     );
@@ -2050,49 +2022,9 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
     );
 }
 
-/* ---------------- GENETICS GRID ---------------- */
-
-function GeneticsGrid({ species, genetics, items, onOpen, onBack }) {
-    return (
-        <div className="page">
-            <button className="back" onClick={onBack}>← Species</button>
-            <div className="bar">
-                <div>
-                    <div className="eyebrow">{species?.latin_name}</div>
-                    <h1>{species?.common_name}</h1>
-                </div>
-            </div>
-
-            {species?.notes && <p className="spec-note">{species.notes}</p>}
-
-            <div className="grid">
-                {genetics.map((g) => {
-                    const nodes = branchOf(items, g.id);
-                    const liveN = nodes.filter((n) => STATUS[n.item.status].live).length;
-                    return (
-                        <button key={g.id} className="tile" onClick={() => onOpen(g.id)}>
-                            <div className="tile-top">
-                                <div>
-                                    <div className="tile-name">{g.name}</div>
-                                    <div className="tile-latin">{g.code}</div>
-                                </div>
-                                <MiniTree nodes={nodes} />
-                            </div>
-                            <div className="tile-foot">
-                                <span className="src">{g.source}</span>
-                                <span className={liveN ? 'live-c' : 'dormant'}>{liveN ? `${liveN} live` : 'dormant'}</span>
-                            </div>
-                        </button>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
-
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, photos }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [addingLine, setAddingLine] = useState(false);
@@ -2189,8 +2121,12 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     }}>✎ Species</button>
                     <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
                     <button className="sw" onClick={fit}>Fit</button>
+                    <button className="sw" onClick={() => onToggleHidden(species.id, !species.hidden)}>
+                        {species?.hidden ? 'Unhide' : 'Hide'}
+                    </button>
                 </div>
             </div>
+            {species?.hidden && <p className="spec-note">Hidden from the species list - visible here until you unhide it.</p>}
 
             <div className="line-strip">
                 {lines.map((g) => (
@@ -2363,7 +2299,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, species, onBack, onOpen, update, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, photos, photoUrl, addPhoto, deletePhoto }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, photos, photoUrl, addPhoto, deletePhoto }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [note, setNote] = useState("");
@@ -2483,7 +2419,7 @@ function Detail({ items, id, culture, species, onBack, onOpen, update, addChild,
                 ) : (
                     <div className="picker">
                         <span className="pk-l">Into what?</span>
-                        {["agar", "lc", "grain", "bulk"].map((t) => (
+                        {["agar", "lc", "grain", "bulk", "block"].map((t) => (
                             <button key={t} className="chip go" onClick={() => { addChild(id, t); setPicking(false); }}>{TYPES[t]}</button>
                         ))}
                         <button className="chip" onClick={() => setPicking(false)}>Cancel</button>
@@ -2902,7 +2838,7 @@ const CSS = `
 .tabs{display:flex;flex-wrap:wrap;row-gap:8px;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);}
 .tab{background:none;border:none;padding:9px 4px;margin-right:18px;color:var(--ink-dim);font-size:13px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;}
 .tab:hover{color:var(--ink);}
-.tab.on{color:var(--amber);border-bottom-color:var(--amber);}
+.tab.on{color:var(--ink);font-weight:600;border-bottom-color:var(--amber);}
 .tabs-toggle{margin-left:auto;margin-bottom:8px;}
 @media(max-width:640px){.tabs-toggle{margin-left:0;}}
 .equip-list{display:flex;flex-direction:column;gap:6px;}
@@ -2951,14 +2887,12 @@ const CSS = `
 .tile{text-align:left;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;font-family:var(--sans);transition:border-color .18s,transform .18s,background .18s;}
 .tile:hover{border-color:var(--border-warm);background:var(--panel2);transform:translateY(-2px);}
 .tile:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
-.tile-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
 .tile-name{font-family:var(--serif);font-size:21px;}
 .tile-latin{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;font-style:italic;}
 .tile-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;padding-top:11px;border-top:1px solid var(--line);}
 .src{font-size:11.5px;color:var(--dim);}
 .live-c{font-family:var(--mono);font-size:11px;color:var(--jade);white-space:nowrap;}
 .dormant{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap;}
-.mini-edge{fill:none;stroke:var(--line);stroke-width:1;}
 .spec-note{font-size:12.5px;color:var(--ink-dim);font-style:italic;margin:12px 0 0;max-width:60ch;}
 .bar-actions{display:flex;gap:7px;}
 .add-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:118px;border-style:dashed;background:none;color:var(--ink);}
@@ -3045,7 +2979,7 @@ const CSS = `
 .in.sel{color-scheme:dark;cursor:pointer;}
 .in.ta{width:100%;font-family:var(--sans);line-height:1.55;resize:vertical;}
 .field-form{display:flex;flex-direction:column;gap:7px;}
-.field-form label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:4px;}
+.field-form label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);margin-top:4px;}
 .empty-note{opacity:.5;}
 .reason-box{margin-top:12px;padding:13px;background:var(--panel);border:1px solid var(--line);border-radius:11px;animation:pop .2s ease-out;}
 .rb-title{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:9px;}
@@ -3062,7 +2996,6 @@ const CSS = `
 .tbl td{padding:6px 0;border-top:1px solid var(--line);}
 .tbl .num{font-family:var(--mono);text-align:right;}
 .tbl th:nth-child(3){text-align:right;}
-.x-cell{width:22px;text-align:right;padding-left:6px;}
 .tbl tr:hover .log-x{opacity:1;}
 .row-in{display:flex;gap:7px;margin-top:11px;}
 .in{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px;color:var(--bone);font-size:12.5px;font-family:var(--sans);}
@@ -3096,11 +3029,13 @@ const CSS = `
 .in.sm{flex:0 0 auto;width:auto;padding:6px 9px;font-size:11.5px;font-family:var(--mono);color-scheme:dark;}
 .mini.ghost{background:none;color:var(--dim);}
 .mini.ghost:hover{color:var(--bone);border-color:var(--line);}
+.field-form .mini.ghost,.head-edit .mini.ghost,.tbl .mini.ghost{color:var(--ink-dim);}
+.field-form .mini.ghost:hover,.head-edit .mini.ghost:hover,.tbl .mini.ghost:hover{color:var(--ink);border-color:var(--line);}
 .log li.editing{padding:2px 0;}
 
 .inv-totals{display:flex;flex-wrap:wrap;gap:22px;margin:20px 0 8px;}
 .inv-total{display:flex;flex-direction:column;gap:2px;}
-.inv-total strong{font-family:var(--mono);font-size:20px;color:var(--amber);font-weight:400;}
+.inv-total strong{font-family:var(--mono);font-size:20px;color:var(--ink);font-weight:600;}
 .inv-total span{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);}
 .lot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:16px;}
 .lot-card{text-align:left;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:13px;padding:14px;cursor:pointer;font-family:var(--sans);transition:border-color .15s,transform .15s;}

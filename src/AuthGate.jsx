@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 
 /* Wraps the whole app. Nothing renders (no data loads, no queries fire)
@@ -45,7 +45,15 @@ export default function AuthGate({ children }) {
     setError('')
     setBusy(true)
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      /* Same timeout backstop as the initial session check - a slow or
+         hung request here shouldn't be able to leave the button stuck on
+         "Working..." for a browser-default minute-ish before it gives up
+         on its own. */
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out - check your connection and try again.')), 12000))
+      const { error: err } = await Promise.race([
+        supabase.auth.signInWithPassword({ email: email.trim(), password }),
+        timeout,
+      ])
       if (err) setError(err.message)
     } catch (ex) {
       setError(ex.message || 'Something went wrong - check the browser console.')

@@ -71,35 +71,10 @@ collapses to a horizontal icon strip with its own brand header. Fixed:
 tab-row wrap, header-bar wrap, equipment row text truncation (was pushing
 the status pill off-screen), global overflow-x safety net.
 
-## Visual redesign — direction decided, not yet applied to the app
+## Visual redesign — applied
 
-Current app is cold dark grays (blue-black `--ground`, cold `--dim`/`--line`).
-Decided this doesn't read as mushroom-y. New direction, worked out through a
-round of mockups (not yet in `App.jsx` - this is still just the plan):
-
-- **Global page background flips to a warm tan/beige** rather than staying
-  dark - a real departure from "dark mode, just warmer." Page-level text
-  (headings/chrome sitting directly on the page, not inside a card) switches
-  to dark brown, not cream.
-- **Cards/panels stay dark** (the old near-black-brown family) - so the
-  page reads as dark objects sitting on a warm work surface, not as a
-  uniformly dark or uniformly light app. High contrast between the two
-  levels is the point, not a flaw.
-- **Reishi-lacquer rust-mahogany as a signature accent**, used sparingly on
-  purpose: the wordmark, and a refined "contaminated" status color. Amber
-  stays the everyday primary-action color. Jade shifted to a mossy olive
-  earlier in the process so it doesn't read as a foreign cold-green dropped
-  into a warm palette.
-- **Status pills need a real fix regardless of final colors**: they're
-  currently outlined text with no background fill, which only works because
-  they've always sat on near-black. On a lighter page they become unreadable.
-  Fix (validated in the mockup, not yet in the app): solid color fill per
-  status, with a contrasting text color from that same family - self
-  contained, works on any background.
-
-Approximate values from the last approved mockup (`palette-composite.html`,
-generated during the design conversation - worth regenerating/refining
-before treating these as final):
+Was cold dark grays; is now warm tan/dark-panel with a reishi-lacquer signature
+accent. Live in `App.jsx`'s `.root` CSS variables and `AuthGate.jsx`. Values:
 
 ```
 page bg:      #B3966B      page text:     #2B2013 (headings), #5E4C36 (dim)
@@ -109,11 +84,12 @@ amber:        #D6934A      jade (olive):  #7FA66A      slate: #8A7862
 reishi (wordmark): #6B2717   reishi (status pill fill): #8C3B26
 ```
 
-Next session: apply this to the real CSS custom properties in `App.jsx`,
-audit every place a pill/badge currently relies on outlined-text-on-dark
-(there may be more than the ones caught in the mockup), and sanity check
-contrast on every screen, not just the ones mocked up (species grid, tree,
-item detail, calculators, inventory cards, equipment rows, gallery).
+Status pills fixed to solid-fill (were outlined text, unreadable once the
+page stopped being near-black). Along the way, found and fixed a real
+pre-existing bug unrelated to the redesign: Equipment, Suppliers, and Lot
+card pills referenced `tone-*` CSS classes that had never actually been
+defined anywhere — those pills were rendering colorless. Now defined
+(`.tone-amber` / `.tone-jade` / `.tone-clay` / `.tone-rust` / `.tone-slate`).
 
 ## Big design ideas — logged, not scoped
 
