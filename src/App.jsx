@@ -2815,7 +2815,7 @@ const CSS = `
 .root{
   --ground:#B3966B;--panel:#241811;--panel2:#2F2216;--line:#4A3826;--bone:#EDE3D0;--dim:#A6927A;--amber:#D6934A;
   --jade:#7FA66A;--clay:#8C3B26;--rust:#A85C35;--slate:#8A7862;
-  --ink:#2B2013;--ink-dim:#5E4C36;--border-warm:#5C4630;--muted-warm:#7A6552;
+  --ink:#2B2013;--ink-dim:#5E4C36;--border-warm:#5C4630;--muted-warm:#7A6552;--amber-ink:#9C6423;
   --serif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
@@ -2915,7 +2915,7 @@ const CSS = `
 
 /* tiles */
 .tally{display:flex;align-items:center;gap:9px;}
-.tally .num{font-family:var(--mono);font-size:30px;color:var(--amber);}
+.tally .num{font-family:var(--mono);font-size:30px;color:var(--amber-ink);}
 .tally-l{font-family:var(--mono);font-size:9.5px;line-height:1.2;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.1em;}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:13px;margin-top:22px;}
 .tile{text-align:left;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;font-family:var(--sans);transition:border-color .18s,transform .18s,background .18s;}
@@ -2931,7 +2931,7 @@ const CSS = `
 .bar-actions{display:flex;gap:7px;}
 .add-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:118px;border-style:dashed;background:none;color:var(--ink);}
 .add-tile:hover{border-color:var(--amber);background:rgba(36,24,17,0.06);}
-.add-plus{font-size:26px;color:var(--amber);line-height:1;}
+.add-plus{font-size:26px;color:var(--amber-ink);line-height:1;}
 .add-label{font-size:12.5px;color:var(--ink-dim);}
 .tile-wrap{position:relative;}
 .tile-wrap .tile{width:100%;}
@@ -3049,7 +3049,7 @@ const CSS = `
 .facts{display:grid;grid-template-columns:auto 1fr;gap:9px 18px;margin:0;font-size:12.5px;}
 .facts dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);padding-top:2px;}
 .facts dd{margin:0;}
-.lnk{background:none;border:none;padding:0;margin-right:9px;color:var(--amber);font-family:var(--mono);font-size:12px;cursor:pointer;}
+.lnk{background:none;border:none;padding:0;margin-right:9px;color:var(--amber-ink);font-family:var(--mono);font-size:12px;cursor:pointer;}
 .lnk:hover{text-decoration:underline;}
 .notes{font-size:12.5px;line-height:1.6;color:var(--ink-dim);margin:0;}
 
