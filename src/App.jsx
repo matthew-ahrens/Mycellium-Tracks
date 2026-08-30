@@ -1745,6 +1745,44 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
         setForm(null); setF(blank);
     };
 
+    /* Card rendering, shared between the flat Reference list and the
+       grouped-by-category Recipes view. */
+    const renderLibCard = (e) => {
+        const sp = species.find((s) => s.id === e.species_id);
+        const isOpen = openId === e.id;
+        return (
+            <div key={e.id} className={`lib-card ${isOpen ? 'open' : ''}`}>
+                <button className="lib-head" onClick={() => setOpenId(isOpen ? null : e.id)}>
+                    <div>
+                        <div className="lib-title">{e.title}</div>
+                        <div className="lib-meta">
+                            {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
+                            {recipes && e.yield_amount && <span className="lib-kind">makes {e.yield_amount}{e.yield_unit}</span>}
+                            {sp && <span className="lib-sp">{sp.common_name}</span>}
+                        </div>
+                    </div>
+                    <span className="lib-chev">{isOpen ? '−' : '+'}</span>
+                </button>
+                {isOpen && (
+                    <div className="lib-body">
+                        {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
+                        {recipes && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                        {e.body && <pre className="lib-text">{e.body}</pre>}
+                        {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
+                        <button className="mini ghost" onClick={() => {
+                            setF({
+                                title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
+                                category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
+                                ingredients: e.ingredients ?? [],
+                            });
+                            setForm(e.id);
+                        }}>Edit</button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     return (
         <div className="page">
             <div className="bar">
@@ -1873,42 +1911,26 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
             )}
 
             <div className="lib-list">
-                {(recipes ? [...entries].sort((a, b) => a.title.localeCompare(b.title)) : entries).map((e) => {
-                    const sp = species.find((s) => s.id === e.species_id);
-                    const isOpen = openId === e.id;
-                    return (
-                        <div key={e.id} className={`lib-card ${isOpen ? 'open' : ''}`}>
-                            <button className="lib-head" onClick={() => setOpenId(isOpen ? null : e.id)}>
-                                <div>
-                                    <div className="lib-title">{e.title}</div>
-                                    <div className="lib-meta">
-                                        {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
-                                        {recipes && e.category && <span className="lib-kind">{e.category}</span>}
-                                        {recipes && e.yield_amount && <span className="lib-kind">makes {e.yield_amount}{e.yield_unit}</span>}
-                                        {sp && <span className="lib-sp">{sp.common_name}</span>}
-                                    </div>
-                                </div>
-                                <span className="lib-chev">{isOpen ? '−' : '+'}</span>
-                            </button>
-                            {isOpen && (
-                                <div className="lib-body">
-                                    {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
-                                    {recipes && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
-                                    {e.body && <pre className="lib-text">{e.body}</pre>}
-                                    {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
-                                    <button className="mini ghost" onClick={() => {
-                                        setF({
-                                            title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
-                                            category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
-                                            ingredients: e.ingredients ?? [],
-                                        });
-                                        setForm(e.id);
-                                    }}>Edit</button>
-                                </div>
-                            )}
+                {recipes ? (
+                    Object.entries(
+                        entries.reduce((groups, e) => {
+                            const cat = e.category || 'Uncategorized';
+                            (groups[cat] ||= []).push(e);
+                            return groups;
+                        }, {})
+                    )
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([cat, group]) => (
+                        <div key={cat}>
+                            <div className="sec" style={{ marginTop: 18 }}><span>{cat}</span></div>
+                            <div className="lib-list" style={{ marginTop: 0 }}>
+                                {[...group].sort((a, b) => a.title.localeCompare(b.title)).map((e) => renderLibCard(e))}
+                            </div>
                         </div>
-                    );
-                })}
+                    ))
+                ) : (
+                    entries.map((e) => renderLibCard(e))
+                )}
             </div>
             </>
             )}
