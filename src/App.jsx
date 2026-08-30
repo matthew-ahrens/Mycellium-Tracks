@@ -747,7 +747,7 @@ export default function App() {
     } else {
         key = 'species';
         screen = <SpeciesGrid species={species} genetics={genetics} items={items}
-            onAdd={addSpecies}
+            onAdd={addSpecies} onToggleHidden={toggleSpeciesHidden}
             onOpen={(id) => go({ level: 'tree', speciesId: id })} />;
     }
 
@@ -1918,7 +1918,7 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
 
 /* ---------------- SPECIES GRID ---------------- */
 
-function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
+function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }) {
     const live = items.filter((i) => STATUS[i.status].live).length;
     const [adding, setAdding] = useState(false);
     const [showHidden, setShowHidden] = useState(false);
@@ -2001,14 +2001,20 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd }) {
                     const mine = items.filter((i) => ids.includes(i.geneticsId));
                     const liveN = mine.filter((i) => STATUS[i.status].live).length;
                     return (
-                        <button key={s.id} className="tile" onClick={() => onOpen(s.id)} style={s.hidden ? { opacity: .55 } : undefined}>
-                            <div className="tile-name">{s.common_name}</div>
-                            <div className="tile-latin">{s.latin_name}</div>
-                            <div className="tile-foot">
-                                <span className="src">{lines.length} {lines.length === 1 ? 'line' : 'lines'}</span>
-                                <span className={liveN ? 'live-c' : 'dormant'}>{s.hidden ? 'hidden' : liveN ? `${liveN} live` : 'dormant'}</span>
-                            </div>
-                        </button>
+                        <div key={s.id} className="tile-wrap">
+                            <button className="tile" onClick={() => onOpen(s.id)} style={s.hidden ? { opacity: .55 } : undefined}>
+                                <div className="tile-name">{s.common_name}</div>
+                                <div className="tile-latin">{s.latin_name}</div>
+                                <div className="tile-foot">
+                                    <span className="src">{lines.length} {lines.length === 1 ? 'line' : 'lines'}</span>
+                                    <span className={liveN ? 'live-c' : 'dormant'}>{s.hidden ? 'hidden' : liveN ? `${liveN} live` : 'dormant'}</span>
+                                </div>
+                            </button>
+                            <button className="tile-hide-btn" title={s.hidden ? 'Show on this list' : 'Hide from this list'}
+                                onClick={(e) => { e.stopPropagation(); onToggleHidden(s.id, !s.hidden); }}>
+                                {s.hidden ? 'Unhide' : 'Hide'}
+                            </button>
+                        </div>
                     );
                 })}
                 {!adding && (
@@ -2899,6 +2905,13 @@ const CSS = `
 .add-tile:hover{border-color:var(--amber);background:rgba(36,24,17,0.06);}
 .add-plus{font-size:26px;color:var(--amber);line-height:1;}
 .add-label{font-size:12.5px;color:var(--ink-dim);}
+.tile-wrap{position:relative;}
+.tile-wrap .tile{width:100%;}
+.tile-hide-btn{position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;
+  background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 9px;color:var(--dim);cursor:pointer;
+  opacity:.55;transition:opacity .15s,color .15s;}
+.tile-wrap:hover .tile-hide-btn{opacity:1;}
+.tile-hide-btn:hover{color:var(--amber);border-color:var(--amber);}
 .new-form{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:20px;animation:pop .22s ease-out;}
 .nf-title{font-family:var(--serif);font-size:19px;margin-bottom:6px;}
 .nf-help{font-size:12px;color:var(--dim);line-height:1.5;margin:0 0 14px;max-width:60ch;}
