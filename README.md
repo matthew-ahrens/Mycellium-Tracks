@@ -158,6 +158,13 @@ defined anywhere — those pills were rendering colorless. Now defined
 
 ## Not started
 
+- **Reimagine the logo.** Current glyph/wordmark/badge assets are a
+  placeholder set for the prototype - Matt wants a real design pass on the
+  logo itself at some point. Not scoped yet (new artwork vs. refining the
+  current mark, whether the mycelium-burst glyph concept stays). Once new
+  art exists, swapping it in is small - see "Logo + branding" above for
+  every spot it touches.
+
 - **QR labels.** Auth and deployment are done, so the remaining blocker is
   real URL routing per item (`/item/BO-GR1` instead of React state nav).
   Once that exists, QR generation itself is small — a library and an hour.
@@ -197,23 +204,97 @@ npm run dev
 Needs `.env.local` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
 (same values as the Vercel project's environment variables).
 
-## In progress - interrupted, not finished
+## Logo + branding - done (2026-08-31)
 
-- **Logo assets not yet wired in.** Three logo files exist in the Claude
-  Project's file panel (claude.ai, not on this PC): `SporeDesk_LogoApp_icon_1.png`
-  (transparent background, just the branching-burst glyph - for the
-  loading screen and anywhere it needs to sit on the app's own background),
-  `SporeDesk_LogoApp_icon_2.png` (same glyph, self-contained dark square
-  background - for the favicon, which needs to be complete on its own),
-  and `SporeDesk_Logo_words_only.png` (a wordmark in a different serif
-  than the in-app one - use with judgment, may not match). **Before the
-  next session can wire these in, download all three from the Project
-  files panel and drop them into `E:\Projects\mycelium\public\`** - a
-  fresh Code session has no access to Claude's project file storage, only
-  to this PC. Then: reference the favicon PNG from `index.html`, and use
-  the transparent glyph in `AuthGate.jsx` / the loading states in `App.jsx`.
-- **Loading screens need real content.** Two spots currently show nothing
-  useful: `AuthGate.jsx`'s pre-login session check (`session === undefined`)
-  is a bare colored div with no content at all, and `App.jsx`'s post-login
-  data-fetch state just shows plain text "Loading…". Matt wants the logo
-  plus some light animation in both, not just plain text - not started.
+All four logo assets are wired in - **note these are placeholder art for
+the prototype, not a final brand identity.** Matt wants to revisit/redesign
+the actual logo itself later; the plumbing below (favicon, sidebar spot,
+loading screens, font) stays regardless of what the artwork ends up being,
+since it's just asset swaps once new files exist. Files live in `public/`:
+`sporedesk-glyph.png` (bare amber glyph, transparent), `sporedesk-favicon.png`
+(glyph on dark square, used as the favicon), `sporedesk-wordmark.png`
+(text wordmark - only usable on light backgrounds, see below), and
+`sporedesk-badge.png` (circular seal: glyph + wordmark + tagline).
+
+- Favicon: `index.html` now points at `sporedesk-favicon.png`.
+- Font: pulled in Google's "Libre Caslon Display" (closest real match to
+  the wordmark's bracketed old-style serif) via a link in `index.html`,
+  swapped into `--serif` and `AuthGate.jsx`'s `.auth-brand` - old fonts
+  kept as fallbacks.
+- `AuthGate.jsx` pre-login loading (`session === undefined`): was a bare
+  colored div, now shows the wordmark image with a gentle pulse animation.
+  Only works here because this screen sits on the light tan background -
+  the wordmark's text is dark, so it disappears on dark panels and isn't
+  used anywhere else.
+- `AuthGate.jsx` sign-in card: circular badge added above the "SporeDesk"
+  text, per Matt's call.
+- `App.jsx` post-login loading state: "Loading…" text replaced with the
+  amber glyph, slow spin + pulse animation.
+- Sidebar brand (`App.jsx` `.brand` / `.mobile-brand`): amber glyph icon
+  added next to the "SporeDesk" text on both desktop (dark panel) and
+  mobile (light header) - same glyph asset works on both.
+- Also fixed along the way: a stale `.git/index.lock` from an interrupted
+  session that was blocking commits, and a broken local build
+  (`npm run build`/`dev` were failing on a missing native rolldown binding
+  - fixed with a clean `rm -rf node_modules package-lock.json && npm install`).
+
+Not committed as of this writing - sitting as working-tree changes, Matt
+to review before commit/push.
+
+## Stock tracker - built (2026-08-31)
+
+New `stock` table (10 real tables became 11) plus a fourth tab in Library
+(Reference / Stock / Equipment / Suppliers), for sterile-but-uninoculated
+stuff: agar plates, LC jars, grain spawn bags, bulk substrate bags/blocks,
+AIO bags, other. Two provenance paths per row: `source='made'` links to a
+Recipe (`library` row with `kind='recipe'`), `source='bought'` links to a
+Supplier plus a free-text product name. Optional species tag (same pattern
+as manual lot entry). Quantity with the same +/- stepper Equipment already
+has. Status: on_hand / used / contaminated / discarded, set manually.
+
+**The "bring stock in" question got resolved differently than first
+scoped.** `items.genetics_id` is required, and stock only has an optional
+species tag - not a genetics line - so stock could never replace the
+existing genetics-based item creation flow. Instead, stock plugs into it
+as an optional step:
+
+- **Tree screen, "Add line" form** (first item for a new genetics
+  acquisition): if on-hand stock matches the picked container type, a
+  "Made from on-hand stock" dropdown appears.
+- **Item detail, "Inoculate from this"** (subsequent items): picking a
+  type now shows on-hand matches for that type as a second row of chips -
+  pick one, or "Not from stock" for the original one-tap behavior. If
+  nothing's on hand for that type, it behaves exactly as before, no
+  extra step.
+
+Either way, picking a stock row calls a shared `consumeStock()`: quantity
+-1, and auto-flips to `used` if that hits zero. No forward link is stored
+from the item back to which stock row made it (would need a many-to-many
+shape like `lot_links`, not a single column, since quantity>1 rows get
+used up over several separate inoculations) - out of scope for this pass.
+
+Not committed as of this writing.
+
+## From today's notes (2026-08-31) - not yet addressed
+
+- **Mobile UX feedback from Jordan.** Jordan looked at the app and flagged
+  mobile issues. Specifics not captured yet - need Matt to follow up with
+  what exactly needs fixing before this is actionable. Note: some mobile
+  work already happened previously (see "Mobile" under Built, above) -
+  this is presumably about something beyond that.
+- **On-hand sterile stock tracker - built, see its own section below.**
+- **Raw ingredient inventory, possibly with brand/product tracking.**
+  Recipes currently use free-text ingredient names (autocomplete only, no
+  real ingredient record, no on-hand quantity). Idea: track what raw
+  ingredients Matt actually has on hand (grain, gypsum, agar powder,
+  vermiculite, etc.), which would mean turning those names into real
+  records. Second layer Matt floated: track specific *brand/product* per
+  ingredient (e.g. a particular brand of hardwood pellets) so it's
+  possible to look back and say "brand X outperformed brand Y" - tying
+  ingredient choice back to results (contamination rate, BE%, yield -
+  already tracked per genetics/item). Matt is genuinely undecided whether
+  this is worth the complexity ("that might be doing too much lol") -
+  logged so it isn't lost, not scoped, not started. Connects to the
+  sterile-stock idea above (ingredients -> recipes -> made-or-bought
+  stock -> cultivation item) but explicitly not committed to doing all of
+  it at once.

@@ -31,6 +31,25 @@ const REASONS = {
 };
 
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
+
+const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", aio: "AIO bag", other: "Other" };
+const STOCK_STATUS = {
+    on_hand: { label: "On hand", tone: "jade" },
+    used: { label: "Used", tone: "slate" },
+    contaminated: { label: "Contaminated", tone: "clay" },
+    discarded: { label: "Discarded", tone: "rust" },
+};
+
+/* Short human label for a stock row - the recipe title if made in-house,
+   the product name (or supplier name as a fallback) if bought. */
+function stockLabel(s, library, suppliers) {
+    if (s.source === 'made') {
+        const r = library.find((e) => e.id === s.recipe_id);
+        return r ? r.title : STOCK_KIND[s.kind];
+    }
+    const sup = suppliers.find((x) => x.id === s.supplier_id);
+    return s.product_name ? s.product_name : (sup ? sup.name : STOCK_KIND[s.kind]);
+}
 const FRUITS = ["bulk", "block"];
 
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
@@ -77,6 +96,7 @@ export default function App() {
     const [library, setLibrary] = useState([]);
     const [equipment, setEquipment] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
+    const [stock, setStock] = useState([]);
     const [lots, setLots] = useState([]);
     const [lotLinks, setLotLinks] = useState([]);
     const [openLot, setOpenLot] = useState(null);
@@ -112,6 +132,7 @@ export default function App() {
             const { data: lib } = await supabase.from('library').select('*').order('created_at');
             const { data: eq } = await supabase.from('equipment').select('*').order('category').order('name');
             const { data: sup } = await supabase.from('suppliers').select('*').order('name');
+            const { data: stk } = await supabase.from('stock').select('*').order('created_at');
             const { data: allLots } = await supabase.from('lots').select('*').order('harvested_on', { nullsFirst: false });
             const { data: links } = await supabase.from('lot_links').select('*');
             const { data: pics } = await supabase.from('photos').select('*').order('created_at');
@@ -129,6 +150,7 @@ export default function App() {
             setLibrary(lib ?? []);
             setEquipment(eq ?? []);
             setSuppliers(sup ?? []);
+            setStock(stk ?? []);
             setLots(allLots ?? []);
             setLotLinks(links ?? []);
             setPhotos(pics ?? []);
@@ -471,6 +493,73 @@ export default function App() {
         setSuppliers((p) => p.filter((s) => s.id !== id));
     };
 
+    const addStock = async (fields) => {
+        const cols = {
+            kind: fields.kind,
+            source: fields.source,
+            recipe_id: fields.source === 'made' ? (fields.recipe_id || null) : null,
+            supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
+            product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
+            species_id: fields.species_id || null,
+            quantity: fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity),
+            made_or_bought_on: fields.made_or_bought_on || null,
+            status: fields.status || 'on_hand',
+            notes: fields.notes?.trim() || null,
+        };
+        const { data, error } = await supabase.from('stock').insert(cols).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setStock((p) => [...p, data]);
+    };
+
+    const editStock = async (id, fields) => {
+        const cols = {
+            kind: fields.kind,
+            source: fields.source,
+            recipe_id: fields.source === 'made' ? (fields.recipe_id || null) : null,
+            supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
+            product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
+            species_id: fields.species_id || null,
+            quantity: fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity),
+            made_or_bought_on: fields.made_or_bought_on || null,
+            status: fields.status,
+            notes: fields.notes?.trim() || null,
+        };
+        const { error } = await supabase.from('stock').update(cols).eq('id', id);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setStock((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
+    };
+
+    /* Separate from the full edit form on purpose, same reasoning as
+       equipment's qty stepper - restocking or using one up should be a
+       single tap. */
+    const bumpStockQty = async (id, delta) => {
+        const row = stock.find((s) => s.id === id);
+        const next = Math.max(0, (row?.quantity ?? 0) + delta);
+        const { error } = await supabase.from('stock').update({ quantity: next }).eq('id', id);
+        if (error) { console.error(error); return; }
+        setStock((p) => p.map((s) => (s.id === id ? { ...s, quantity: next } : s)));
+    };
+
+    const deleteStock = async (id) => {
+        const { error } = await supabase.from('stock').delete().eq('id', id);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setStock((p) => p.filter((s) => s.id !== id));
+    };
+
+    /* Called when a stock row gets used to start a new item (from either
+       the "add line" form or "Inoculate from this"). Decrements by one and
+       auto-marks it used if that was the last one - a deliberate consume,
+       not the general +/- stepper. */
+    const consumeStock = async (id) => {
+        const row = stock.find((s) => s.id === id);
+        if (!row) return;
+        const next = Math.max(0, (row.quantity ?? 0) - 1);
+        const cols = { quantity: next, status: next === 0 ? 'used' : row.status };
+        const { error } = await supabase.from('stock').update(cols).eq('id', id);
+        if (error) { console.error(error); return; }
+        setStock((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
+    };
+
     /* remaining = what it started with, minus everything drawn out of it via
        lot_links, minus anything logged as lost. Never stored - always derived,
        so a lot can't drift out of sync with its own history. */
@@ -600,7 +689,7 @@ export default function App() {
 
     /* A genetics line always starts with one physical container - the first
        thing that actually sat on a shelf. Source lives on the line itself. */
-    const addGenetics = async (speciesId, fields, firstType) => {
+    const addGenetics = async (speciesId, fields, firstType, stockId = null) => {
         const today = todayISO();
         const code = fields.code.trim().toUpperCase();
 
@@ -639,6 +728,7 @@ export default function App() {
             where: '', substrate: '', notes: '', harvests: [], dryWeight: undefined,
             log: [{ id: ev?.id, date: fields.acquired || today, kind: 'note', body: fields.source?.trim() ? `Acquired - ${fields.source.trim()}` : 'Line started' }],
         }]);
+        if (stockId) consumeStock(stockId);
         return gen;
     };
 
@@ -675,7 +765,7 @@ export default function App() {
         setItems((p) => p.map((i) => (i.id === label ? { ...i, parent: np?.id ?? null } : i)));
     };
 
-    const addChild = async (parentLabel, type) => {
+    const addChild = async (parentLabel, type, stockId = null) => {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
         const code = genetics.find((g) => g.id === parent.geneticsId)?.code ?? 'X';
@@ -703,6 +793,7 @@ export default function App() {
             log: [{ id: ev?.id, date: today, body: `Inoculated from ${parentLabel}`, kind: 'note' }],
         }]);
         setOpen(label);
+        if (stockId) consumeStock(stockId);
     };
 
     const sp = species.find((s) => s.id === nav.speciesId);
@@ -716,10 +807,12 @@ export default function App() {
     if (section === 'library' || section === 'recipes') {
         key = section;
         screen = <Library entries={library.filter((e) => (section === 'recipes') === (e.kind === 'recipe'))}
-            species={species} mode={section} equipment={equipment} suppliers={suppliers}
+            allLibrary={library}
+            species={species} mode={section} equipment={equipment} suppliers={suppliers} stock={stock}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
+            onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock} onBumpStockQty={bumpStockQty}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
             onBumpEquipQty={bumpEquipmentQty} />;
     } else if (section === 'inventory') {
@@ -745,12 +838,12 @@ export default function App() {
             onOpen={setOpen} addChild={addChild} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
-            deleteItem={deleteItem} reparentItem={reparentItem}
+            deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
-        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos}
-            onAddLine={(fields, firstType) => addGenetics(nav.speciesId, fields, firstType)}
+        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
+            onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
     } else {
@@ -1789,7 +1882,129 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
     );
 }
 
-function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty }) {
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onBumpQty }) {
+    const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
+        species_id: '', quantity: '1', made_or_bought_on: '', status: 'on_hand', notes: '' };
+    const [form, setForm] = useState(null);
+    const [f, setF] = useState(blank);
+    const recipes = library.filter((e) => e.kind === 'recipe');
+
+    const submit = () => {
+        if (form === 'new') onAdd(f); else onEdit(form, f);
+        setForm(null); setF(blank);
+    };
+
+    const groups = {};
+    stock.forEach((s) => { (groups[s.kind] ||= []).push(s); });
+
+    return (
+        <>
+            <div className="bar" style={{ marginTop: 4 }}>
+                <div className="eyebrow">Sterile and uninoculated - not yet in the lineage tree</div>
+                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add stock</button>}
+            </div>
+
+            {form !== null && (
+                <div className="new-form">
+                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} stock</div>
+                    <div className="nf-grid">
+                        <div className="nf-field"><label>Kind</label>
+                            <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+                                {Object.keys(STOCK_KIND).map((k) => <option key={k} value={k}>{STOCK_KIND[k]}</option>)}
+                            </select></div>
+                        <div className="nf-field"><label>Source</label>
+                            <select className="in sel" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}>
+                                <option value="made">Made in-house</option>
+                                <option value="bought">Bought</option>
+                            </select></div>
+                        {f.source === 'made' ? (
+                            <div className="nf-field wide"><label>Recipe</label>
+                                <select className="in sel" value={f.recipe_id} onChange={(e) => setF({ ...f, recipe_id: e.target.value })}>
+                                    <option value="">— pick a recipe —</option>
+                                    {recipes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                                </select></div>
+                        ) : (
+                            <>
+                                <div className="nf-field wide"><label>Supplier</label>
+                                    <select className="in sel" value={f.supplier_id} onChange={(e) => setF({ ...f, supplier_id: e.target.value })}>
+                                        <option value="">— pick a supplier —</option>
+                                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select></div>
+                                <div className="nf-field wide"><label>Product name</label>
+                                    <input className="in" value={f.product_name} placeholder="e.g. AIO substrate bag"
+                                        onChange={(e) => setF({ ...f, product_name: e.target.value })} /></div>
+                            </>
+                        )}
+                        <div className="nf-field"><label>Quantity</label>
+                            <input className="in" inputMode="numeric" value={f.quantity}
+                                onChange={(e) => setF({ ...f, quantity: e.target.value.replace(/[^\d]/g, '') })} /></div>
+                        <div className="nf-field"><label>Date made / bought</label>
+                            <input className="in sm" type="date" value={f.made_or_bought_on}
+                                onChange={(e) => setF({ ...f, made_or_bought_on: e.target.value })} /></div>
+                        <div className="nf-field"><label>Status</label>
+                            <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                                {Object.keys(STOCK_STATUS).map((s) => <option key={s} value={s}>{STOCK_STATUS[s].label}</option>)}
+                            </select></div>
+                        <div className="nf-field"><label>Species (optional)</label>
+                            <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
+                                <option value="">— none —</option>
+                                {species.map((sp) => <option key={sp.id} value={sp.id}>{sp.common_name}</option>)}
+                            </select></div>
+                        <div className="nf-field wide"><label>Notes</label>
+                            <textarea className="in ta" rows="2" value={f.notes}
+                                onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+                    </div>
+                    <div className="edit-row">
+                        <button className="mini" onClick={submit}>Save</button>
+                        <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
+                        {form !== 'new' && (
+                            <button className="mini danger" onClick={() => {
+                                if (confirm('Remove this from stock?')) { onDelete(form); setForm(null); }
+                            }}>Delete</button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {Object.keys(groups).sort().map((k) => (
+                <div key={k}>
+                    <div className="sec" style={{ marginTop: 22 }}><span>{STOCK_KIND[k]}</span></div>
+                    <div className="equip-list">
+                        {groups[k].map((s) => {
+                            const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
+                            const sp = species.find((sx) => sx.id === s.species_id);
+                            return (
+                                <div key={s.id} className="equip-row">
+                                    <button className="equip-row-main" onClick={() => {
+                                        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
+                                            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
+                                            species_id: s.species_id ?? '', quantity: s.quantity ?? '1',
+                                            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+                                        setForm(s.id);
+                                    }}>
+                                        <span className="equip-name">{stockLabel(s, library, suppliers)}</span>
+                                        <span className="equip-note">{s.source === 'made' ? 'made' : 'bought'}{sp ? ` · ${sp.common_name}` : ''}</span>
+                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                    </button>
+                                    <div className="equip-qty">
+                                        <button className="qty-btn" onClick={() => onBumpQty(s.id, -1)}>−</button>
+                                        <span className={`qty-num ${s.quantity === 0 ? 'zero' : ''}`}>{s.quantity}</span>
+                                        <button className="qty-btn" onClick={() => onBumpQty(s.id, 1)}>+</button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+            {stock.length === 0 && form === null && (
+                <p className="nf-help" style={{ marginTop: 18 }}>Nothing in stock yet.</p>
+            )}
+        </>
+    );
+}
+
+function Library({ entries, allLibrary, species, mode, equipment, suppliers, stock, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, onAddStock, onEditStock, onDeleteStock, onBumpStockQty, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty }) {
     const recipes = mode === 'recipes';
     const [tab, setTab] = useState('entries');
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
@@ -1872,12 +2087,16 @@ function Library({ entries, species, mode, equipment, suppliers, onAdd, onEdit, 
             {!recipes && (
                 <div className="tabs">
                     <button className={`tab ${tab === 'entries' ? 'on' : ''}`} onClick={() => { setTab('entries'); setForm(null); }}>Reference</button>
+                    <button className={`tab ${tab === 'stock' ? 'on' : ''}`} onClick={() => { setTab('stock'); setForm(null); }}>Stock</button>
                     <button className={`tab ${tab === 'equipment' ? 'on' : ''}`} onClick={() => { setTab('equipment'); setForm(null); }}>Equipment</button>
                     <button className={`tab ${tab === 'suppliers' ? 'on' : ''}`} onClick={() => { setTab('suppliers'); setForm(null); }}>Suppliers</button>
                 </div>
             )}
 
-            {tab === 'equipment' && !recipes ? (
+            {tab === 'stock' && !recipes ? (
+                <StockTab stock={stock} library={allLibrary} suppliers={suppliers} species={species}
+                    onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock} onBumpQty={onBumpStockQty} />
+            ) : tab === 'equipment' && !recipes ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
                     photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
                     onBumpQty={onBumpEquipQty} />
@@ -2174,7 +2393,7 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [addingLine, setAddingLine] = useState(false);
@@ -2182,7 +2401,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
     const [editSp, setEditSp] = useState(false);
     const [lf, setLf] = useState({});
     const [sf, setSf] = useState({});
-    const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc" });
+    const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
     const pos = useMemo(() => layout(items), [items]);
 
@@ -2381,10 +2600,20 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                         <div className="nf-field wide">
                             <label>First container — what actually arrived or got made</label>
                             <select className="in sel" value={nf.firstType}
-                                onChange={(e) => setNf({ ...nf, firstType: e.target.value })}>
+                                onChange={(e) => setNf({ ...nf, firstType: e.target.value, stockId: "" })}>
                                 {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
                             </select>
                         </div>
+                        {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand' && s.quantity > 0).length > 0 && (
+                            <div className="nf-field wide">
+                                <label>Made from on-hand stock (optional)</label>
+                                <select className="in sel" value={nf.stockId} onChange={(e) => setNf({ ...nf, stockId: e.target.value })}>
+                                    <option value="">— not from stock —</option>
+                                    {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand' && s.quantity > 0)
+                                        .map((s) => <option key={s.id} value={s.id}>{s.quantity}x on hand</option>)}
+                                </select>
+                            </div>
+                        )}
                         <div className="nf-field wide">
                             <label>Notes on this line</label>
                             <textarea className="in ta" rows="3" value={nf.notes}
@@ -2395,8 +2624,8 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     <div className="edit-row">
                         <button className="mini" onClick={async () => {
                             if (!nf.name.trim() || !nf.code.trim()) return;
-                            await onAddLine(nf, nf.firstType);
-                            setNf({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc" });
+                            await onAddLine(nf, nf.firstType, nf.stockId || null);
+                            setNf({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
                             setAddingLine(false);
                         }}>Add line</button>
                         <button className="mini ghost" onClick={() => setAddingLine(false)}>Cancel</button>
@@ -2449,9 +2678,10 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, photos, photoUrl, addPhoto, deletePhoto }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
+    const [pickedType, setPickedType] = useState(null);
     const [note, setNote] = useState("");
     const [wet, setWet] = useState("");
     const [editing, setEditing] = useState(null);   // event id or lot id
@@ -2566,13 +2796,30 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
             <div className="actions">
                 {!picking ? (
                     <button className="cta" onClick={() => setPicking(true)}>Inoculate from this</button>
-                ) : (
+                ) : !pickedType ? (
                     <div className="picker">
                         <span className="pk-l">Into what?</span>
-                        {["agar", "lc", "grain", "bulk", "block"].map((t) => (
-                            <button key={t} className="chip go" onClick={() => { addChild(id, t); setPicking(false); }}>{TYPES[t]}</button>
-                        ))}
+                        {["agar", "lc", "grain", "bulk", "block"].map((t) => {
+                            const matches = stock.filter((s) => s.kind === t && s.status === 'on_hand' && s.quantity > 0);
+                            return (
+                                <button key={t} className="chip go" onClick={() => {
+                                    if (matches.length) setPickedType(t);
+                                    else { addChild(id, t); setPicking(false); }
+                                }}>{TYPES[t]}</button>
+                            );
+                        })}
                         <button className="chip" onClick={() => setPicking(false)}>Cancel</button>
+                    </div>
+                ) : (
+                    <div className="picker">
+                        <span className="pk-l">From stock, or fresh?</span>
+                        {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand' && s.quantity > 0).map((s) => (
+                            <button key={s.id} className="chip go" onClick={() => {
+                                addChild(id, pickedType, s.id); setPicking(false); setPickedType(null);
+                            }}>{stockLabel(s, library, suppliers)} ({s.quantity})</button>
+                        ))}
+                        <button className="chip" onClick={() => { addChild(id, pickedType); setPicking(false); setPickedType(null); }}>Not from stock</button>
+                        <button className="chip" onClick={() => setPickedType(null)}>Back</button>
                     </div>
                 )}
             </div>
