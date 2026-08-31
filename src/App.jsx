@@ -3214,7 +3214,7 @@ const CSS = `
   .shell{flex-direction:column;}
   .side{
     flex:none;order:2;height:auto;
-    position:fixed;left:0;right:0;bottom:0;z-index:40;
+    position:fixed;top:auto;left:0;right:0;bottom:0;z-index:40;
     flex-direction:row;justify-content:space-around;align-items:stretch;gap:0;
     overflow-x:visible;border-right:none;border-top:1px solid var(--line);border-bottom:none;
     padding:4px 4px calc(4px + env(safe-area-inset-bottom));
