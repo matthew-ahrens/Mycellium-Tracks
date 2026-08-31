@@ -772,10 +772,10 @@ export default function App() {
     return (
         <div className="root">
             <style>{CSS}</style>
-            <div className="mobile-brand">SporeDesk</div>
+            <div className="mobile-brand"><img src="/sporedesk-glyph.png" alt="" className="brand-icon" />SporeDesk</div>
             <div className="shell">
                 <nav className="side">
-                    <div className="brand">SporeDesk</div>
+                    <div className="brand"><img src="/sporedesk-glyph.png" alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
                             onClick={() => { setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
@@ -2947,7 +2947,8 @@ const CSS = `
 
 .shell{display:flex;min-height:100vh;}
 .side{flex:0 0 186px;background:var(--panel);border-right:1px solid var(--line);padding:22px 12px;display:flex;flex-direction:column;gap:3px;position:sticky;top:0;height:100vh;}
-.brand{font-family:var(--serif);font-size:19px;padding:0 10px 18px;color:var(--bone);}
+.brand{font-family:var(--serif);font-size:19px;padding:0 10px 18px;color:var(--bone);display:flex;align-items:center;gap:8px;}
+.brand-icon{width:22px;height:22px;flex:0 0 auto;}
 .nav-item{display:flex;align-items:center;gap:10px;background:none;border:none;border-radius:9px;padding:9px 10px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);text-align:left;transition:background .15s,color .15s;}
 .nav-item:hover{background:var(--panel2);color:var(--bone);}
 .nav-item.on{background:var(--panel2);color:var(--amber);}
@@ -2957,7 +2958,7 @@ const CSS = `
   .shell{flex-direction:column;}
   .side{flex:none;height:auto;position:static;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:10px;}
   .brand{display:none;}
-  .mobile-brand{display:block;font-family:var(--serif);font-size:18px;color:var(--ink);padding:14px 16px 6px;}
+  .mobile-brand{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);padding:14px 16px 6px;}
   .nav-item span{display:none;}
   .nav-item{padding:10px 14px;}
 }
