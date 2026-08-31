@@ -463,7 +463,71 @@ installer, not just the dev-mode window. Both halves of the native app
 path (dev + installer) are now verified end to end on real Windows,
 not just cross-built from the sandbox.
 
-Not committed yet.
+Committed (`9dca493`) and pushed.
+
+### Bugfix: installed app opened to a blank tan screen
+
+Installer ran fine, created shortcuts fine, app launched - but showed
+nothing except the plain background color. Cause: Vite emits asset
+links as absolute paths (`/assets/index-x.js`), which resolve fine when
+served from a real web origin but break under Electron's `file://`
+protocol - an absolute path there resolves from the filesystem root,
+not next to `index.html`, so the bundled JS/CSS 404s silently and React
+never mounts. The tan screen was literally the `BrowserWindow`'s own
+native background color (set in `main.cjs`) showing through an
+otherwise-empty page. Dev mode never hit this because that loads from
+`http://localhost:5173`, a real origin.
+
+Fix: added `base: './'` to `vite.config.js` so asset links are relative
+instead. Doesn't affect the Vercel deploy - that's served from the
+domain root either way, so relative and absolute paths resolve
+identically there.
+
+**Lesson for future sessions: don't run `npm install` or `npm run
+build`/`electron:build` for this repo from a Linux sandbox once
+node_modules has been set up on Matt's real Windows PC.** Both machines
+mount the same physical folder, so a build/install from one side
+silently swaps native-binary optional dependencies (electron's binary,
+rolldown's native binding, etc.) to the wrong platform's version and
+breaks the other side - happened once with electron itself (see
+"Confirmed working" above, fixed by a clean Windows-side reinstall) and
+again with `vite build`'s rolldown binding while verifying this exact
+fix. Once this project has a native-app path, all install/build/run
+verification for it needs to happen on Matt's PC directly, not through
+this session's Linux shell - code edits (Read/Edit on individual files)
+are still fine from either side.
+
+### Bugfix: logos showed as broken/placeholder thumbnails in the installed app
+
+Same bug class as the blank tan screen above, but for a different code
+path. The `base: './'` fix only covers assets Vite's bundler rewrites
+itself (the JS/CSS it builds via `import`). The logo images were
+referenced with hardcoded absolute string paths - `src="/sporedesk-glyph.png"`
+etc. directly in JSX, and `href="/sporedesk-favicon.png"` etc. in
+`index.html` - which Vite explicitly does not touch. Those still
+resolved from the filesystem root under `file://` and 404'd, showing
+the browser's broken-image placeholder.
+
+Fix:
+- In JSX (`App.jsx` x3, `AuthGate.jsx` x2): changed to
+  `` src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} `` style
+  template literals - Vite's documented escape hatch for hardcoded
+  `public/` asset paths in code.
+- In `index.html` (favicon, apple-touch-icon, manifest link): changed
+  to the literal `%BASE_URL%` placeholder token - Vite's documented
+  escape hatch for raw attributes in `index.html`, which also aren't
+  auto-rewritten.
+- Left `public/manifest.json`'s own paths (`start_url`, icon `src`)
+  untouched - that file is only consumed by real browsers for PWA
+  install (Vercel deploy), never by Electron, and its root-absolute
+  paths are correct there.
+
+Verified via `eslint` only (no native bindings, safe from this
+session's Linux sandbox). Not verified by an actual build/install from
+here - per the rule below, Matt needs to run `npm run electron:build`
+on his PC and reinstall to confirm the logos render.
+
+Not committed yet (the `vite.config.js` fix).
 
 ## From today's notes (2026-08-31) - not yet addressed
 

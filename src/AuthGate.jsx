@@ -67,7 +67,7 @@ export default function AuthGate({ children }) {
     return (
       <div className="auth-loading">
         <style>{AUTH_CSS}</style>
-        <img src="/sporedesk-wordmark.png" alt="SporeDesk" className="auth-loading-mark" />
+        <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="auth-loading-mark" />
       </div>
     )
   }
@@ -77,7 +77,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <form className="auth-card" onSubmit={submit}>
-          <img src="/sporedesk-badge.png" alt="" className="auth-badge" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">Sign in</div>
 

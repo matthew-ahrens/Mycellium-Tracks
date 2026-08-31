@@ -49,3 +49,14 @@ current if whichever session is actually live writes to it as it goes.
 **Plain, direct language.** Matt prefers being told the honest tradeoff
 over being told what sounds good. If something is a bigger lift than it
 looks, say so plainly before starting.
+
+**Never run `npm install` or a build/electron script for this repo from
+a Linux sandbox.** This project now has a native Windows Electron app
+(see README's "Native Windows desktop app" section) and Matt's real PC
+mounts the same physical `node_modules` folder a Claude session sees. A
+build or install from the Linux side silently swaps native-binary
+optional dependencies (Electron's own binary, Vite/rolldown's native
+binding) to the Linux version and breaks the next build Matt runs on his
+PC - this has already happened twice. Editing individual files
+(Read/Edit) is fine from either side; running `npm install`, `npm run
+build`, `npm run dev`, or any `electron:*` script is Matt's PC only.

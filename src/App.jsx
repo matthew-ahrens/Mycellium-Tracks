@@ -186,7 +186,7 @@ export default function App() {
       <div className="root">
         <style>{CSS}</style>
         <div className="load-wrap">
-          <img src="/sporedesk-glyph.png" alt="" className="load-glyph" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="load-glyph" />
         </div>
       </div>
     );
@@ -866,10 +866,10 @@ export default function App() {
     return (
         <div className="root">
             <style>{CSS}</style>
-            <div className="mobile-brand"><img src="/sporedesk-glyph.png" alt="" className="brand-icon" />SporeDesk</div>
+            <div className="mobile-brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
             <div className="shell">
                 <nav className="side">
-                    <div className="brand"><img src="/sporedesk-glyph.png" alt="" className="brand-icon" />SporeDesk</div>
+                    <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
                             onClick={() => { setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
