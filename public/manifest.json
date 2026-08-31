@@ -1,0 +1,13 @@
+{
+  "name": "SporeDesk",
+  "short_name": "SporeDesk",
+  "description": "Lineage and inventory tracker for mushroom cultivation.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#B3966B",
+  "theme_color": "#241811",
+  "icons": [
+    { "src": "/sporedesk-badge.png", "sizes": "300x300", "type": "image/png", "purpose": "any" }
+  ]
+}

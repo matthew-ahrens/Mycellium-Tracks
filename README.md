@@ -163,7 +163,13 @@ defined anywhere — those pills were rendering colorless. Now defined
   logo itself at some point. Not scoped yet (new artwork vs. refining the
   current mark, whether the mycelium-burst glyph concept stays). Once new
   art exists, swapping it in is small - see "Logo + branding" above for
-  every spot it touches.
+  every spot it touches. **Matt plans to run this as its own dedicated
+  chat thread, separate from this one, to keep it focused and use every
+  bit of relevant context.** See `claude/sporedesk-logo-design-brief.md`
+  in the Gourmet Mushrooms Project - a curated brief pulling together
+  current assets/colors/font, the app's overall look, and the
+  mobile-first marketability signal from Jordan above, specifically so
+  that thread doesn't have to re-derive it from this whole README.
 
 - **QR labels.** Auth and deployment are done, so the remaining blocker is
   real URL routing per item (`/item/BO-GR1` instead of React state nav).
@@ -238,8 +244,7 @@ since it's just asset swaps once new files exist. Files live in `public/`:
   (`npm run build`/`dev` were failing on a missing native rolldown binding
   - fixed with a clean `rm -rf node_modules package-lock.json && npm install`).
 
-Not committed as of this writing - sitting as working-tree changes, Matt
-to review before commit/push.
+Committed (2026-08-31) and pushed.
 
 ## Stock tracker - built (2026-08-31)
 
@@ -273,16 +278,79 @@ from the item back to which stock row made it (would need a many-to-many
 shape like `lot_links`, not a single column, since quantity>1 rows get
 used up over several separate inoculations) - out of scope for this pass.
 
-Not committed as of this writing.
+Committed (2026-08-31).
+
+## Mobile-first layout pass - built (2026-08-31)
+
+Matt asked to "play with the layout" with an eye toward eventually going
+native, while away from the keyboard - so this was done unattended, on
+best judgment, and is meant to be reviewed rather than treated as final.
+**Assumption made:** "going native" most likely means either wrapping this
+same React app in something like Capacitor/Electron later, or at minimum
+making it installable as a home-screen PWA - not a from-scratch native
+rewrite. Nothing here commits to that path; it's groundwork that's useful
+either way and doesn't block a different decision later (see the
+"Native desktop app..." note further down, which is still open).
+
+Changes, all CSS/markup-only - no data model or logic touched:
+
+- **Mobile nav is now a fixed bottom tab bar instead of a horizontal
+  scrolling strip at the top.** This is the actual native-readiness change
+  here - bottom tab bars are the standard mobile-app nav convention
+  (thumb reach, all tabs visible at once, no scrolling to find
+  Calculators). Icons now show a small label underneath again, since
+  there's no scrolling to save space for anymore. Desktop sidebar is
+  untouched.
+- **Safe-area support** (`env(safe-area-inset-*)`) on the bottom bar, the
+  mobile header, and page edges, plus `viewport-fit=cover` in
+  `index.html` - so content won't sit under a notch or a home-indicator
+  bar if this ever runs inside a native wrapper or full-screen PWA. Inert
+  in a normal browser tab.
+- **`public/manifest.json` added** (name, theme/background colors, start
+  URL, standalone display) plus manifest link, `theme-color` meta, and
+  `apple-touch-icon`/`apple-mobile-web-app-*` tags in `index.html` - makes
+  "Add to Home Screen" behave like a real app (own icon, no browser
+  chrome) on both iOS and Android today, without needing any native
+  toolchain. **Using `sporedesk-badge.png` as the manifest icon for now
+  since it's the only square-ish asset large enough (300×300) - it's the
+  circular badge with the tagline text, which will look cluttered at
+  small home-screen sizes. Swap in a proper 512×512 icon (ideally just
+  the bare glyph, no text) when the logo redesign happens.**
+- Small tap-feel polish: removed the gray tap-highlight flash and the
+  ~300ms tap delay on buttons (`touch-action:manipulation`,
+  `-webkit-tap-highlight-color:transparent`), `overscroll-behavior-y` set
+  so pull-past-the-top doesn't trigger a browser refresh gesture on
+  mobile.
+- Tab title changed from "mycelium" to "SporeDesk" in `index.html` - was
+  still the old working name, everything else has been SporeDesk since
+  the logo pass.
+
+Verified: lint clean, `npm run build` succeeds. Not committed to git yet -
+left for Matt to review on his phone/desktop before that happens, since
+this was unattended layout work and the bottom-bar height/spacing is the
+kind of thing that's worth eyeballing on a real device first.
+
+**Still open, not done here:** no decision made on Capacitor vs. Electron
+vs. staying a browser/PWA-only app - that's the bigger "Native desktop
+app..." question logged further down and still needs its own
+conversation. This pass only makes the current web app behave better if
+installed as-is; it doesn't set up any native build pipeline.
 
 ## From today's notes (2026-08-31) - not yet addressed
 
-- **Mobile UX feedback from Jordan.** Jordan looked at the app and flagged
-  mobile issues. Specifics not captured yet - need Matt to follow up with
-  what exactly needs fixing before this is actionable. Note: some mobile
-  work already happened previously (see "Mobile" under Built, above) -
-  this is presumably about something beyond that.
-- **On-hand sterile stock tracker - built, see its own section below.**
+- **Mobile feedback from Jordan - reframed as a marketability signal, not
+  just a bug list.** Matt talked to Jordan about this beyond the original
+  look; Jordan's take is that IF this ever goes public/sellable (see the
+  native-app/subscription note below), mobile users would be the primary
+  target audience, not a secondary platform desktop gets built for first.
+  That's a real input for prioritization, not yet acted on - no specific
+  mobile bugs from Jordan are logged (none given beyond the general
+  steer). Directly relevant to the logo redesign below and to how
+  "Not started" items get prioritized generally, since it argues for
+  mobile-first rather than mobile-adequate. Some mobile work already
+  happened previously (see "Mobile" under Built, above); this is a
+  strategic note on top of that, not a report of something broken.
+- **On-hand sterile stock tracker - built, see its own section above.**
 - **Raw ingredient inventory, possibly with brand/product tracking.**
   Recipes currently use free-text ingredient names (autocomplete only, no
   real ingredient record, no on-hand quantity). Idea: track what raw

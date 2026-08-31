@@ -28,12 +28,23 @@ before you guess.
 **When something's ambiguous, ask - don't build the most likely guess.**
 A wrong guess costs more to unwind than a clarifying question costs to ask.
 
-**Update README.md as you go.** It's the persistent memory between
-sessions. When you finish something, add it to "Built." When you find a
-real bug, log it under "Known gaps" with enough detail that a future
-session (or a future you) can act on it without re-discovering it. When
-an idea comes up that isn't getting built right now, log it rather than
-either building it blind or letting it disappear.
+**Update README.md continuously, not at the end.** It's the persistent
+memory between sessions - a fresh session (or a fresh chat thread) only
+knows what's in this file, nothing else. Write to it the moment something
+happens, not batched for later: the instant a decision gets made, a
+change gets finished, a real bug gets found, or an idea comes up that
+isn't getting built right now. Don't wait for a natural stopping point to
+write it all up - sessions have been cut off mid-change without warning
+more than once (usage limits, interrupted terminal), and anything not
+already on disk in README.md at that moment is gone. When you finish
+something, add it to "Built." When you find a real bug, log it under
+"Known gaps" with enough detail that a future session (or a future you)
+can act on it without re-discovering it. Log ideas rather than either
+building them blind or letting them disappear. This is why a periodic
+background job isn't the fix here - a scheduled task starts a fresh
+session with no memory of the current conversation, so it can't capture
+context from a thread that's still in progress. The README only stays
+current if whichever session is actually live writes to it as it goes.
 
 **Plain, direct language.** Matt prefers being told the honest tradeoff
 over being told what sounds good. If something is a bigger lift than it

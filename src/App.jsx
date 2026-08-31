@@ -3185,7 +3185,8 @@ const CSS = `
   background:var(--ground);color:var(--ink);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
   overflow-x:hidden;max-width:100vw;
 }
-.root *{box-sizing:border-box;}
+.root *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+.root button{touch-action:manipulation;}
 .page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;}
 .load-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
 .load-glyph{width:84px;height:84px;animation:load-spin 6s linear infinite,load-pulse 1.8s ease-in-out infinite;}
@@ -3201,13 +3202,33 @@ const CSS = `
 .nav-item.on{background:var(--panel2);color:var(--amber);}
 .main{flex:1;min-width:0;}
 .mobile-brand{display:none;}
+/* Below 760px the side rail stops being a sidebar and becomes a fixed
+   bottom tab bar - the standard native mobile-app nav pattern (thumb
+   reach, no horizontal scrolling to find a tab), so this shell already
+   reads as "app-shaped" if it's ever wrapped in a native/Capacitor-style
+   container instead of shown in a browser chrome. env(safe-area-inset-*)
+   keeps it clear of notches / home-indicator strips on real devices -
+   harmless no-ops in a plain browser tab. */
 @media(max-width:760px){
+  .root{overscroll-behavior-y:contain;}
   .shell{flex-direction:column;}
-  .side{flex:none;height:auto;position:static;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line);padding:10px;}
+  .side{
+    flex:none;order:2;height:auto;
+    position:fixed;left:0;right:0;bottom:0;z-index:40;
+    flex-direction:row;justify-content:space-around;align-items:stretch;gap:0;
+    overflow-x:visible;border-right:none;border-top:1px solid var(--line);border-bottom:none;
+    padding:4px 4px calc(4px + env(safe-area-inset-bottom));
+  }
   .brand{display:none;}
-  .mobile-brand{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);padding:14px 16px 6px;}
-  .nav-item span{display:none;}
-  .nav-item{padding:10px 14px;}
+  .mobile-brand{
+    display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
+    padding:calc(14px + env(safe-area-inset-top)) 16px 6px;
+  }
+  .nav-item{flex:1 1 0;flex-direction:column;gap:3px;padding:7px 4px;border-radius:11px;}
+  .nav-item span{display:block;font-size:9.5px;}
+  .nav-item svg{width:20px;height:20px;}
+  .main{order:1;padding-bottom:calc(72px + env(safe-area-inset-bottom));}
+  .page{padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right));}
 }
 
 .lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
