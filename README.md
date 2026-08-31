@@ -392,6 +392,79 @@ Supplies. Real naming collision, but "Inventory" is used everywhere in
 the code and docs already, so it's a bigger, more disruptive change -
 logged as optional, not done.
 
+## Native Windows desktop app - scaffolded (2026-08-31)
+
+Matt's ready to try this as an actual installed PC app instead of a
+browser tab. Went with **Electron** over Tauri (asked first) - pure
+npm/JS, nothing new to install on the PC itself, at the cost of a
+bigger install size (~250MB unpacked) since it ships its own Chromium +
+Node. Same app, same code, same Supabase backend - this just wraps it
+in a native window. The web version at mycellium-tracks.vercel.app is
+untouched and keeps working exactly as before; this is additive.
+
+What's new:
+
+- **`electron/main.cjs`** - the whole native shell. One `BrowserWindow`,
+  1280x860, loads the Vite dev server in dev or `dist/index.html` once
+  built. `.cjs` on purpose so it's plain CommonJS regardless of this
+  package's `"type":"module"`. Menu bar auto-hidden (Alt reveals it) -
+  this app doesn't need File/Edit/View clutter.
+- **`build/icon.ico` + `build/icon.png`** - generated from the existing
+  bare glyph asset (not the badge - same reasoning as the PWA icon
+  earlier: no tagline text to go illegible at taskbar size). Placeholder
+  like every other logo asset right now - swap when the logo redesign
+  happens.
+- **New npm scripts:**
+  - `npm run electron:dev` - starts the Vite dev server and opens it in
+    a real window (auto-launches DevTools detached, since this is a dev
+    build). Live-reloads same as the browser did.
+  - `npm run electron:pack` - builds an **unpacked** app folder
+    (`release/win-unpacked/SporeDesk.exe`) - fast, good for a quick "does
+    it actually launch" check without waiting on installer packaging.
+  - `npm run electron:build` - the real one: builds a proper Windows
+    installer (`release/SporeDesk Setup <version>.exe`) via
+    electron-builder + NSIS.
+  - `"build"` key in `package.json` holds the electron-builder config
+    (appId is a placeholder guess - `com.mattahrens.sporedesk` - fine to
+    change anytime, doesn't affect anything visible).
+
+**Run this on the actual Windows PC, not from a Claude session** - I
+did this scaffolding through a sandboxed Linux VM that has no display
+server, so I can't see or launch a real window from here no matter
+what. What I *did* verify from there: `electron:pack` (the unpacked
+build) completes successfully and produces a real, valid
+`SporeDesk.exe` - the config, icon, and packaging pipeline are sound.
+The full NSIS installer step additionally wants Wine when cross-built
+from Linux, which isn't worth installing just for a sandbox - that step
+runs natively with zero issues on real Windows, which is where it needs
+to happen anyway. So: first real test is `npm install` then
+`npm run electron:dev` in a terminal on the PC itself.
+
+**Known non-issue:** the installer isn't code-signed (no certificate
+set up), so Windows SmartScreen will likely flag it as "unknown
+publisher" on first run - expected for a personal/unsigned build, not a
+bug. Only worth fixing if this ever goes further than Matt's own
+machine.
+
+**Confirmed working (2026-08-31):** `npm run electron:dev` opens SporeDesk
+in a real native window on Matt's PC. One real snag along the way worth
+remembering - the very first `npm install` had been run from the Linux
+sandbox this scaffolding was built in, which left Linux-shaped binaries
+(a Linux `electron`, not `electron.exe`) sitting in `node_modules` -
+`npm install` alone doesn't necessarily clean that up since it mostly
+reuses what's already there. Fix was `Remove-Item -Recurse -Force
+node_modules` then a fresh `npm install` run **from Windows**. Shouldn't
+recur now that node_modules is Windows-native, but worth knowing if
+node_modules ever gets touched from a non-Windows shell again.
+
+**Confirmed working (2026-08-31):** `npm run electron:build` also works
+on Matt's PC - produces the real `SporeDesk Setup <version>.exe`
+installer, not just the dev-mode window. Both halves of the native app
+path (dev + installer) are now verified end to end on real Windows,
+not just cross-built from the sandbox.
+
+Not committed yet.
+
 ## From today's notes (2026-08-31) - not yet addressed
 
 - **Mobile feedback from Jordan - reframed as a marketability signal, not
