@@ -804,17 +804,18 @@ export default function App() {
     const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
 
     let screen, key;
-    if (section === 'library' || section === 'recipes') {
-        key = section;
-        screen = <Library entries={library.filter((e) => (section === 'recipes') === (e.kind === 'recipe'))}
-            allLibrary={library}
-            species={species} mode={section} equipment={equipment} suppliers={suppliers} stock={stock}
-            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
-            onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
-            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
+    if (section === 'supplies') {
+        key = 'supplies';
+        screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock} onBumpStockQty={bumpStockQty}
+            onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
-            onBumpEquipQty={bumpEquipmentQty} />;
+            onBumpEquipQty={bumpEquipmentQty}
+            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
+    } else if (section === 'reference') {
+        key = 'reference';
+        screen = <ReferenceSection library={library} species={species}
+            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -857,8 +858,8 @@ export default function App() {
         ['cultures', 'Cultures', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
         ['inventory', 'Inventory', 'M3 7h18v12H3zM3 7l2-3h14l2 3'],
         ['gallery', 'Gallery', 'M4 4h16v16H4zM4 15l4-4 3 3 5-5 4 4M9 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
-        ['library', 'Library', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
-        ['recipes', 'Recipes', 'M7 3v8a3 3 0 0 0 6 0V3M10 11v10M17 3c-1.5 2-2 4-2 6s.5 3 2 3v9'],
+        ['supplies', 'Supplies', 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8'],
+        ['reference', 'Reference', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
         ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
     ];
 
@@ -2004,9 +2005,57 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     );
 }
 
-function Library({ entries, allLibrary, species, mode, equipment, suppliers, stock, onAdd, onEdit, onDelete, onAddEquip, onEditEquip, onDeleteEquip, onAddSupplier, onEditSupplier, onDeleteSupplier, onAddStock, onEditStock, onDeleteStock, onBumpStockQty, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty }) {
-    const recipes = mode === 'recipes';
-    const [tab, setTab] = useState('entries');
+/* ---------------- SUPPLIES ---------------- */
+/* "What's on hand, or where I get it" - Stock, Equipment, Suppliers.
+   Each of the three sub-tabs is a fully self-contained component with its
+   own add/edit form, so this shell is just the tab switcher - no shared
+   form state needed here. Split out from the old combined "Library"
+   screen (2026-08-31): Stock/Equipment/Suppliers used to live as three of
+   four tabs alongside Reference under a screen literally named "Library",
+   which had drifted into a catch-all with no real shared identity. This
+   half keeps the "stuff I have or can get" grouping; see ReferenceSection
+   below for the "stuff I read" half. */
+function Supplies({ stock, library, species, suppliers, equipment,
+    onAddStock, onEditStock, onDeleteStock, onBumpStockQty,
+    onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty,
+    onAddSupplier, onEditSupplier, onDeleteSupplier }) {
+    const [tab, setTab] = useState('stock');
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">What's on hand, and where it comes from</div>
+                    <h1>Supplies</h1>
+                </div>
+            </div>
+            <div className="tabs">
+                <button className={`tab ${tab === 'stock' ? 'on' : ''}`} onClick={() => setTab('stock')}>Stock</button>
+                <button className={`tab ${tab === 'equipment' ? 'on' : ''}`} onClick={() => setTab('equipment')}>Equipment</button>
+                <button className={`tab ${tab === 'suppliers' ? 'on' : ''}`} onClick={() => setTab('suppliers')}>Suppliers</button>
+            </div>
+            {tab === 'stock' ? (
+                <StockTab stock={stock} library={library} suppliers={suppliers} species={species}
+                    onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock} onBumpQty={onBumpStockQty} />
+            ) : tab === 'equipment' ? (
+                <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
+                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
+                    onBumpQty={onBumpEquipQty} />
+            ) : (
+                <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
+            )}
+        </div>
+    );
+}
+
+/* ---------------- REFERENCE ---------------- */
+/* "What I read, or what I follow" - instruction sheets/notes and recipes,
+   as two tabs on one screen instead of Recipes being an oddly-promoted
+   top-level nav item while Reference hid three clicks deep. Same
+   underlying `library` table for both, split by `kind`. */
+function ReferenceSection({ library, species, onAdd, onEdit, onDelete }) {
+    const [tab, setTab] = useState('reference');   // 'reference' | 'recipes'
+    const recipes = tab === 'recipes';
+    const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
         category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '' };
     const [form, setForm] = useState(null);   // null | 'new' | entry id
@@ -2075,35 +2124,19 @@ function Library({ entries, allLibrary, species, mode, equipment, suppliers, sto
             <div className="bar">
                 <div>
                     <div className="eyebrow">{recipes ? 'Mixes you make again and again' : 'Reference you want at the bench'}</div>
-                    <h1>{recipes ? 'Recipes' : 'Library'}</h1>
+                    <h1>{recipes ? 'Recipes' : 'Reference'}</h1>
                 </div>
-                {form === null && tab === 'entries' && (
+                {form === null && (
                     <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>
                         + {recipes ? 'Add recipe' : 'Add entry'}
                     </button>
                 )}
             </div>
 
-            {!recipes && (
-                <div className="tabs">
-                    <button className={`tab ${tab === 'entries' ? 'on' : ''}`} onClick={() => { setTab('entries'); setForm(null); }}>Reference</button>
-                    <button className={`tab ${tab === 'stock' ? 'on' : ''}`} onClick={() => { setTab('stock'); setForm(null); }}>Stock</button>
-                    <button className={`tab ${tab === 'equipment' ? 'on' : ''}`} onClick={() => { setTab('equipment'); setForm(null); }}>Equipment</button>
-                    <button className={`tab ${tab === 'suppliers' ? 'on' : ''}`} onClick={() => { setTab('suppliers'); setForm(null); }}>Suppliers</button>
-                </div>
-            )}
-
-            {tab === 'stock' && !recipes ? (
-                <StockTab stock={stock} library={allLibrary} suppliers={suppliers} species={species}
-                    onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock} onBumpQty={onBumpStockQty} />
-            ) : tab === 'equipment' && !recipes ? (
-                <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
-                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
-                    onBumpQty={onBumpEquipQty} />
-            ) : tab === 'suppliers' && !recipes ? (
-                <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
-            ) : (
-            <>
+            <div className="tabs">
+                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
+                <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
+            </div>
 
             {form !== null && (
                 <div className="new-form">
@@ -2273,8 +2306,6 @@ function Library({ entries, allLibrary, species, mode, equipment, suppliers, sto
                     entries.map((e) => renderLibCard(e))
                 )}
             </div>
-            </>
-            )}
         </div>
     );
 }

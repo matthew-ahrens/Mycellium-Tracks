@@ -336,6 +336,62 @@ app..." question logged further down and still needs its own
 conversation. This pass only makes the current web app behave better if
 installed as-is; it doesn't set up any native build pipeline.
 
+## Bugfixes since the layout pass (2026-08-31)
+
+- **Mobile bottom nav was covering the whole screen.** The mobile
+  override set `bottom:0` but never cleared the `top:0` inherited from
+  the desktop sticky-sidebar rule for the same `.side` selector - with
+  both set on a `position:fixed` element, the browser stretches it to
+  fill the entire viewport height instead of hugging the bottom, so each
+  nav icon became its own full-height blank column covering the app.
+  Fixed with an explicit `top:auto`. Committed and pushed
+  (`34ff03c`) - confirm it looks right on a real phone next.
+- **`suppliers.website` column didn't exist.** The Suppliers form has
+  always had a website field (input, save, the link on the card), but
+  the `suppliers` table in Supabase never actually got that column -
+  saving a link failed with a schema-cache 400. Added
+  `website text` to the table directly; no code change needed.
+
+## Nav reorganized: Library/Recipes -> Supplies/Reference (2026-08-31)
+
+Matt's read on "something feels off" about the nav, confirmed by
+walking the code: **Recipes** was never its own thing - same
+`library` table, same component, just filtered to `kind='recipe'` -
+but it got its own top-level nav button while its sibling, **Reference**
+(the same table, everything else), was buried three clicks deep inside
+a screen literally called "Library." And "Library" itself had drifted
+into a catch-all holding Reference, Stock, Equipment, and Suppliers -
+four things with no shared identity beyond "didn't fit anywhere else."
+Meanwhile "stuff I have on hand" was scattered across three unrelated
+spots: Inventory (top-level), Stock and Equipment (buried sub-tabs of
+"Library").
+
+Regrouped into two nav items that each actually share a noun:
+
+- **Supplies** - Stock, Equipment, Suppliers. "What do I have, or where
+  do I get it." New standalone `Supplies` component - each sub-tab was
+  already a self-contained component with its own add/edit form, so
+  this is just a tab switcher, no shared form state.
+- **Reference** - Reference docs + Recipes, now two tabs on one screen
+  instead of Recipes being pulled out on its own. New `ReferenceSection`
+  component (the old `Library` component, renamed and simplified - the
+  old `mode` prop and parent-side entry filtering are gone; it now takes
+  the full `library` array and filters internally based on which of its
+  own two tabs is active).
+
+Nav order unchanged (still Cultures, Inventory, Gallery, then this pair,
+then Calculators) - only the names and what's grouped under them
+changed. Verified: lint clean, `npm run build` succeeds. Not committed
+yet - same as the layout pass, worth a look on a real device/session
+before it's locked in.
+
+**Considered and set aside for now:** renaming "Inventory" (harvested
+lots) to something like "Harvests" to stop it sounding like a synonym
+for "Stock" (sterile media) now that Stock sits one tab over under
+Supplies. Real naming collision, but "Inventory" is used everywhere in
+the code and docs already, so it's a bigger, more disruptive change -
+logged as optional, not done.
+
 ## From today's notes (2026-08-31) - not yet addressed
 
 - **Mobile feedback from Jordan - reframed as a marketability signal, not
