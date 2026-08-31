@@ -64,7 +64,12 @@ export default function AuthGate({ children }) {
   }
 
   if (session === undefined) {
-    return <div style={{ background: '#B3966B', minHeight: '100vh' }} />
+    return (
+      <div className="auth-loading">
+        <style>{AUTH_CSS}</style>
+        <img src="/sporedesk-wordmark.png" alt="SporeDesk" className="auth-loading-mark" />
+      </div>
+    )
   }
 
   if (!session) {
@@ -72,6 +77,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <form className="auth-card" onSubmit={submit}>
+          <img src="/sporedesk-badge.png" alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">Sign in</div>
 
@@ -99,7 +105,11 @@ const AUTH_CSS = `
   max-width:340px;margin:14vh auto;padding:28px;background:#241811;border:1px solid #4A3826;
   border-radius:16px;display:flex;flex-direction:column;gap:10px;font-family:system-ui,-apple-system,sans-serif;
 }
-.auth-brand{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-size:24px;color:#6B2717;}
+.auth-brand{font-family:'Libre Caslon Display','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-size:24px;color:#6B2717;}
+.auth-badge{width:64px;height:64px;align-self:center;margin-bottom:2px;}
+.auth-loading{background:#B3966B;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.auth-loading-mark{width:220px;max-width:60vw;animation:auth-pulse 1.8s ease-in-out infinite;}
+@keyframes auth-pulse{0%,100%{opacity:.55;transform:scale(.97);}50%{opacity:1;transform:scale(1);}}
 .auth-sub{font-size:12.5px;color:#A6927A;margin-bottom:10px;}
 .auth-card label{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#A6927A;margin-top:6px;}
 .auth-card input{background:#2F2216;border:1px solid #4A3826;border-radius:8px;padding:10px 12px;color:#EDE3D0;font-size:13.5px;}

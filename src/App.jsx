@@ -160,7 +160,14 @@ export default function App() {
         load();
     }, []);
 
-    if (loading) return <div className="root"><style>{CSS}</style><div className="page">Loading…</div></div>;
+    if (loading) return (
+      <div className="root">
+        <style>{CSS}</style>
+        <div className="load-wrap">
+          <img src="/sporedesk-glyph.png" alt="" className="load-glyph" />
+        </div>
+      </div>
+    );
 
     const update = (id, fn) => setItems((p) => p.map((i) => (i.id === id ? fn(i) : i)));
 
@@ -2925,7 +2932,7 @@ const CSS = `
   --ground:#B3966B;--panel:#241811;--panel2:#2F2216;--line:#4A3826;--bone:#EDE3D0;--dim:#A6927A;--amber:#D6934A;
   --jade:#7FA66A;--clay:#8C3B26;--rust:#A85C35;--slate:#8A7862;
   --ink:#2B2013;--ink-dim:#5E4C36;--border-warm:#5C4630;--muted-warm:#7A6552;--amber-ink:#9C6423;
-  --serif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
+  --serif:'Libre Caslon Display','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
   background:var(--ground);color:var(--ink);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
@@ -2933,6 +2940,10 @@ const CSS = `
 }
 .root *{box-sizing:border-box;}
 .page{max-width:1080px;margin:0 auto;padding:22px 20px 60px;}
+.load-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.load-glyph{width:84px;height:84px;animation:load-spin 6s linear infinite,load-pulse 1.8s ease-in-out infinite;}
+@keyframes load-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+@keyframes load-pulse{0%,100%{opacity:.65;}50%{opacity:1;}}
 
 .shell{display:flex;min-height:100vh;}
 .side{flex:0 0 186px;background:var(--panel);border-right:1px solid var(--line);padding:22px 12px;display:flex;flex-direction:column;gap:3px;position:sticky;top:0;height:100vh;}
