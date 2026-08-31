@@ -1,5 +1,14 @@
 # Mycelium (SporeDesk)
 
+**Start here (fresh session / Claude Code):** this file is the source of
+truth for everything decided so far - read this whole file before touching
+code. The actual app is `src/App.jsx` (one big file, ~3200 lines - every
+screen is a component in there) plus `src/AuthGate.jsx` (login). Supabase
+project id `pbjgelklvlbzarasjcwt` holds the schema; check it directly
+rather than assuming from this file, since the DB is always more current
+than any doc. Everything below is real and current as of 2026-08-30 unless
+marked otherwise.
+
 Lineage and inventory tracker for mushroom cultivation. Deployed at
 mycellium-tracks.vercel.app, gated behind sign-in.
 
@@ -36,7 +45,10 @@ Rules settled so far:
 
 **Cultures** — species grid -> parallel-tree screen -> item detail. Full
 CRUD: add/edit species, add/edit genetics lines, add/edit/delete/reparent
-items, inoculate-from. Status includes contamination/failure with required
+items, inoculate-from. Species can be hidden from the main grid (a small
+button on each tile, plus a "Show hidden (n)" reveal toggle) - useful for
+species you're not actively running without deleting the history. Status
+includes contamination/failure with required
 reason (preset chips + free text). History entries and harvest rows are
 fully editable and deletable in place. BE% calculated live. Mycelial
 top-down tree, pan/zoom, hover lights ancestry back to origin.
@@ -151,14 +163,6 @@ defined anywhere — those pills were rendering colorless. Now defined
   Once that exists, QR generation itself is small — a library and an hour.
 - **Search** across items/lots/library — fine at current scale, won't stay
   fine.
-- **Capsule blend card reported as "not displaying"** (2026-08-30) - data
-  confirmed correct in the DB (right species, right mg doses, right capsule
-  count) but Matt says the scaling table isn't showing. Not yet root-caused
-  - could be a real render bug in `CapsuleBlendCard`, or a UX mismatch
-  (expecting a live preview while still filling out the add/edit form,
-  which doesn't exist - the table currently only appears after saving and
-  reopening the card). Next session: confirm which, with an actual
-  screenshot rather than guessing further.
 
 ## From today's notes (2026-08-30) - not yet addressed
 
@@ -192,3 +196,24 @@ npm run dev
 
 Needs `.env.local` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
 (same values as the Vercel project's environment variables).
+
+## In progress - interrupted, not finished
+
+- **Logo assets not yet wired in.** Three logo files exist in the Claude
+  Project's file panel (claude.ai, not on this PC): `SporeDesk_LogoApp_icon_1.png`
+  (transparent background, just the branching-burst glyph - for the
+  loading screen and anywhere it needs to sit on the app's own background),
+  `SporeDesk_LogoApp_icon_2.png` (same glyph, self-contained dark square
+  background - for the favicon, which needs to be complete on its own),
+  and `SporeDesk_Logo_words_only.png` (a wordmark in a different serif
+  than the in-app one - use with judgment, may not match). **Before the
+  next session can wire these in, download all three from the Project
+  files panel and drop them into `E:\Projects\mycelium\public\`** - a
+  fresh Code session has no access to Claude's project file storage, only
+  to this PC. Then: reference the favicon PNG from `index.html`, and use
+  the transparent glyph in `AuthGate.jsx` / the loading states in `App.jsx`.
+- **Loading screens need real content.** Two spots currently show nothing
+  useful: `AuthGate.jsx`'s pre-login session check (`session === undefined`)
+  is a bare colored div with no content at all, and `App.jsx`'s post-login
+  data-fetch state just shows plain text "Loading…". Matt wants the logo
+  plus some light animation in both, not just plain text - not started.
