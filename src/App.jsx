@@ -3113,26 +3113,26 @@ const APP_URL = (typeof window !== 'undefined' && window.location.origin.startsW
     ? window.location.origin + window.location.pathname
     : 'https://mycellium-tracks.vercel.app/';
 
-/* Avery 22805 (1.5" square, print-to-the-edge, 24/sheet) is the label
-   stock this was built against - see README. The margins below are a
-   computed best-estimate (centering a 4x6 grid of 1.5" cells on a
-   letter page with a small gap), not Avery's exact undisclosed
-   template numbers, which weren't published anywhere I could find.
-   All three are editable so a real test print can be used to dial
-   them in once - they only need tuning the first time for a given
-   sheet/printer combo. */
-const LABEL_IN = 1.5;
-const COLS = 4, ROWS = 6;
+/* Standard 3-across x 10-down address label sheet (Avery 5160 and its
+   many compatible equivalents - what Matt actually has on hand) - the
+   most common label format there is, so unlike the earlier 22805
+   guess these numbers are well-documented and cross-checked against
+   multiple sources: 2.625" x 1" labels, 0.5" top margin, 0.1875"
+   (3/16") left margin, 0.125" (1/8") gap between columns, labels
+   touch vertically (no row gap). All four still editable below in
+   case a real test print needs a small nudge for this printer. */
+const LABEL_W_IN = 2.625, LABEL_H_IN = 1;
+const COLS = 3, ROWS = 10;
 const PER_SHEET = COLS * ROWS;
-const DEFAULT_GAP = 0.1;
-const defaultMargin = (page, count, cell, gap) => ((page - count * cell - (count - 1) * gap) / 2).toFixed(2);
+const DEFAULT_TOP = 0.5, DEFAULT_LEFT = 0.1875, DEFAULT_GAP_X = 0.125, DEFAULT_GAP_Y = 0;
 
 function PrintLabels({ items, genetics, species, preselected, onClose }) {
     const [checked, setChecked] = useState(() => new Set(preselected));
     const [startAt, setStartAt] = useState(1);
-    const [topIn, setTopIn] = useState(defaultMargin(11, ROWS, LABEL_IN, DEFAULT_GAP));
-    const [leftIn, setLeftIn] = useState(defaultMargin(8.5, COLS, LABEL_IN, DEFAULT_GAP));
-    const [gapIn, setGapIn] = useState(String(DEFAULT_GAP));
+    const [topIn, setTopIn] = useState(String(DEFAULT_TOP));
+    const [leftIn, setLeftIn] = useState(String(DEFAULT_LEFT));
+    const [gapXIn, setGapXIn] = useState(String(DEFAULT_GAP_X));
+    const [gapYIn, setGapYIn] = useState(String(DEFAULT_GAP_Y));
     const [qrs, setQrs] = useState({});
 
     const candidates = useMemo(() => {
@@ -3174,7 +3174,8 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
     const blanks = Math.max(0, (parseInt(startAt, 10) || 1) - 1);
     const totalSlots = blanks + selected.length;
     const sheetCount = Math.max(1, Math.ceil(totalSlots / PER_SHEET));
-    const gap = parseFloat(gapIn) || 0;
+    const gapX = parseFloat(gapXIn) || 0;
+    const gapY = parseFloat(gapYIn) || 0;
     const top = parseFloat(topIn) || 0;
     const left = parseFloat(leftIn) || 0;
 
@@ -3183,7 +3184,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
             <div className="pl-controls">
                 <button className="back" onClick={onClose}>← Back</button>
                 <div className="bar"><div><h1>Print labels</h1>
-                    <div className="d-sub">Avery 22805-style, 1.5" square, {PER_SHEET} per sheet - each QR opens straight to that item.</div>
+                    <div className="d-sub">Standard address labels (3 across x 10 down, {PER_SHEET} per sheet) - each QR opens straight to that item.</div>
                 </div></div>
 
                 <div className="pl-field-row">
@@ -3192,13 +3193,15 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
                     <span className="nf-help">Already used some labels on this sheet? Skip them instead of reprinting over them.</span>
                 </div>
                 <div className="pl-field-row">
-                    <label>Top margin (in)<input className="in sm" type="number" step="0.05"
+                    <label>Top margin (in)<input className="in sm" type="number" step="0.02"
                         value={topIn} onChange={(e) => setTopIn(e.target.value)} /></label>
-                    <label>Left margin (in)<input className="in sm" type="number" step="0.05"
+                    <label>Left margin (in)<input className="in sm" type="number" step="0.02"
                         value={leftIn} onChange={(e) => setLeftIn(e.target.value)} /></label>
-                    <label>Gap (in)<input className="in sm" type="number" step="0.02"
-                        value={gapIn} onChange={(e) => setGapIn(e.target.value)} /></label>
-                    <span className="nf-help">Estimated to center on the sheet - print one test page and nudge these if it's off.</span>
+                    <label>Column gap (in)<input className="in sm" type="number" step="0.02"
+                        value={gapXIn} onChange={(e) => setGapXIn(e.target.value)} /></label>
+                    <label>Row gap (in)<input className="in sm" type="number" step="0.02"
+                        value={gapYIn} onChange={(e) => setGapYIn(e.target.value)} /></label>
+                    <span className="nf-help">Set to the standard Avery 5160-style spec (0.5"/0.1875"/0.125"/0") - nudge these if your test print is off.</span>
                 </div>
 
                 <div className="pl-list">
@@ -3221,9 +3224,10 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
                 {Array.from({ length: sheetCount }).map((_, s) => (
                     <div className="pl-sheet" key={s} style={{ paddingTop: `${top}in`, paddingLeft: `${left}in` }}>
                         <div className="pl-grid" style={{
-                            gridTemplateColumns: `repeat(${COLS}, ${LABEL_IN}in)`,
-                            gridTemplateRows: `repeat(${ROWS}, ${LABEL_IN}in)`,
-                            gap: `${gap}in`,
+                            gridTemplateColumns: `repeat(${COLS}, ${LABEL_W_IN}in)`,
+                            gridTemplateRows: `repeat(${ROWS}, ${LABEL_H_IN}in)`,
+                            columnGap: `${gapX}in`,
+                            rowGap: `${gapY}in`,
                         }}>
                             {Array.from({ length: PER_SHEET }).map((_, n) => {
                                 const slot = s * PER_SHEET + n;
@@ -3775,12 +3779,12 @@ const CSS = `
   @page{size:letter;margin:0;}
 }
 .pl-grid{display:grid;}
-.pl-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden;padding:2px;}
+.pl-cell{display:flex;flex-direction:row;align-items:center;gap:8px;overflow:hidden;padding:6px 8px;}
 .pl-cell.empty{visibility:hidden;}
-.pl-qr{width:68%;aspect-ratio:1;}
+.pl-qr{width:0.82in;height:0.82in;flex:0 0 auto;}
 .pl-qr svg{width:100%;height:100%;display:block;}
-.pl-qr-pending{display:flex;align-items:center;justify-content:center;color:var(--muted-warm);font-size:10px;}
-.pl-text{display:flex;flex-direction:column;align-items:center;line-height:1.15;}
-.pl-id{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--ink);}
-.pl-sp{font-size:7.5px;color:var(--muted-warm);}
+.pl-qr-pending{display:flex;align-items:center;justify-content:center;color:var(--muted-warm);font-size:9px;}
+.pl-text{display:flex;flex-direction:column;justify-content:center;line-height:1.25;min-width:0;}
+.pl-id{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pl-sp{font-size:9px;color:var(--muted-warm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 `;

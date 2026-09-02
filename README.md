@@ -653,25 +653,32 @@ printing.
   PC before this will build** - added to `package.json` from this
   session, never installed (see the hard rule on `npm install` from a
   Linux sandbox - this had to be added blind, not run here).
-- **Print layout targets Avery 22805** (1.5" square, print-to-the-edge,
-  24 per sheet, laser/inkjet) - matches Matt's Canon TS9120. The
-  top/left margins and gap-between-labels are a **computed estimate**
-  (centering a 4x6 grid of 1.5" cells on a letter page), not Avery's
-  actual template numbers - those weren't published anywhere searchable
-  at build time. All three are exposed as editable fields on the print
-  screen specifically so a real test print can dial them in once, without
-  needing code changes. If they end up needing a big correction, worth
-  updating the defaults here so future sheets don't need retuning.
+- **Print layout targets standard 3-across x 10-down address labels**
+  (Avery 5160 and its many compatible equivalents - 2.625" x 1" each,
+  30 per sheet) - Matt found a pack of these already in his cabinet, so
+  this replaced an earlier version built against Avery 22805 (a square
+  1.5" label, never actually printed against). Unlike 22805, the 5160
+  spec is extremely well-documented and cross-checked against multiple
+  sources: 0.5" top margin, 0.1875" left margin, 0.125" gap between
+  columns, 0" gap between rows (labels touch vertically) - all four
+  still exposed as editable fields on the print screen in case this
+  specific printer needs a small nudge, but they shouldn't need much.
+  Cell layout is QR-left, text-right (id + species name) to fit the
+  wide-short label shape, rather than the stacked layout the square
+  version used.
 - **"Start at label #"** field lets a partially-used sheet resume where
   it left off instead of wasting the labels already used - directly
   from Matt's "wouldn't wanna use a full sheet of stickers for one
   sticker at a time" concern.
-- Selecting more items than fit on one sheet (24) automatically spans
+- Selecting more items than fit on one sheet (30) automatically spans
   multiple sheets, each its own printed page (`page-break-after`).
 
 **Not done / worth knowing:**
-- Never tested against a real printed sheet - the margin numbers are a
-  best guess, see above.
+- Never tested against a real printed sheet yet. The 5160 spec is
+  well-documented (two independent sources agreed on label size, sheet
+  layout, and margins to within a few hundredths of an inch) so it
+  should be close, but "should be" isn't "confirmed" - print one test
+  page before committing a whole sheet.
 - The URL-routing piece only reads on load; it doesn't rewrite the
   address bar as you click around normally. Fine for what QR labels
   need, but if "shareable link to whatever I'm looking at" ever becomes
