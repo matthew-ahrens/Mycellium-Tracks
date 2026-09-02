@@ -3107,9 +3107,21 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
 
 /* Live web origin when actually running as the web app; falls back to
    the known public URL when running from the packaged desktop app
-   (file:// isn't something a phone camera can open). This is what a
+   (file:// isn't something a phone camera can open) OR from a local
+   dev server (localhost/127.0.0.1/LAN dev addresses aren't reachable
+   by a phone camera off-network either - a QR printed while running
+   `npm run dev` would otherwise encode a dead link). This is what a
    scanned QR label actually resolves to. */
-const APP_URL = (typeof window !== 'undefined' && window.location.origin.startsWith('http'))
+const isPublicHttpOrigin = (origin) => {
+    if (!/^https?:/.test(origin)) return false;
+    try {
+        const host = new URL(origin).hostname;
+        return host !== 'localhost' && host !== '127.0.0.1' && !/^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(host);
+    } catch {
+        return false;
+    }
+};
+const APP_URL = (typeof window !== 'undefined' && isPublicHttpOrigin(window.location.origin))
     ? window.location.origin + window.location.pathname
     : 'https://mycellium-tracks.vercel.app/';
 
