@@ -64,11 +64,17 @@ function layout(items) {
     const kids = (id) => items.filter((i) => i.parent === id);
     const out = {};
     let cur = 0;
-    const walk = (n, d) => {
+    /* `seen` guards against a cycle in the parent chain (e.g. two items
+       that ended up sharing a label) sending this into infinite
+       recursion - a duplicate label should degrade to a stray leaf on
+       the tree, never a crashed page. */
+    const walk = (n, d, seen) => {
+        if (seen.has(n.id)) { out[n.id] = { x: cur * GAP_X, y: d * GAP_Y, depth: d }; return cur++; }
+        seen.add(n.id);
         const ch = kids(n.id);
         let slot;
         if (!ch.length) slot = cur++;
-        else { const s = ch.map((c) => walk(c, d + 1)); slot = (s[0] + s[s.length - 1]) / 2; }
+        else { const s = ch.map((c) => walk(c, d + 1, seen)); slot = (s[0] + s[s.length - 1]) / 2; }
         out[n.id] = { x: slot * GAP_X, y: d * GAP_Y, depth: d };
         return slot;
     };
@@ -76,7 +82,7 @@ function layout(items) {
        trees read as distinct rather than one big tangle. */
     items.filter((i) => !i.parent).forEach((r, n) => {
         if (n > 0) cur += 0.9;
-        walk(r, 0);
+        walk(r, 0, new Set());
     });
     return out;
 }
@@ -792,8 +798,19 @@ export default function App() {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
         const code = genetics.find((g) => g.id === parent.geneticsId)?.code ?? 'X';
-        const n = items.filter((i) => i.geneticsId === parent.geneticsId && i.type === type).length + 1;
-        const label = `${code}-${CODE[type]}${n}`;
+        /* Start counting from how many items of this type already exist,
+           but that's only a good guess - an older item's `type` can drift
+           out of sync with its label (e.g. relabeled by hand), so don't
+           trust the guess blindly. Keep incrementing until the generated
+           label isn't already taken by something. Two items sharing a
+           label breaks the tree view outright (infinite loop walking
+           parent -> child -> parent), so this has to be airtight. */
+        let n = items.filter((i) => i.geneticsId === parent.geneticsId && i.type === type).length + 1;
+        let label = `${code}-${CODE[type]}${n}`;
+        while (items.some((i) => i.id === label)) {
+            n += 1;
+            label = `${code}-${CODE[type]}${n}`;
+        }
 
         const { data, error } = await supabase.from('items').insert({
             genetics_id: parent.geneticsId,
@@ -2770,10 +2787,17 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
     const kids = items.filter((i) => i.parent === id);
 
     /* Everything below this item. Excluded from the parent dropdown so an
-       item can't be reparented under its own descendant and orphan a loop. */
+       item can't be reparented under its own descendant and orphan a loop.
+       `seen` stops this from spinning forever if a duplicate label ever
+       creates an actual cycle in the parent chain. */
     const descendants = (() => {
         const out = [];
-        const walk = (lbl) => items.filter((i) => i.parent === lbl).forEach((c) => { out.push(c.id); walk(c.id); });
+        const seen = new Set();
+        const walk = (lbl) => {
+            if (seen.has(lbl)) return;
+            seen.add(lbl);
+            items.filter((i) => i.parent === lbl).forEach((c) => { out.push(c.id); walk(c.id); });
+        };
         walk(id);
         return out;
     })();
