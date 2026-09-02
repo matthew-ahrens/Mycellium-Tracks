@@ -264,7 +264,7 @@ export default function App() {
             source_item_id: item.uid,
             flush_number: flush,
             harvested_on: today,
-        }).select('id').single();
+        }).select('*').single();
         if (lotErr) { console.error(lotErr); alert('Harvest not saved - check console'); return; }
 
         await supabase.from('items').update({ status: 'fruiting' }).eq('id', item.uid);
@@ -274,6 +274,7 @@ export default function App() {
             lot_id: lot.id,
         }).select('id').single();
 
+        setLots((p) => [...p, lot]);
         update(label, (i) => ({
             ...i,
             status: 'fruiting',
@@ -299,6 +300,7 @@ export default function App() {
                 .update({ happened_on: date, body: newBody }).eq('id', line.id);
         }
 
+        setLots((p) => p.map((l) => (l.id === harvest.lotId ? { ...l, harvested_on: date, amount_g: grams } : l)));
         update(label, (i) => ({
             ...i,
             harvests: i.harvests.map((h) => (h.lotId === harvest.lotId ? { ...h, date, wet: grams } : h)),
@@ -314,6 +316,7 @@ export default function App() {
         const { error } = await supabase.from('lots').delete().eq('id', harvest.lotId);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
 
+        setLots((p) => p.filter((l) => l.id !== harvest.lotId));
         update(label, (i) => ({
             ...i,
             harvests: i.harvests.filter((h) => h.lotId !== harvest.lotId),
@@ -1310,6 +1313,17 @@ const LOT_FORMS = {
    a real remainder. */
 const LOT_EPS = 0.05;
 
+/* One decimal for weight display everywhere - two only for extracts, where
+   a tenth of a gram in a tincture actually changes the dose. Trims to a
+   whole number when there's nothing after the decimal, and rounds both
+   sides of a "remaining / started with" pair the same way so they can't
+   read as remaining > original from formatting alone. */
+const fmtG = (n, form) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return n;
+    return num % 1 === 0 ? String(num) : num.toFixed(form === 'extract' ? 2 : 1);
+};
+
 /* Traces a lot's genetics upward through the merge graph and returns the
    set of species involved - a raw harvest has one, a blend can have several. */
 function lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species, seen = new Set()) {
@@ -1344,8 +1358,8 @@ function LotCard({ lot, rem, sp, onOpen }) {
             </div>
             <div className="lot-label">{lot.label || 'Untitled lot'}</div>
             <div className="lot-amt">
-                <strong>{rem % 1 === 0 ? rem : rem.toFixed(1)} g</strong>
-                <span> / {lot.amount_g} g</span>
+                <strong>{fmtG(rem, lot.form)} g</strong>
+                <span> / {fmtG(lot.amount_g, lot.form)} g</span>
             </div>
             {!used && <div className="lot-bar"><div className="lot-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></div>}
             {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on)}</div>}
@@ -1505,8 +1519,8 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
             </div>
 
             <div className="lot-amount-hero">
-                <div><strong>{rem % 1 === 0 ? rem : rem.toFixed(1)} g</strong><span>remaining</span></div>
-                <div><strong>{lot.amount_g} g</strong><span>started with</span></div>
+                <div><strong>{fmtG(rem, lot.form)} g</strong><span>remaining</span></div>
+                <div><strong>{fmtG(lot.amount_g, lot.form)} g</strong><span>started with</span></div>
                 {Number(lot.lost_g) > 0 && <div><strong style={{ color: TONE.clay }}>{lot.lost_g} g</strong><span>used up</span></div>}
             </div>
 
@@ -1532,7 +1546,7 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                                 <NumField label="Amount" value={lossAmt} onChange={setLossAmt} placeholder="e.g. 5" unit="g" />
                                 <button className="chip" style={{ marginTop: 18 }}
                                     onClick={() => setLossAmt(String(rem))}>
-                                    All ({rem % 1 === 0 ? rem : rem.toFixed(1)}g)
+                                    All ({fmtG(rem, lot.form)}g)
                                 </button>
                             </div>
                             <label style={{ marginTop: 4 }}>What happened to it</label>
@@ -1547,7 +1561,7 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                                 <button className="mini" onClick={() => {
                                     const g = n(lossAmt);
                                     if (!g) { alert('Enter an amount.'); return; }
-                                    if (g > rem + LOT_EPS) { alert(`Only ${rem % 1 === 0 ? rem : rem.toFixed(1)}g remaining.`); return; }
+                                    if (g > rem + LOT_EPS) { alert(`Only ${fmtG(rem, lot.form)}g remaining.`); return; }
                                     onLoss(lotId, Math.min(g, rem), lossReason.trim());
                                     setLosing(false); setLossAmt(''); setLossReason('');
                                 }}>Save</button>
@@ -1630,7 +1644,7 @@ function ProcessForm({ sourceLot, sourceRemaining, available, remaining, onSubmi
                             <span className="pr-label">{rowLot?.label ?? '?'}</span>
                             <input className="in sm" inputMode="decimal" value={row.amount}
                                 onChange={(e) => setRowAmt(i, e.target.value)} />
-                            <span className="pr-cap">/ {cap.toFixed(1)}g avail</span>
+                            <span className="pr-cap">/ {fmtG(cap, rowLot?.form)}g avail</span>
                             {i > 0 && <button className="log-x" onClick={() => removeRow(i)}>×</button>}
                         </div>
                     );
