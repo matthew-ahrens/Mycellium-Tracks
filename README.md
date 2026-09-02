@@ -683,3 +683,32 @@ separately confirmed yet, but the layout itself is done.
   address bar as you click around normally. Fine for what QR labels
   need, but if "shareable link to whatever I'm looking at" ever becomes
   a real want, that's the next layer on top of this, not a redo.
+
+## QR labels - fixes since launch (2026-09-02)
+
+- **QR codes encoded a dead `localhost` link.** `APP_URL`'s fallback
+  only excluded `file://` (the desktop app), not `http://localhost:5173`
+  (the Vite dev server) - printing while `npm run dev` was running baked
+  an unreachable link into every code. Now checks for an actual public
+  hostname (excludes `localhost`, `127.0.0.1`, and LAN addresses) before
+  trusting `window.location.origin`, falling back to the production URL
+  otherwise. Confirmed fixed - scan-to-item-page works.
+- **Start date added to the label.** Third line under the species name
+  now shows the item's start date, same value shown as "started" on its
+  detail page.
+- **Print screen got "stuck."** It's an override that took priority over
+  normal section/nav state, but nothing cleared it when the sidebar was
+  used to navigate elsewhere - the screen looked frozen until "← Back"
+  was clicked specifically. Sidebar nav buttons now clear it too.
+- **Mobile printing doesn't work reliably - hidden there instead of
+  fixed.** iOS Safari (confirmed on iPhone, default AirPrint) doesn't
+  reliably honor a webpage's `@page` size/margin CSS when printing - it
+  can silently shrink or shift the layout, which is what caused the QR
+  to run off the label edge and a blank extra page. This is a Safari/
+  iOS print-pipeline limitation, not something fixable from this page's
+  CSS alone; the real fix would be generating an actual PDF (iOS honors
+  a PDF's page box far better than live web content) - scoped but not
+  built, decided not worth it for now since desktop/native app printing
+  is already dead-on accurate. Both "Print label" and "Print labels"
+  buttons (`.pl-trigger`) are hidden under the app's existing 760px
+  mobile breakpoint so the option doesn't show where it can't work.

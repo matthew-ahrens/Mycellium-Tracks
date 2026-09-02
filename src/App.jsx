@@ -918,7 +918,7 @@ export default function App() {
                     <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
-                            onClick={() => { setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
+                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
@@ -2578,7 +2578,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     }}>✎ Species</button>
                     <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
                     {items.length > 0 && (
-                        <button className="sw" onClick={() => onPrintLabels(items.map((i) => i.id))}>
+                        <button className="sw pl-trigger" onClick={() => onPrintLabels(items.map((i) => i.id))}>
                             Print labels
                         </button>
                     )}
@@ -2876,7 +2876,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                     <>
                         <button className="edit-btn" title="Edit label, type, start date"
                             onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
-                        <button className="sw" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
+                        <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
                 )}
@@ -3500,6 +3500,11 @@ const CSS = `
   .nav-item svg{width:20px;height:20px;}
   .main{order:1;padding-bottom:calc(72px + env(safe-area-inset-bottom));}
   .page{padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right));}
+  /* Label printing needs exact physical page control that mobile
+     browsers don't reliably give a webpage (iOS Safari especially) -
+     hide the trigger here rather than let it produce a broken print.
+     Desktop/native app is where this actually works. */
+  .pl-trigger{display:none;}
 }
 
 .lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
