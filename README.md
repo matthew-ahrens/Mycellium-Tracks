@@ -673,12 +673,12 @@ printing.
 - Selecting more items than fit on one sheet (30) automatically spans
   multiple sheets, each its own printed page (`page-break-after`).
 
+**Confirmed working (2026-09-02):** Matt printed a real sheet on the
+Canon TS9120 against actual label stock - alignment was correct on the
+default margins, no nudging needed. QR scan-to-item-page not
+separately confirmed yet, but the layout itself is done.
+
 **Not done / worth knowing:**
-- Never tested against a real printed sheet yet. The 5160 spec is
-  well-documented (two independent sources agreed on label size, sheet
-  layout, and margins to within a few hundredths of an inch) so it
-  should be close, but "should be" isn't "confirmed" - print one test
-  page before committing a whole sheet.
 - The URL-routing piece only reads on load; it doesn't rewrite the
   address bar as you click around normally. Fine for what QR labels
   need, but if "shareable link to whatever I'm looking at" ever becomes
