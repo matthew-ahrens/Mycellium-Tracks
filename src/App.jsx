@@ -3154,7 +3154,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
             .map((i) => {
                 const g = genetics.find((x) => x.id === i.geneticsId);
                 const sp = g && species.find((s) => s.id === g.species_id);
-                return { id: i.id, sub: sp?.common_name ?? '' };
+                return { id: i.id, sub: sp?.common_name ?? '', started: i.created };
             })
             .sort((a, b) => a.id.localeCompare(b.id));
     }, [items, genetics, species, preselected, checked]);
@@ -3253,6 +3253,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
                                         <div className="pl-text">
                                             <span className="pl-id">{item.id}</span>
                                             {item.sub && <span className="pl-sp">{item.sub}</span>}
+                                            {item.started && <span className="pl-date">{fmt(item.started)}</span>}
                                         </div>
                                     </div>
                                 );
@@ -3799,4 +3800,5 @@ const CSS = `
 .pl-text{display:flex;flex-direction:column;justify-content:center;line-height:1.25;min-width:0;}
 .pl-id{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pl-sp{font-size:9px;color:var(--muted-warm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pl-date{font-size:9px;color:var(--muted-warm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 `;
