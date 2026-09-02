@@ -3228,7 +3228,14 @@ const CSS = `
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
   background:var(--ground);color:var(--ink);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
-  overflow-x:hidden;max-width:100vw;
+  /* clip, not hidden - setting overflow-x alone to a non-visible value
+     silently promotes overflow-y to auto too (CSS Overflow spec), which
+     turned .root into its own scroll container instead of the page
+     itself. That broke the sidebar's position:sticky + height:100vh -
+     its black background would visibly run out partway down during
+     scroll, worst on trackpad/inertial scrolling. clip is exempt from
+     that promotion, so the real page scrolls again and sticky holds. */
+  overflow-x:clip;max-width:100vw;
 }
 .root *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 .root button{touch-action:manipulation;}
