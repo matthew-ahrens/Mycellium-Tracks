@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import QRCode from 'qrcode';
 
 /* ================= DATA ================= */
 
@@ -109,6 +110,7 @@ export default function App() {
     const [dir, setDir] = useState('fwd');
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [printing, setPrinting] = useState(null); // array of item ids being printed, or null
 
     const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
 
@@ -177,6 +179,24 @@ export default function App() {
                     .map((e) => ({ id: e.id, date: e.happened_on, body: e.body, kind: e.kind, lotId: e.lot_id }))
                     .sort((a, b) => a.date.localeCompare(b.date)),
             })));
+
+            /* Deep link: ?item=EN-BK1 in the URL opens straight to that
+               item, so a scanned QR label goes right to the container
+               instead of the species grid. Read once here, off the data
+               this load just fetched, rather than waiting on state to
+               settle. Silently does nothing if the item isn't found -
+               falls back to the normal landing page. */
+            const wantedItem = new URLSearchParams(window.location.search).get('item');
+            if (wantedItem) {
+                const target = data.find((r) => r.label === wantedItem);
+                const gLine = target && gen?.find((g) => g.id === target.genetics_id);
+                if (target && gLine) {
+                    setNav({ level: 'tree', speciesId: gLine.species_id, geneticsId: gLine.id });
+                    setSection('cultures');
+                    setOpen(wantedItem);
+                }
+            }
+
             setLoading(false);
         }
         load();
@@ -807,7 +827,11 @@ export default function App() {
     const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
 
     let screen, key;
-    if (section === 'supplies') {
+    if (printing) {
+        key = 'print';
+        screen = <PrintLabels items={items} genetics={genetics} species={species}
+            preselected={printing} onClose={() => setPrinting(null)} />;
+    } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock} onBumpStockQty={bumpStockQty}
@@ -843,10 +867,12 @@ export default function App() {
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
-            photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} />;
+            photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto}
+            onPrintLabel={() => setPrinting([open])} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
+            onPrintLabels={(ids) => setPrinting(ids)}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
@@ -2438,7 +2464,7 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [addingLine, setAddingLine] = useState(false);
@@ -2534,6 +2560,11 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                         setEditSp(true);
                     }}>✎ Species</button>
                     <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
+                    {items.length > 0 && (
+                        <button className="sw" onClick={() => onPrintLabels(items.map((i) => i.id))}>
+                            Print labels
+                        </button>
+                    )}
                     <button className="sw" onClick={fit}>Fit</button>
                     <button className="sw" onClick={() => onToggleHidden(species.id, !species.hidden)}>
                         {species?.hidden ? 'Unhide' : 'Hide'}
@@ -2723,7 +2754,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, onPrintLabel }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -2821,6 +2852,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                     <>
                         <button className="edit-btn" title="Edit label, type, start date"
                             onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
+                        <button className="sw" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
                 )}
@@ -3066,6 +3098,152 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                         <button className="mini" onClick={addNote}>Add</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+/* ---------------- PRINT LABELS ---------------- */
+
+/* Live web origin when actually running as the web app; falls back to
+   the known public URL when running from the packaged desktop app
+   (file:// isn't something a phone camera can open). This is what a
+   scanned QR label actually resolves to. */
+const APP_URL = (typeof window !== 'undefined' && window.location.origin.startsWith('http'))
+    ? window.location.origin + window.location.pathname
+    : 'https://mycellium-tracks.vercel.app/';
+
+/* Avery 22805 (1.5" square, print-to-the-edge, 24/sheet) is the label
+   stock this was built against - see README. The margins below are a
+   computed best-estimate (centering a 4x6 grid of 1.5" cells on a
+   letter page with a small gap), not Avery's exact undisclosed
+   template numbers, which weren't published anywhere I could find.
+   All three are editable so a real test print can be used to dial
+   them in once - they only need tuning the first time for a given
+   sheet/printer combo. */
+const LABEL_IN = 1.5;
+const COLS = 4, ROWS = 6;
+const PER_SHEET = COLS * ROWS;
+const DEFAULT_GAP = 0.1;
+const defaultMargin = (page, count, cell, gap) => ((page - count * cell - (count - 1) * gap) / 2).toFixed(2);
+
+function PrintLabels({ items, genetics, species, preselected, onClose }) {
+    const [checked, setChecked] = useState(() => new Set(preselected));
+    const [startAt, setStartAt] = useState(1);
+    const [topIn, setTopIn] = useState(defaultMargin(11, ROWS, LABEL_IN, DEFAULT_GAP));
+    const [leftIn, setLeftIn] = useState(defaultMargin(8.5, COLS, LABEL_IN, DEFAULT_GAP));
+    const [gapIn, setGapIn] = useState(String(DEFAULT_GAP));
+    const [qrs, setQrs] = useState({});
+
+    const candidates = useMemo(() => {
+        const preset = new Set(preselected);
+        return items
+            .filter((i) => preset.has(i.id) || checked.has(i.id))
+            .map((i) => {
+                const g = genetics.find((x) => x.id === i.geneticsId);
+                const sp = g && species.find((s) => s.id === g.species_id);
+                return { id: i.id, sub: sp?.common_name ?? '' };
+            })
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }, [items, genetics, species, preselected, checked]);
+
+    const selected = useMemo(() => candidates.filter((c) => checked.has(c.id)), [candidates, checked]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const entries = await Promise.all(selected.map(async (c) => {
+                const url = `${APP_URL}?item=${encodeURIComponent(c.id)}`;
+                // Error correction Q (~25% recovery) rather than the default M -
+                // these end up on jars and tubs in a humid grow space, splashed
+                // and misted, so a little print/label damage shouldn't kill the scan.
+                const svg = await QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'Q' });
+                return [c.id, svg];
+            }));
+            if (!cancelled) setQrs(Object.fromEntries(entries));
+        })();
+        return () => { cancelled = true; };
+    }, [selected]);
+
+    const toggle = (id) => setChecked((p) => {
+        const next = new Set(p);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+
+    const blanks = Math.max(0, (parseInt(startAt, 10) || 1) - 1);
+    const totalSlots = blanks + selected.length;
+    const sheetCount = Math.max(1, Math.ceil(totalSlots / PER_SHEET));
+    const gap = parseFloat(gapIn) || 0;
+    const top = parseFloat(topIn) || 0;
+    const left = parseFloat(leftIn) || 0;
+
+    return (
+        <div className="page pl-wrap">
+            <div className="pl-controls">
+                <button className="back" onClick={onClose}>← Back</button>
+                <div className="bar"><div><h1>Print labels</h1>
+                    <div className="d-sub">Avery 22805-style, 1.5" square, {PER_SHEET} per sheet - each QR opens straight to that item.</div>
+                </div></div>
+
+                <div className="pl-field-row">
+                    <label>Start at label #<input className="in sm" type="number" min="1" max={PER_SHEET}
+                        value={startAt} onChange={(e) => setStartAt(e.target.value)} /></label>
+                    <span className="nf-help">Already used some labels on this sheet? Skip them instead of reprinting over them.</span>
+                </div>
+                <div className="pl-field-row">
+                    <label>Top margin (in)<input className="in sm" type="number" step="0.05"
+                        value={topIn} onChange={(e) => setTopIn(e.target.value)} /></label>
+                    <label>Left margin (in)<input className="in sm" type="number" step="0.05"
+                        value={leftIn} onChange={(e) => setLeftIn(e.target.value)} /></label>
+                    <label>Gap (in)<input className="in sm" type="number" step="0.02"
+                        value={gapIn} onChange={(e) => setGapIn(e.target.value)} /></label>
+                    <span className="nf-help">Estimated to center on the sheet - print one test page and nudge these if it's off.</span>
+                </div>
+
+                <div className="pl-list">
+                    {candidates.length === 0 && <p className="nf-help">Nothing to print here.</p>}
+                    {candidates.map((c) => (
+                        <label key={c.id} className="pl-item">
+                            <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggle(c.id)} />
+                            <span className="lc-code">{c.id}</span>
+                            <span className="lc-name">{c.sub}</span>
+                        </label>
+                    ))}
+                </div>
+
+                <button className="cta" disabled={!selected.length} onClick={() => window.print()}>
+                    Print {selected.length} label{selected.length === 1 ? '' : 's'} ({sheetCount} sheet{sheetCount === 1 ? '' : 's'})
+                </button>
+            </div>
+
+            <div className="pl-sheets">
+                {Array.from({ length: sheetCount }).map((_, s) => (
+                    <div className="pl-sheet" key={s} style={{ paddingTop: `${top}in`, paddingLeft: `${left}in` }}>
+                        <div className="pl-grid" style={{
+                            gridTemplateColumns: `repeat(${COLS}, ${LABEL_IN}in)`,
+                            gridTemplateRows: `repeat(${ROWS}, ${LABEL_IN}in)`,
+                            gap: `${gap}in`,
+                        }}>
+                            {Array.from({ length: PER_SHEET }).map((_, n) => {
+                                const slot = s * PER_SHEET + n;
+                                const item = slot >= blanks ? selected[slot - blanks] : null;
+                                if (!item) return <div className="pl-cell empty" key={n} />;
+                                return (
+                                    <div className="pl-cell" key={n}>
+                                        {qrs[item.id]
+                                            ? <div className="pl-qr" dangerouslySetInnerHTML={{ __html: qrs[item.id] }} />
+                                            : <div className="pl-qr pl-qr-pending">…</div>}
+                                        <div className="pl-text">
+                                            <span className="pl-id">{item.id}</span>
+                                            {item.sub && <span className="pl-sp">{item.sub}</span>}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -3571,4 +3749,38 @@ const CSS = `
 .gallery-sp{color:var(--amber);}
 
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
+
+/* ---- Print labels ---- */
+.pl-wrap{max-width:none;}
+.pl-field-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:12px 0;}
+.pl-field-row label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-dim);}
+.pl-field-row .nf-help{margin:0;}
+.pl-list{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px;margin-bottom:16px;background:var(--panel);}
+.pl-item{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--bone);}
+.pl-item:hover{background:var(--panel2);}
+.pl-item input{flex:0 0 auto;}
+.pl-item .lc-name{color:var(--dim);font-size:12px;}
+
+.pl-sheets{overflow-x:auto;background:var(--border-warm);padding:24px;border-radius:12px;margin-top:8px;}
+.pl-sheet{width:8.5in;height:11in;box-sizing:border-box;background:#fff;margin:0 auto 24px;box-shadow:0 2px 10px rgba(0,0,0,.25);}
+.pl-sheet:last-child{margin-bottom:0;}
+@media print{
+  .root>.mobile-brand,.root .side,.pl-controls{display:none!important;}
+  .root{background:none!important;min-height:0!important;overflow:visible!important;}
+  .shell{display:block!important;min-height:0!important;}
+  .page.pl-wrap{max-width:none!important;margin:0!important;padding:0!important;}
+  .pl-sheets{display:block;overflow:visible;background:none;padding:0;border-radius:0;margin:0;}
+  .pl-sheet{margin:0;box-shadow:none;page-break-after:always;}
+  .pl-sheet:last-child{page-break-after:auto;}
+  @page{size:letter;margin:0;}
+}
+.pl-grid{display:grid;}
+.pl-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden;padding:2px;}
+.pl-cell.empty{visibility:hidden;}
+.pl-qr{width:68%;aspect-ratio:1;}
+.pl-qr svg{width:100%;height:100%;display:block;}
+.pl-qr-pending{display:flex;align-items:center;justify-content:center;color:var(--muted-warm);font-size:10px;}
+.pl-text{display:flex;flex-direction:column;align-items:center;line-height:1.15;}
+.pl-id{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--ink);}
+.pl-sp{font-size:7.5px;color:var(--muted-warm);}
 `;

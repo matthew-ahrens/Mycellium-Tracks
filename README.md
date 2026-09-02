@@ -179,9 +179,6 @@ defined anywhere — those pills were rendering colorless. Now defined
   mobile-first marketability signal from Jordan above, specifically so
   that thread doesn't have to re-derive it from this whole README.
 
-- **QR labels.** Auth and deployment are done, so the remaining blocker is
-  real URL routing per item (`/item/BO-GR1` instead of React state nav).
-  Once that exists, QR generation itself is small — a library and an hour.
 - **Search** across items/lots/library — fine at current scale, won't stay
   fine.
 
@@ -617,3 +614,65 @@ Not committed yet (the `vite.config.js` fix).
   way to see console/network errors at all, which made the logo bug
   above much harder to diagnose than it needed to be. Press F12 in the
   installed app any time something needs debugging.
+- **Sidebar background ran out partway down during scroll** (worst on
+  trackpad/inertial scrolling). Root cause: `.root` set `overflow-x:hidden`
+  without setting `overflow-y`, and per the CSS Overflow spec, setting
+  only one axis to a non-`visible` value silently promotes the other
+  axis to `auto` too - so `.root` quietly became its own scroll
+  container instead of the page itself, which broke the sidebar's
+  `position:sticky` + `height:100vh`. Fixed by switching to
+  `overflow-x:clip`, which is exempt from that promotion rule, so the
+  page scrolls normally again.
+
+## QR label printing - built (2026-09-02)
+
+Print small QR stickers for physical containers (jars, bags, tubs) -
+scanning one opens the app straight to that item, on a phone or the
+desktop app. Entry points: a "Print label" button on an item's own
+detail page (single item, prints as you go), and a "Print labels"
+button on a species page (every item under that species, all lines,
+for knocking out a backlog in one go). Both open the same picker/print
+screen with checkboxes, so either path can add or remove items before
+printing.
+
+**How it works:**
+- **Real routing, finally.** The blocker noted under "Not started" a
+  while back - `/item/BO-GR1` instead of pure React state nav - is
+  solved, just via a query param instead of a path: `?item=EN-BK1`.
+  Read once on load (`App()`'s data-loading effect) and used to jump
+  straight to that item if present. This is read-only for now - the URL
+  bar doesn't update as you navigate normally in-app, it only matters
+  for a link landing on the page fresh. `APP_URL` falls back to the
+  known production URL if the app somehow isn't running from `http(s)`
+  (i.e. the installed desktop app's `file://`), so a label printed from
+  the desktop app still encodes a link a phone can actually open.
+- **QR generation** via the `qrcode` npm package (`QRCode.toString`,
+  SVG output, `errorCorrectionLevel: 'Q'` - roughly 25% damage
+  tolerance, picked deliberately since these end up on jars and tubs in
+  a humid, misted grow space). **Matt needs to run `npm install` on his
+  PC before this will build** - added to `package.json` from this
+  session, never installed (see the hard rule on `npm install` from a
+  Linux sandbox - this had to be added blind, not run here).
+- **Print layout targets Avery 22805** (1.5" square, print-to-the-edge,
+  24 per sheet, laser/inkjet) - matches Matt's Canon TS9120. The
+  top/left margins and gap-between-labels are a **computed estimate**
+  (centering a 4x6 grid of 1.5" cells on a letter page), not Avery's
+  actual template numbers - those weren't published anywhere searchable
+  at build time. All three are exposed as editable fields on the print
+  screen specifically so a real test print can dial them in once, without
+  needing code changes. If they end up needing a big correction, worth
+  updating the defaults here so future sheets don't need retuning.
+- **"Start at label #"** field lets a partially-used sheet resume where
+  it left off instead of wasting the labels already used - directly
+  from Matt's "wouldn't wanna use a full sheet of stickers for one
+  sticker at a time" concern.
+- Selecting more items than fit on one sheet (24) automatically spans
+  multiple sheets, each its own printed page (`page-break-after`).
+
+**Not done / worth knowing:**
+- Never tested against a real printed sheet - the margin numbers are a
+  best guess, see above.
+- The URL-routing piece only reads on load; it doesn't rewrite the
+  address bar as you click around normally. Fine for what QR labels
+  need, but if "shareable link to whatever I'm looking at" ever becomes
+  a real want, that's the next layer on top of this, not a redo.
