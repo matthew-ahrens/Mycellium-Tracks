@@ -34,6 +34,15 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+
+  // F12 toggles dev tools even in the packaged build - autoHideMenuBar
+  // hides the menu (and its built-in devtools shortcut) so this is the
+  // only way to get a console in an installed copy for debugging.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.toggleDevTools();
+    }
+  });
 }
 
 app.whenReady().then(() => {

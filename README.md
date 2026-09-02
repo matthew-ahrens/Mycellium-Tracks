@@ -139,6 +139,14 @@ defined anywhere — those pills were rendering colorless. Now defined
 
 ## Known gaps
 
+- **"Add a note" input on an item's history occasionally won't accept
+  typing** - reported once on an enoki item (EN-BK1, colonizing), resolved
+  itself before it could be diagnosed (no console access at the time, item
+  data looked normal in Supabase - no malformed log entries found). Not
+  reproduced. If it happens again: note the exact item, and whether
+  characters appear-then-vanish vs. never appear at all, and whether it's
+  the web app or the installed desktop app - that'll actually narrow it
+  down instead of guessing blind again.
 - **No delete for genetics or species.** Items have delete (with child
   reparenting); genetics and species don't. Only real gap in "every
   create/edit/delete works" — SQL still required to remove one.
@@ -559,3 +567,53 @@ Not committed yet (the `vite.config.js` fix).
   sterile-stock idea above (ingredients -> recipes -> made-or-bought
   stock -> cultivation item) but explicitly not committed to doing all of
   it at once.
+
+## Bugfixes and small changes (2026-09-02)
+
+- **Logging/editing/deleting a flush didn't update Inventory until a
+  page refresh.** `saveHarvest`, `editHarvest`, and `deleteHarvest` all
+  write to the `lots` table in Supabase correctly, but only
+  `saveHarvest` updated the local `items` state (for the item's own
+  history) - none of the three ever called `setLots`, so the local
+  `lots` array (what Inventory actually renders from) silently drifted
+  out of sync with the database. Data was never lost, it just didn't
+  show up live. Fixed by adding the matching `setLots` call to all
+  three, matching the pattern every other lot-mutating function
+  (`processLot`, `logLoss`, `saveLotFields`, `addManualLot`,
+  `deleteLot`) already used.
+- **A lot's "remaining" and "started with" weights were rounded
+  differently, making remaining look bigger than the original** (e.g.
+  "33.2 g / 33.18 g" on a chestnut lot with nothing taken from it yet).
+  `rem` was always rounded to 1 decimal; `lot.amount_g` was shown raw,
+  unrounded. Added a shared `fmtG(n, form)` helper - 1 decimal normally,
+  2 for `extract`-form lots since that's the one case where a tenth of
+  a gram actually matters - and applied it everywhere a lot's weight
+  displays (Inventory cards, lot detail, quick-fill buttons, the
+  "only Xg remaining" alert, blend/process source amounts). The
+  underlying stored numbers were never wrong, this was display-only.
+- **"Bulk block" renamed to "Monotub"** in the item type list
+  (spores/agar/LC/grain/**Monotub**/Fruiting block). Matt's read on the
+  terminology: it isn't a "block" until it colonizes and holds its own
+  shape - the loose-substrate-in-a-tub stage is just spawn-to-bulk,
+  tracked here as the monotub it's fruiting in. Label-only change, the
+  underlying `bulk` key and all existing data are untouched.
+- **Logo images fixed for real, second time.** The earlier fix (see
+  "Bugfix: logos showed as broken/placeholder thumbnails" above) was
+  correct in the source code the whole time - what was actually stale
+  was the *installed app*. `npm run electron:build` only produces a new
+  installer file in `release/`; it does not update what's already
+  installed on the machine. Matt was rebuilding but not re-running the
+  new `SporeDesk Setup 0.0.0.exe` each time, so he kept testing the old
+  broken install. Verified directly this time by inspecting the built
+  `.asar` (`npx asar list release/win-unpacked/resources/app.asar`) -
+  the PNGs are present at `dist/sporedesk-*.png` right next to
+  `dist/index.html`, and both the HTML and compiled JS reference them
+  with the correct relative `./` paths. **Lesson: a fresh `dist/`
+  folder is not proof the installed app changed - always confirm the
+  new installer was actually run.**
+- **Added an F12 dev tools toggle to the packaged Electron app**
+  (`electron/main.cjs`, `before-input-event` listener). Dev tools only
+  auto-opened in `electron:dev` before this; the installed build had no
+  way to see console/network errors at all, which made the logo bug
+  above much harder to diagnose than it needed to be. Press F12 in the
+  installed app any time something needs debugging.
