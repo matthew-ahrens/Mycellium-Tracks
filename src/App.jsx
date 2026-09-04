@@ -2676,6 +2676,21 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
 
 /* ---------------- TREE ---------------- */
 
+/* Deterministic tile size for the lineage photo mosaic below - hashed off
+   the photo's own id so a given photo always lands on the same size
+   (stable across re-renders/reloads) instead of reshuffling every time,
+   weighted toward small so a handful of bigger tiles stand out rather
+   than everything competing for attention. */
+function tileSize(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const r = h % 10;
+    if (r < 5) return 'sm';
+    if (r < 7) return 'md';
+    if (r < 9) return 'wide';
+    return 'big';
+}
+
 function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
@@ -2976,11 +2991,12 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                 {linPhotos.length === 0 ? (
                     <p className="nf-help">No photos logged for this lineage yet - add one from any item's page.</p>
                 ) : (
-                    <div className="lc-columns">
+                    <div className="lc-mosaic">
                         {linPhotos.map((p) => {
                             const it = items.find((i) => i.uid === p.item_id);
                             return (
-                                <button key={p.id} className="lc-tile" onClick={() => setLightbox({ photo: p, item: it })}>
+                                <button key={p.id} className={`lc-tile sz-${tileSize(p.id)}`}
+                                    onClick={() => setLightbox({ photo: p, item: it })}>
                                     <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} loading="lazy" />
                                     <div className="lc-meta">
                                         <span>{it?.id ?? 'Unlinked'}</span>
@@ -3748,7 +3764,7 @@ const CSS = `
      hide the trigger here rather than let it produce a broken print.
      Desktop/native app is where this actually works. */
   .pl-trigger{display:none;}
-  .lc-columns{columns:2 140px;column-gap:9px;}
+  .lc-mosaic{grid-template-columns:repeat(2,1fr);gap:7px;}
 }
 
 .lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
@@ -3893,17 +3909,25 @@ const CSS = `
 .n-sub{font-family:var(--sans);font-size:9.5px;fill:var(--dim);}
 .hint{position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);pointer-events:none;}
 
-/* Species-scoped photo collage, under the tree canvas. Masonry via CSS
-   columns rather than the Gallery's uniform cropped-square grid - photos
-   keep their real aspect ratio and flow into columns, which is what
-   actually makes it read as a collage instead of another grid. */
+/* Species-scoped photo collage, under the tree canvas. A mosaic grid, not
+   the Gallery's uniform cropped-square grid or plain column-masonry
+   (tried first, but same-width columns still read as a grid) - tiles
+   span different row/column counts (see tileSize() above Tree) so pieces
+   are genuinely different sizes and pack together, same principle as a
+   real photo collage. Costs cropping (object-fit:cover) instead of each
+   photo's natural shape, same tradeoff every other photo tile in the app
+   already makes. */
 .lineage-collage{margin-top:28px;}
 .lc-h2{font-family:var(--serif);font-weight:400;font-size:22px;margin:3px 0 16px;color:var(--ink);}
-.lc-columns{columns:3 220px;column-gap:12px;}
-.lc-tile{display:block;width:100%;break-inside:avoid;margin-bottom:12px;padding:0;position:relative;
-  border-radius:11px;overflow:hidden;border:1px solid var(--line);cursor:pointer;background:var(--panel);}
-.lc-tile img{width:100%;display:block;transition:transform .2s;}
+.lc-mosaic{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:12px;grid-auto-flow:dense;gap:8px;}
+.lc-tile{position:relative;padding:0;border-radius:11px;overflow:hidden;border:1px solid var(--line);
+  cursor:pointer;background:var(--panel);}
+.lc-tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
 .lc-tile:hover img{transform:scale(1.03);}
+.lc-tile.sz-sm{grid-column:span 1;grid-row:span 9;}
+.lc-tile.sz-md{grid-column:span 1;grid-row:span 13;}
+.lc-tile.sz-wide{grid-column:span 2;grid-row:span 9;}
+.lc-tile.sz-big{grid-column:span 2;grid-row:span 15;}
 .lc-meta{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;background:linear-gradient(transparent,rgba(0,0,0,.75));
   display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:9.5px;color:var(--bone);}
 
