@@ -227,3 +227,55 @@ existing aggregate stock row (4x LC media, on hand, notes said
 "LC09-LC13" - one already used elsewhere before this session, hence 4 not
 5) into four individually labeled units matching what's physically
 written on the jars: LC10, LC11, LC12, LC13.
+
+## 2026-09-04 - Recipes made default, Reference tab made interactive
+
+Recipes flipped to the default/first Supplies-Reference sub-tab (was
+Reference) - Matt uses it noticeably more day to day.
+
+Reference itself was "just a book" - a flat list of collapsible text
+blocks. Rebuilt around three things, plus a Masters Mix recipe that
+turned out to be missing from Recipes despite a similar note already
+existing under Reference:
+
+- **Species cheat sheet.** Added four columns to `species`
+  (`colonize_temp`, `colonize_time`, `pin_to_harvest`, `substrate_note`)
+  alongside the existing `fruiting_temp`/`humidity`/`fae`/`notes`, editable
+  from the same Species edit form already in Cultures. Populated for all
+  eight active gourmet species from a species-reference doc Matt had in
+  the project, cross-checked against real grow guides rather than
+  transcribed blind - the doc's Cordyceps colonize range (68-77F) turned
+  out to conflict with Matt's own already-correct species note (65F
+  ideal, hard 68-69F ceiling, Calcarisporium cordycipiticola risk above
+  that) and with the North Spore/Padilla-Brown tek it's actually sourced
+  from - used the correct number, not the doc's. Also flagged (not
+  silently trusted): shiitake's fruiting temp is strain-dependent enough
+  that a single number is misleading - named strains run anywhere from
+  ~40-60F to 70-85F.
+- **Checklists.** Added a `library.steps` jsonb column (array of step
+  strings) and populated it for the procedural notes that benefit most
+  mid-production: casing layer guide, cordyceps flat bag tek, dual
+  extraction, and the two grain/substrate bag guides. Rendered as
+  tap-to-check rows with a progress count; the original full text stays
+  available under a collapsed "Full notes" toggle so nothing was thrown
+  away.
+- **Species filter chips** narrow both the cheat sheet and the how-to
+  list to one species.
+
+`renderLibCard` had been a plain closure called during render
+(`entries.map((e) => renderLibCard(e))`), which meant it couldn't hold
+its own hook state - converted to a real `LibCard` component so each
+checklist gets independent per-card state.
+
+Also revisited the Classic CVG bulk substrate "Good for" note added
+2026-09-03 after Matt pushed back - his own research kept turning up
+Agaricus/dung-lovers and psilocybin as CVG's real fit, not Lion's Mane.
+Checked five independent grow guides instead of the one (North Spore's
+own CVG product blog) the original note leaned on: verdict is genuinely
+split in the community for wood-lovers, but dung-loving/Agaricus is the
+one thing every source agrees on - and that's not a species Matt
+currently grows. Rewrote the note honestly: Blue Oyster is the
+defensible use for the CVG already on hand, Lion's Mane/Reishi/Chestnut/
+Shiitake are better off on a hardwood-based recipe (Masters Mix or
+Supplemented Hardwood), and there may not be a great home for 10lbs of
+CVG in the current species lineup at all.

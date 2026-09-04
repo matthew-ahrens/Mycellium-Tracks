@@ -86,14 +86,33 @@ get it"):
   optional photo.
 - **Suppliers** — rated, sorted by trust, optional website link.
 
-**Reference** (Reference docs + Recipes, two tabs on one screen):
-- **Reference** — your instruction sheets, general + Cordyceps tagged.
+**Reference** (Recipes + Reference docs, two tabs on one screen - Recipes
+is the default since it gets used more):
 - **Recipes** — structured ingredient rows (amount/unit/name) with a live
   batch-size scaler (type a target or tap ×2/×3/×5, every ingredient
   recomputes). Ingredient names autocomplete from ones already used.
   Covers agar media, LC media, grain spawn, bulk substrate (incl. Masters
   Mix, Supplemented Hardwood, and a manure-based recipe), casing mixes,
-  and nutrient broth.
+  and nutrient broth. Every recipe body opens with a "Good for" line
+  naming which species it actually suits, checked against real grow
+  guides rather than assumed - some of that checking overturned a first
+  guess (see CHANGELOG).
+- **Reference** — your instruction sheets, general + Cordyceps tagged, plus
+  two additions:
+  - A **species cheat-sheet** grid at the top - fruiting/colonize temp,
+    humidity, FAE, colonize time, pin-to-harvest, and substrate at a
+    glance for every species, pulled straight from that species' own
+    record (`species.fruiting_temp`/`humidity`/`fae`/`colonize_temp`/
+    `colonize_time`/`pin_to_harvest`/`substrate_note`/`notes` - edited
+    from the same Species edit form in Cultures, no separate data entry
+    screen).
+  - Procedural notes (casing layer, cordyceps flat bag tek, dual
+    extraction, the two grain/substrate bag guides) render as tap-to-check
+    step checklists instead of a wall of text, with the original full
+    text still available under a collapsed "Full notes" toggle. Backed by
+    a new `library.steps` jsonb column.
+  - Species filter chips narrow both the cheat sheet and the how-to list
+    down to one species.
 
 **Capsule blends** — its own recipe category/math, since a capsule's
 per-dose amount is fixed regardless of batch size. Each ingredient is a
