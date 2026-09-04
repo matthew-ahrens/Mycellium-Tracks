@@ -117,6 +117,12 @@ export default function App() {
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
     const [printing, setPrinting] = useState(null); // array of item ids being printed, or null
+    /* One-shot "land on this specific tab" hints for Search results that
+       point into Supplies/Reference - each of those screens fully remounts
+       on every visit (see the render switch below), so this only has to
+       seed their initial tab, not stay in sync afterward. */
+    const [suppliesTab, setSuppliesTab] = useState(null);
+    const [referenceTab, setReferenceTab] = useState(null);
 
     const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
 
@@ -848,9 +854,19 @@ export default function App() {
         key = 'print';
         screen = <PrintLabels items={items} genetics={genetics} species={species}
             preselected={printing} onClose={() => setPrinting(null)} />;
+    } else if (section === 'search') {
+        key = 'search';
+        screen = <Search items={items} genetics={genetics} species={species} lots={lots} lotLinks={lotLinks}
+            library={library} equipment={equipment} suppliers={suppliers} stock={stock}
+            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
+            onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
+            onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
+            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setReferenceTab(entry.kind === 'recipe' ? 'recipes' : 'reference'); setSection('reference'); setDir('fwd'); }}
+            onOpenSupplies={(tab) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSection('supplies'); setDir('fwd'); }} />;
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
+            initialTab={suppliesTab}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock} onBumpStockQty={bumpStockQty}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
@@ -858,7 +874,7 @@ export default function App() {
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
     } else if (section === 'reference') {
         key = 'reference';
-        screen = <ReferenceSection library={library} species={species}
+        screen = <ReferenceSection library={library} species={species} initialTab={referenceTab}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
@@ -906,6 +922,7 @@ export default function App() {
         ['gallery', 'Gallery', 'M4 4h16v16H4zM4 15l4-4 3 3 5-5 4 4M9 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
         ['supplies', 'Supplies', 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8'],
         ['reference', 'Reference', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
+        ['search', 'Search', 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM21 21l-5.4-5.4'],
         ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
     ];
 
@@ -918,7 +935,7 @@ export default function App() {
                     <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
-                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); }}>
+                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setReferenceTab(null); }}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
@@ -1407,6 +1424,183 @@ function LotCard({ lot, rem, sp, onOpen }) {
             {!used && <div className="lot-bar"><div className="lot-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></div>}
             {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on)}</div>}
         </button>
+    );
+}
+
+/* ---------------- SEARCH ---------------- */
+/* Everything lives in state already (loaded whole on login, no pagination -
+   see the data-loading effect near the top of App()), so a global search is
+   just a client-side scan across every array, no extra query needed. */
+const SEARCH_MIN = 1;
+
+const norm = (s) => (s ?? '').toString().toLowerCase();
+
+/* Checks a record's fields in order and returns the first one that
+   contains the query, plus a short surrounding snippet - so a result says
+   *why* it matched (e.g. "matched: Notes") instead of just showing up. */
+function firstMatch(fields, nq) {
+    for (const [label, raw] of fields) {
+        if (raw === undefined || raw === null || raw === '') continue;
+        const val = raw.toString();
+        const idx = norm(val).indexOf(nq);
+        if (idx === -1) continue;
+        const start = Math.max(0, idx - 24);
+        const end = Math.min(val.length, idx + nq.length + 40);
+        const snippet = (start > 0 ? '…' : '') + val.slice(start, end).trim() + (end < val.length ? '…' : '');
+        return { label, snippet };
+    }
+    return null;
+}
+
+function Search({ items, genetics, species, lots, lotLinks, library, equipment, suppliers, stock,
+    onOpenItem, onOpenSpecies, onOpenLot, onOpenLibrary, onOpenSupplies }) {
+    const [q, setQ] = useState('');
+    const nq = norm(q.trim());
+
+    const groups = useMemo(() => {
+        if (nq.length < SEARCH_MIN) return [];
+        const out = [];
+
+        const itemHits = items.map((i) => {
+            const gen = genetics.find((g) => g.id === i.geneticsId);
+            const sp = species.find((s) => s.id === gen?.species_id);
+            const m = firstMatch([
+                ['Label', i.id], ['Species', sp?.common_name], ['Type', TYPES[i.type]],
+                ['Where', i.where], ['Substrate', i.substrate], ['Notes', i.notes],
+                ['Status', STATUS[i.status]?.label ?? i.status],
+            ], nq);
+            return m && {
+                id: i.id, title: i.id, subtitle: sp?.common_name ?? 'Unknown species',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenItem(i.id),
+            };
+        }).filter(Boolean);
+        if (itemHits.length) out.push({ key: 'items', label: 'Cultures — items', hits: itemHits });
+
+        const genHits = genetics.map((g) => {
+            const sp = species.find((s) => s.id === g.species_id);
+            const m = firstMatch([
+                ['Name', g.name], ['Code', g.code], ['Source', g.source], ['Notes', g.notes],
+            ], nq);
+            return m && {
+                id: g.id, title: `${g.name} (${g.code})`, subtitle: sp?.common_name ?? '',
+                match: m.label, snippet: m.snippet, onClick: () => sp && onOpenSpecies(sp.id),
+            };
+        }).filter(Boolean);
+        if (genHits.length) out.push({ key: 'genetics', label: 'Cultures — genetics lines', hits: genHits });
+
+        const spHits = species.map((s) => {
+            const m = firstMatch([
+                ['Common name', s.common_name], ['Latin name', s.latin_name], ['Notes', s.notes],
+            ], nq);
+            return m && {
+                id: s.id, title: s.common_name, subtitle: s.latin_name ?? '',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSpecies(s.id),
+            };
+        }).filter(Boolean);
+        if (spHits.length) out.push({ key: 'species', label: 'Cultures — species', hits: spHits });
+
+        const lotHits = lots.map((l) => {
+            const sp = lotSpeciesNames(l.id, lots, lotLinks, items, genetics, species);
+            const m = firstMatch([
+                ['Label', l.label], ['Species', sp.join(', ')], ['Notes', l.notes],
+            ], nq);
+            return m && {
+                id: l.id, title: l.label || 'Untitled lot', subtitle: sp.join(' + ') || 'Unknown origin',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenLot(l.id),
+            };
+        }).filter(Boolean);
+        if (lotHits.length) out.push({ key: 'lots', label: 'Inventory — lots', hits: lotHits });
+
+        const libHits = library.map((e) => {
+            const sp = species.find((s) => s.id === e.species_id);
+            const ingredientNames = e.ingredients?.map((row) => row.name).filter(Boolean).join(', ');
+            const m = firstMatch([
+                ['Title', e.title], ['Category', e.category], ['Ingredients', ingredientNames],
+                ['Notes', e.body], ['Species', sp?.common_name],
+            ], nq);
+            return m && {
+                id: e.id, title: e.title,
+                subtitle: e.kind === 'recipe' ? (e.category || 'Recipe') : (KINDS[e.kind] ?? e.kind),
+                match: m.label, snippet: m.snippet, onClick: () => onOpenLibrary(e),
+            };
+        }).filter(Boolean);
+        if (libHits.length) out.push({ key: 'library', label: 'Reference & recipes', hits: libHits });
+
+        const equipHits = equipment.map((e) => {
+            const m = firstMatch([
+                ['Name', e.name], ['Category', e.category], ['Notes', e.notes],
+            ], nq);
+            return m && {
+                id: e.id, title: e.name, subtitle: e.category || '',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('equipment'),
+            };
+        }).filter(Boolean);
+        if (equipHits.length) out.push({ key: 'equipment', label: 'Supplies — equipment', hits: equipHits });
+
+        const supHits = suppliers.map((s) => {
+            const m = firstMatch([
+                ['Name', s.name], ['Category', s.category], ['Notes', s.notes], ['Website', s.website],
+            ], nq);
+            return m && {
+                id: s.id, title: s.name, subtitle: s.category || '',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('suppliers'),
+            };
+        }).filter(Boolean);
+        if (supHits.length) out.push({ key: 'suppliers', label: 'Supplies — suppliers', hits: supHits });
+
+        const stockHits = stock.map((s) => {
+            const sp = species.find((x) => x.id === s.species_id);
+            const m = firstMatch([
+                ['Product', s.product_name], ['Kind', s.kind], ['Species', sp?.common_name], ['Notes', s.notes],
+            ], nq);
+            return m && {
+                id: s.id, title: s.product_name || s.kind, subtitle: sp?.common_name ?? '',
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('stock'),
+            };
+        }).filter(Boolean);
+        if (stockHits.length) out.push({ key: 'stock', label: 'Supplies — stock', hits: stockHits });
+
+        return out;
+    }, [nq, items, genetics, species, lots, lotLinks, library, equipment, suppliers, stock]);
+
+    const total = groups.reduce((n, g) => n + g.hits.length, 0);
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Everything, in one box</div>
+                    <h1>Search</h1>
+                </div>
+            </div>
+
+            <input className="in sr-input" autoFocus value={q}
+                placeholder="Search items, lots, recipes, equipment, suppliers…"
+                onChange={(e) => setQ(e.target.value)} />
+
+            {nq.length < SEARCH_MIN && <p className="notes empty-note">Start typing to search everything at once.</p>}
+            {nq.length >= SEARCH_MIN && total === 0 && <p className="notes empty-note">No matches for "{q.trim()}".</p>}
+
+            {groups.map((g) => (
+                <div key={g.key} className="sr-group">
+                    <div className="sr-group-label">{g.label} · {g.hits.length}</div>
+                    {g.hits.map((h) => (
+                        <div key={h.id} className="lib-card">
+                            <button className="lib-head" onClick={h.onClick}>
+                                <div>
+                                    <div className="lib-title">{h.title}</div>
+                                    <div className="lib-meta">
+                                        {h.subtitle && <span className="lib-sp">{h.subtitle}</span>}
+                                        <span className="lib-kind">matched: {h.match}</span>
+                                    </div>
+                                    {h.snippet && <div className="sr-snippet">{h.snippet}</div>}
+                                </div>
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            ))}
+        </div>
     );
 }
 
@@ -2072,11 +2266,11 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
    which had drifted into a catch-all with no real shared identity. This
    half keeps the "stuff I have or can get" grouping; see ReferenceSection
    below for the "stuff I read" half. */
-function Supplies({ stock, library, species, suppliers, equipment,
+function Supplies({ stock, library, species, suppliers, equipment, initialTab,
     onAddStock, onEditStock, onDeleteStock, onBumpStockQty,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty,
     onAddSupplier, onEditSupplier, onDeleteSupplier }) {
-    const [tab, setTab] = useState('stock');
+    const [tab, setTab] = useState(initialTab || 'stock');
     return (
         <div className="page">
             <div className="bar">
@@ -2109,8 +2303,8 @@ function Supplies({ stock, library, species, suppliers, equipment,
    as two tabs on one screen instead of Recipes being an oddly-promoted
    top-level nav item while Reference hid three clicks deep. Same
    underlying `library` table for both, split by `kind`. */
-function ReferenceSection({ library, species, onAdd, onEdit, onDelete }) {
-    const [tab, setTab] = useState('reference');   // 'reference' | 'recipes'
+function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete }) {
+    const [tab, setTab] = useState(initialTab || 'reference');   // 'reference' | 'recipes'
     const recipes = tab === 'recipes';
     const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
@@ -3523,6 +3717,11 @@ const CSS = `
 .lib-sp{color:var(--amber);opacity:.75;}
 .lib-chev{font-family:var(--mono);font-size:16px;color:var(--dim);}
 .lib-body{padding:0 16px 16px;border-top:1px solid var(--line);padding-top:14px;}
+.sr-input{margin-bottom:20px;}
+.sr-group{margin-bottom:22px;}
+.sr-group-label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px;}
+.sr-group .lib-card{margin-bottom:8px;}
+.sr-snippet{font-family:var(--sans);font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.5;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:var(--bone);}
 .ing-rows{display:flex;flex-direction:column;gap:6px;}
