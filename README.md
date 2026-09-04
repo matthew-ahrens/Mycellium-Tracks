@@ -68,11 +68,20 @@ trail, full lineage view (made-from / went-into).
 **Supplies** (Stock, Equipment, Suppliers - "what do I have, or where do I
 get it"):
 - **Stock** — sterile-but-uninoculated inventory: agar plates, LC jars,
-  grain spawn bags, bulk substrate bags/blocks, AIO bags. Each row is
-  either `source='made'` (linked to a Recipe) or `source='bought'` (linked
-  to a Supplier). Optional species tag. Quantity stepper. Feeds into
-  Cultures as "made from on-hand stock" when starting or continuing a
-  line, auto-decrementing on use.
+  grain spawn bags, bulk substrate bags/blocks, AIO bags. Every row is one
+  physical unit (a specific plate/jar/bag, not an aggregate count) - its
+  own optional label (e.g. "LC10"), its own status (on hand/used/
+  contaminated/discarded), and once consumed, a direct link to which
+  culture it became. "Add stock" logs a whole batch at once (how many,
+  from what recipe/supplier, when); the screen groups units back into
+  that batch for display by shared metadata, no stored batch id. Either
+  `source='made'` (linked to a Recipe) or `source='bought'` (linked to a
+  Supplier). Optional species tag. Feeds into Cultures as "made from
+  on-hand stock" when starting or continuing a line - picking a unit
+  there selects the exact physical container, not just "one of however
+  many." Stock units are also printable (see QR label printing below) -
+  a label printed while a unit is still on hand keeps working, unchanged,
+  after it's inoculated into a culture.
 - **Equipment** — category-grouped, status, optional quantity stepper,
   optional photo.
 - **Suppliers** — rated, sorted by trust, optional website link.
@@ -99,16 +108,41 @@ Species filter in Gallery. Native camera-or-library chooser. Signed URLs,
 **Calculators** — spawn ratio (either direction), hydration, BE, dry yield
 estimate, unit converter, grain weight<->volume (flagged approximate).
 
-**QR label printing** — "Print label" (single item, on item detail) and
-"Print labels" (whole species, all lines) both open the same
-picker/print screen. Encodes `?item=<label>` links (read on app load, jumps
-straight to that item) using the deployed production URL so a code always
-resolves on any device, never a local dev URL. Layout targets standard
-Avery-5160-style 3x10 address labels (2.625"x1", margins editable on the
-print screen), with a "start at label #" field to resume a partial sheet.
-QR error-correction level `Q` (~25% damage tolerance) for humid grow-space
-durability. **Desktop/native app only** - hidden on mobile (<760px) since
-iOS Safari doesn't reliably honor print CSS; see CHANGELOG for why.
+**QR label printing** — "Print label" (single item, on item detail),
+"Print labels" (whole species, all lines), and "Print labels" (per stock
+batch, on-hand units, in Supplies/Stock) all open the same picker/print
+screen, generalized over what's being printed (`PrintLabels` takes a
+pre-built candidate list + which query param to encode, not items
+directly). Item QRs encode `?item=<label>`; stock unit QRs encode
+`?stock=<id>` - read on app load, both jump straight to their target
+using the deployed production URL so a code always resolves on any
+device, never a local dev URL. A stock unit's link keeps working after
+it's consumed: the deep link follows `consumed_into_item_id` through to
+the resulting item once one exists, no reprint needed. Layout targets
+standard Avery-5160-style 3x10 address labels (2.625"x1", margins
+editable on the print screen), with a "start at label #" field to resume
+a partial sheet. QR error-correction level `Q` (~25% damage tolerance)
+for humid grow-space durability. **Desktop/native app only** - hidden on
+mobile (<760px) since iOS Safari doesn't reliably honor print CSS; see
+CHANGELOG for why.
+
+**Search** — a top-level nav item scanning everything already loaded into
+state at once (items, genetics, species, lots, recipes/reference,
+equipment, suppliers) - client-side, no extra query, since there's no
+pagination to work around. Results are grouped by category, each showing
+which field matched with a short snippet. Clicking a result jumps
+straight to it - items/species open in Cultures, lots open in Inventory,
+everything else lands on the right Supplies/Reference tab via a one-shot
+`initialTab` prop those screens accept.
+
+**Lineage photo collage** — every species' Tree page has a mosaic-grid
+photo section below the pan/zoom canvas, covering every photo tied to any
+item in that species' whole lineage (not just one item, and not the flat
+Gallery's uniform cropped-square grid). Tiles span different row/column
+counts on a dense-packed CSS grid, sized by a deterministic hash of the
+photo's id so a given photo's tile size stays stable across reloads.
+Costs cropping (`object-fit:cover`) for the size variety - same tradeoff
+every other photo tile in the app already makes.
 
 **Auth + security** — email/password sign-in, no self-serve sign-up. RLS on
 all tables and the storage bucket. Deployed on Vercel, connected to GitHub
@@ -166,12 +200,6 @@ Mushrooms Project).
 
 ## Backlog (not started, not scoped)
 
-- **Global search** across items/lots/library. Tractable client-side since
-  everything's already loaded into state on login, no pagination.
-- **Species-scoped photo collage** — a non-grid gallery view scoped to one
-  species' whole lineage (not the flat Gallery it has today).
-  *(Search vs. collage - which to build first is still an open decision as
-  of 2026-09-04.)*
 - **Species-specific background texture** behind the lineage tree canvas,
   hinting at that species' real cap surface. Simple procedural SVG pattern
   is the tractable scope; literal illustrated artwork per species is a

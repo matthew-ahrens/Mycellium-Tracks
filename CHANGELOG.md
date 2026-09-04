@@ -174,3 +174,56 @@ README itself: moved all the above history/root-cause narrative here, into
 the full narrative version was ~40KB and got read into context on most
 tasks, which is expensive for information that's only occasionally
 relevant.
+
+## 2026-09-04 - Search and the lineage photo collage built
+
+Both items that had been sitting in the backlog since 2026-09-03. Global
+**Search** - straightforward, client-side, one pass since everything's
+already in state (see the Built section for what it covers).
+
+The **species photo collage** took two passes. First built as column
+masonry (same-width columns, height varies with each photo's own aspect
+ratio, no cropping) - confirmed against a side-by-side mockup that this
+still reads as gridded with similar-shaped phone photos, since width
+never varies. Rebuilt as a real mosaic grid: tiles span different row/
+column counts on a dense-packed CSS grid, sized by a deterministic hash
+of the photo's id (weighted toward small, so a handful of bigger tiles
+stand out) so a given photo's size stays stable across reloads instead of
+reshuffling. Trades natural aspect ratio for cropping - same tradeoff
+every other photo tile in the app already makes.
+
+## 2026-09-04 - Stock tracked as individually numbered units
+
+Matt wanted to track specific agar plates/LC jars/etc. through their
+lifetime - which exact plate came from which batch, and which culture it
+became - not just an aggregate "6 on hand" count. Every `stock` row is
+now one physical unit instead of an aggregate quantity: its own optional
+label (e.g. "LC10"), its own status (on hand/used/contaminated/
+discarded), and once consumed, a direct link to which item it became via
+`consumed_into_item_id` - a column that was already sitting in the table,
+unused, seemingly anticipating exactly this. "Add stock" still logs a
+whole batch at once (how many, from what recipe/supplier, when); batches
+are grouped for display purely by shared metadata (`stockBatchKey`), no
+stored batch id. `consumeStock()` simplified from a decrement-and-maybe-
+flip-to-used into a direct status flip + item link, since there's no
+longer a shared count to manage.
+
+The "made from on-hand stock" pickers (Tree's Add line form, Detail's
+Inoculate from this) now list individual on-hand units by their own
+label, so picking one selects the exact physical container.
+
+While in there, Matt asked a follow-up that turned into the same build:
+if a QR label gets printed for a stock unit while it's still just stock,
+could the same sticker keep working once that unit becomes a culture?
+Answer was yes, and not hard - `PrintLabels` was generalized to print
+either items (`?item=<label>`) or stock units (`?stock=<id>`), and a new
+`?stock=` deep link resolves through `consumed_into_item_id`: while a
+unit is on hand it opens Supplies/Stock, and once consumed it follows
+straight through to the resulting item. Print once, no reprint needed
+when the jar graduates into the lineage tree.
+
+Migration: added `stock.label` (text, nullable). Backfilled the one
+existing aggregate stock row (4x LC media, on hand, notes said
+"LC09-LC13" - one already used elsewhere before this session, hence 4 not
+5) into four individually labeled units matching what's physically
+written on the jars: LC10, LC11, LC12, LC13.
