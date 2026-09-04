@@ -51,6 +51,15 @@ function stockLabel(s, library, suppliers) {
     const sup = suppliers.find((x) => x.id === s.supplier_id);
     return s.product_name ? s.product_name : (sup ? sup.name : STOCK_KIND[s.kind]);
 }
+
+/* Groups individual stock units (rows) back into the batch they were
+   logged together as - same recipe/supplier/species, made or bought the
+   same day. There's no stored batch id; this is purely a display
+   grouping, derived from the metadata every unit in one "Add stock"
+   submission already shares. */
+function stockBatchKey(s) {
+    return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || '', s.species_id || '', s.made_or_bought_on || ''].join('|');
+}
 const FRUITS = ["bulk", "block"];
 
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
@@ -116,7 +125,7 @@ export default function App() {
     const [dir, setDir] = useState('fwd');
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [printing, setPrinting] = useState(null); // array of item ids being printed, or null
+    const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock', ids: [...] }, or null
     /* One-shot "land on this specific tab" hints for Search results that
        point into Supplies/Reference - each of those screens fully remounts
        on every visit (see the render switch below), so this only has to
@@ -206,6 +215,32 @@ export default function App() {
                     setNav({ level: 'tree', speciesId: gLine.species_id, geneticsId: gLine.id });
                     setSection('cultures');
                     setOpen(wantedItem);
+                }
+            }
+
+            /* Deep link: ?stock=<uuid> - a QR printed for a stock unit
+               while it was still just "on hand." Unlike an item label, a
+               stock unit isn't in the lineage tree, so this can't jump
+               straight to a tree/item screen the way ?item= does - it
+               lands on Supplies/Stock instead. But once that unit gets
+               consumed into a culture (consumeStock sets
+               consumed_into_item_id), the SAME printed sticker starts
+               resolving straight through to whatever it became, no
+               reprint needed - that's the whole point of printing stock
+               labels off their own id instead of waiting for an item to
+               exist first. */
+            const wantedStock = new URLSearchParams(window.location.search).get('stock');
+            if (wantedStock) {
+                const unit = (stk ?? []).find((s) => s.id === wantedStock);
+                const target = unit?.consumed_into_item_id && data.find((r) => r.id === unit.consumed_into_item_id);
+                const gLine = target && gen?.find((g) => g.id === target.genetics_id);
+                if (target && gLine) {
+                    setNav({ level: 'tree', speciesId: gLine.species_id, geneticsId: gLine.id });
+                    setSection('cultures');
+                    setOpen(target.label);
+                } else if (unit) {
+                    setSection('supplies');
+                    setSuppliesTab('stock');
                 }
             }
 
@@ -528,22 +563,33 @@ export default function App() {
         setSuppliers((p) => p.filter((s) => s.id !== id));
     };
 
+    /* Every stock row is one physical unit now (a specific agar plate, LC
+       jar, grain bag - not an aggregate count) - see the "stock as
+       individually numbered units" note near consumeStock() below. "Add
+       stock" still logs a whole batch at once (how many, made from what,
+       when), but under the hood that's N individual rows sharing the same
+       batch metadata, each with its own optional label. Batches are
+       grouped for display by that shared metadata (see stockBatchKey),
+       not by a stored batch id. */
     const addStock = async (fields) => {
-        const cols = {
+        const count = Math.max(1, fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity));
+        const labels = (fields.labels ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+        const rows = Array.from({ length: count }, (_, i) => ({
             kind: fields.kind,
             source: fields.source,
             recipe_id: fields.source === 'made' ? (fields.recipe_id || null) : null,
             supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
             product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
             species_id: fields.species_id || null,
-            quantity: fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity),
+            quantity: 1,
             made_or_bought_on: fields.made_or_bought_on || null,
             status: fields.status || 'on_hand',
             notes: fields.notes?.trim() || null,
-        };
-        const { data, error } = await supabase.from('stock').insert(cols).select('*').single();
+            label: labels[i] || null,
+        }));
+        const { data, error } = await supabase.from('stock').insert(rows).select('*');
         if (error) { console.error(error); alert('Could not save - check console'); return; }
-        setStock((p) => [...p, data]);
+        setStock((p) => [...p, ...data]);
     };
 
     const editStock = async (id, fields) => {
@@ -554,25 +600,15 @@ export default function App() {
             supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
             product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
             species_id: fields.species_id || null,
-            quantity: fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity),
+            quantity: 1,
             made_or_bought_on: fields.made_or_bought_on || null,
             status: fields.status,
+            label: fields.label?.trim() || null,
             notes: fields.notes?.trim() || null,
         };
         const { error } = await supabase.from('stock').update(cols).eq('id', id);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setStock((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
-    };
-
-    /* Separate from the full edit form on purpose, same reasoning as
-       equipment's qty stepper - restocking or using one up should be a
-       single tap. */
-    const bumpStockQty = async (id, delta) => {
-        const row = stock.find((s) => s.id === id);
-        const next = Math.max(0, (row?.quantity ?? 0) + delta);
-        const { error } = await supabase.from('stock').update({ quantity: next }).eq('id', id);
-        if (error) { console.error(error); return; }
-        setStock((p) => p.map((s) => (s.id === id ? { ...s, quantity: next } : s)));
     };
 
     const deleteStock = async (id) => {
@@ -581,15 +617,15 @@ export default function App() {
         setStock((p) => p.filter((s) => s.id !== id));
     };
 
-    /* Called when a stock row gets used to start a new item (from either
-       the "add line" form or "Inoculate from this"). Decrements by one and
-       auto-marks it used if that was the last one - a deliberate consume,
-       not the general +/- stepper. */
-    const consumeStock = async (id) => {
-        const row = stock.find((s) => s.id === id);
-        if (!row) return;
-        const next = Math.max(0, (row.quantity ?? 0) - 1);
-        const cols = { quantity: next, status: next === 0 ? 'used' : row.status };
+    /* Called when a specific stock unit gets used to start a new item (from
+       either the "add line" form or "Inoculate from this"). Since every row
+       is one physical unit now, this is just a direct status flip + a link
+       to what it became - no more decrementing a shared count. That link
+       (consumed_into_item_id) is also what makes a stock QR label keep
+       working after the jar becomes a culture: see the ?stock= deep link
+       in the data-loading effect above, and PrintLabels' stock mode below. */
+    const consumeStock = async (id, itemUid) => {
+        const cols = { status: 'used', consumed_into_item_id: itemUid };
         const { error } = await supabase.from('stock').update(cols).eq('id', id);
         if (error) { console.error(error); return; }
         setStock((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
@@ -763,7 +799,7 @@ export default function App() {
             where: '', substrate: '', notes: '', harvests: [], dryWeight: undefined,
             log: [{ id: ev?.id, date: fields.acquired || today, kind: 'note', body: fields.source?.trim() ? `Acquired - ${fields.source.trim()}` : 'Line started' }],
         }]);
-        if (stockId) consumeStock(stockId);
+        if (stockId) consumeStock(stockId, item.id);
         return gen;
     };
 
@@ -839,7 +875,7 @@ export default function App() {
             log: [{ id: ev?.id, date: today, body: `Inoculated from ${parentLabel}`, kind: 'note' }],
         }]);
         setOpen(label);
-        if (stockId) consumeStock(stockId);
+        if (stockId) consumeStock(stockId, data.id);
     };
 
     const sp = species.find((s) => s.id === nav.speciesId);
@@ -852,8 +888,29 @@ export default function App() {
     let screen, key;
     if (printing) {
         key = 'print';
-        screen = <PrintLabels items={items} genetics={genetics} species={species}
-            preselected={printing} onClose={() => setPrinting(null)} />;
+        if (printing.kind === 'stock') {
+            const candidates = printing.ids
+                .map((id) => stock.find((s) => s.id === id))
+                .filter(Boolean)
+                .map((s) => ({ id: s.id, printed: s.label || 'Unlabeled unit', sub: stockLabel(s, library, suppliers), started: s.made_or_bought_on }))
+                .sort((a, b) => a.printed.localeCompare(b.printed));
+            screen = <PrintLabels candidates={candidates} linkParam="stock"
+                subtitle="each QR opens this unit, and once it's inoculated into a culture, follows through to that item automatically - no reprint needed."
+                onClose={() => setPrinting(null)} />;
+        } else {
+            const candidates = printing.ids
+                .map((id) => items.find((i) => i.id === id))
+                .filter(Boolean)
+                .map((i) => {
+                    const g = genetics.find((x) => x.id === i.geneticsId);
+                    const sp = g && species.find((s) => s.id === g.species_id);
+                    return { id: i.id, printed: i.id, sub: sp?.common_name ?? '', started: i.created };
+                })
+                .sort((a, b) => a.printed.localeCompare(b.printed));
+            screen = <PrintLabels candidates={candidates} linkParam="item"
+                subtitle="each QR opens straight to that item."
+                onClose={() => setPrinting(null)} />;
+        }
     } else if (section === 'search') {
         key = 'search';
         screen = <Search items={items} genetics={genetics} species={species} lots={lots} lotLinks={lotLinks}
@@ -866,8 +923,10 @@ export default function App() {
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
-            initialTab={suppliesTab}
-            onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock} onBumpStockQty={bumpStockQty}
+            items={items} initialTab={suppliesTab}
+            onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock}
+            onPrintStock={(ids) => setPrinting({ kind: 'stock', ids })}
+            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setSection('cultures'); setOpen(label); setOpenLot(null); setDir('fwd'); }}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
             onBumpEquipQty={bumpEquipmentQty}
@@ -901,12 +960,12 @@ export default function App() {
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto}
-            onPrintLabel={() => setPrinting([open])} />;
+            onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto}
-            onPrintLabels={(ids) => setPrinting(ids)}
+            onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
@@ -2135,20 +2194,27 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
     );
 }
 
-function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onBumpQty }) {
+/* Every row in `stock` is one physical unit (a specific plate, jar, bag),
+   not an aggregate count - see addStock/consumeStock. This groups them
+   back into the batch they were logged together as (stockBatchKey) so the
+   screen still reads "6 plates from Tuesday's PDA batch," while each
+   individual unit underneath gets its own label, status, and - once
+   consumed - a link to exactly which culture it became. */
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
-        species_id: '', quantity: '1', made_or_bought_on: '', status: 'on_hand', notes: '' };
+        species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
     const recipes = library.filter((e) => e.kind === 'recipe');
+    const isNew = form === 'new';
 
     const submit = () => {
-        if (form === 'new') onAdd(f); else onEdit(form, f);
+        if (isNew) onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
 
-    const groups = {};
-    stock.forEach((s) => { (groups[s.kind] ||= []).push(s); });
+    const kindGroups = {};
+    stock.forEach((s) => { (kindGroups[s.kind] ||= []).push(s); });
 
     return (
         <>
@@ -2159,7 +2225,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
 
             {form !== null && (
                 <div className="new-form">
-                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} stock</div>
+                    <div className="nf-title">{isNew ? 'New' : 'Edit'} stock</div>
                     <div className="nf-grid">
                         <div className="nf-field"><label>Kind</label>
                             <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
@@ -2188,9 +2254,20 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                         onChange={(e) => setF({ ...f, product_name: e.target.value })} /></div>
                             </>
                         )}
-                        <div className="nf-field"><label>Quantity</label>
-                            <input className="in" inputMode="numeric" value={f.quantity}
-                                onChange={(e) => setF({ ...f, quantity: e.target.value.replace(/[^\d]/g, '') })} /></div>
+                        {isNew ? (
+                            <>
+                                <div className="nf-field"><label>How many units</label>
+                                    <input className="in" inputMode="numeric" value={f.quantity}
+                                        onChange={(e) => setF({ ...f, quantity: e.target.value.replace(/[^\d]/g, '') })} /></div>
+                                <div className="nf-field wide"><label>Labels (optional, comma-separated)</label>
+                                    <input className="in" value={f.labels} placeholder="e.g. LC10, LC11, LC12, LC13"
+                                        onChange={(e) => setF({ ...f, labels: e.target.value })} /></div>
+                            </>
+                        ) : (
+                            <div className="nf-field"><label>Label</label>
+                                <input className="in" value={f.label} placeholder="e.g. LC10"
+                                    onChange={(e) => setF({ ...f, label: e.target.value })} /></div>
+                        )}
                         <div className="nf-field"><label>Date made / bought</label>
                             <input className="in sm" type="date" value={f.made_or_bought_on}
                                 onChange={(e) => setF({ ...f, made_or_bought_on: e.target.value })} /></div>
@@ -2210,46 +2287,79 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                     <div className="edit-row">
                         <button className="mini" onClick={submit}>Save</button>
                         <button className="mini ghost" onClick={() => setForm(null)}>Cancel</button>
-                        {form !== 'new' && (
+                        {!isNew && (
                             <button className="mini danger" onClick={() => {
-                                if (confirm('Remove this from stock?')) { onDelete(form); setForm(null); }
+                                if (confirm('Remove this unit from stock?')) { onDelete(form); setForm(null); }
                             }}>Delete</button>
                         )}
                     </div>
                 </div>
             )}
 
-            {Object.keys(groups).sort().map((k) => (
-                <div key={k}>
-                    <div className="sec" style={{ marginTop: 22 }}><span>{STOCK_KIND[k]}</span></div>
-                    <div className="equip-list">
-                        {groups[k].map((s) => {
-                            const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
-                            const sp = species.find((sx) => sx.id === s.species_id);
+            {Object.keys(kindGroups).sort().map((k) => {
+                const batches = {};
+                kindGroups[k].forEach((s) => { (batches[stockBatchKey(s)] ||= []).push(s); });
+                const batchList = Object.values(batches).sort((a, b) =>
+                    (b[0].made_or_bought_on ?? '').localeCompare(a[0].made_or_bought_on ?? ''));
+
+                return (
+                    <div key={k}>
+                        <div className="sec" style={{ marginTop: 22 }}><span>{STOCK_KIND[k]}</span></div>
+                        {batchList.map((units) => {
+                            const sorted = [...units].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+                            const first = sorted[0];
+                            const sp = species.find((sx) => sx.id === first.species_id);
+                            const onHand = sorted.filter((s) => s.status === 'on_hand');
                             return (
-                                <div key={s.id} className="equip-row">
-                                    <button className="equip-row-main" onClick={() => {
-                                        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
-                                            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
-                                            species_id: s.species_id ?? '', quantity: s.quantity ?? '1',
-                                            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
-                                        setForm(s.id);
-                                    }}>
-                                        <span className="equip-name">{stockLabel(s, library, suppliers)}</span>
-                                        <span className="equip-note">{s.source === 'made' ? 'made' : 'bought'}{sp ? ` · ${sp.common_name}` : ''}</span>
-                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
-                                    </button>
-                                    <div className="equip-qty">
-                                        <button className="qty-btn" onClick={() => onBumpQty(s.id, -1)}>−</button>
-                                        <span className={`qty-num ${s.quantity === 0 ? 'zero' : ''}`}>{s.quantity}</span>
-                                        <button className="qty-btn" onClick={() => onBumpQty(s.id, 1)}>+</button>
+                                <div key={stockBatchKey(first)} className="stock-batch">
+                                    <div className="stock-batch-head">
+                                        <div>
+                                            <span className="equip-name">{stockLabel(first, library, suppliers)}</span>
+                                            <span className="equip-note">
+                                                {first.source === 'made' ? 'made' : 'bought'}{sp ? ` · ${sp.common_name}` : ''}
+                                                {first.made_or_bought_on ? ` · ${fmt(first.made_or_bought_on)}` : ''}
+                                                {' · '}{onHand.length} of {sorted.length} on hand
+                                            </span>
+                                        </div>
+                                        {onHand.length > 0 && (
+                                            <button className="mini ghost pl-trigger" onClick={() => onPrintStock(onHand.map((s) => s.id))}>
+                                                Print labels
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="equip-list">
+                                        {sorted.map((s, i) => {
+                                            const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
+                                            const madeInto = s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
+                                            return (
+                                                <div key={s.id} className="equip-row">
+                                                    <button className="equip-row-main" onClick={() => {
+                                                        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
+                                                            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
+                                                            species_id: s.species_id ?? '', quantity: '1', labels: '',
+                                                            label: s.label ?? '',
+                                                            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+                                                        setForm(s.id);
+                                                    }}>
+                                                        <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
+                                                        {madeInto && <span className="equip-note">→ became {madeInto.id}</span>}
+                                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                                    </button>
+                                                    {madeInto && (
+                                                        <div className="equip-side">
+                                                            <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
-                </div>
-            ))}
+                );
+            })}
             {stock.length === 0 && form === null && (
                 <p className="nf-help" style={{ marginTop: 18 }}>Nothing in stock yet.</p>
             )}
@@ -2267,8 +2377,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
    which had drifted into a catch-all with no real shared identity. This
    half keeps the "stuff I have or can get" grouping; see ReferenceSection
    below for the "stuff I read" half. */
-function Supplies({ stock, library, species, suppliers, equipment, initialTab,
-    onAddStock, onEditStock, onDeleteStock, onBumpStockQty,
+function Supplies({ stock, library, species, suppliers, equipment, initialTab, items,
+    onAddStock, onEditStock, onDeleteStock, onPrintStock, onOpenItem,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty,
     onAddSupplier, onEditSupplier, onDeleteSupplier }) {
     const [tab, setTab] = useState(initialTab || 'stock');
@@ -2286,8 +2396,9 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab,
                 <button className={`tab ${tab === 'suppliers' ? 'on' : ''}`} onClick={() => setTab('suppliers')}>Suppliers</button>
             </div>
             {tab === 'stock' ? (
-                <StockTab stock={stock} library={library} suppliers={suppliers} species={species}
-                    onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock} onBumpQty={onBumpStockQty} />
+                <StockTab stock={stock} library={library} suppliers={suppliers} species={species} items={items}
+                    onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock}
+                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
                     photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
@@ -2916,13 +3027,15 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                                 {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
                             </select>
                         </div>
-                        {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand' && s.quantity > 0).length > 0 && (
+                        {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand').length > 0 && (
                             <div className="nf-field wide">
-                                <label>Made from on-hand stock (optional)</label>
+                                <label>Made from on-hand stock (optional) — pick the exact unit</label>
                                 <select className="in sel" value={nf.stockId} onChange={(e) => setNf({ ...nf, stockId: e.target.value })}>
                                     <option value="">— not from stock —</option>
-                                    {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand' && s.quantity > 0)
-                                        .map((s) => <option key={s.id} value={s.id}>{s.quantity}x on hand</option>)}
+                                    {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand')
+                                        .map((s) => <option key={s.id} value={s.id}>
+                                            {s.label || 'Unlabeled unit'}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
+                                        </option>)}
                                 </select>
                             </div>
                         )}
@@ -3160,7 +3273,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                     <div className="picker">
                         <span className="pk-l">Into what?</span>
                         {["agar", "lc", "grain", "bulk", "block"].map((t) => {
-                            const matches = stock.filter((s) => s.kind === t && s.status === 'on_hand' && s.quantity > 0);
+                            const matches = stock.filter((s) => s.kind === t && s.status === 'on_hand');
                             return (
                                 <button key={t} className="chip go" onClick={() => {
                                     if (matches.length) setPickedType(t);
@@ -3172,11 +3285,11 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                     </div>
                 ) : (
                     <div className="picker">
-                        <span className="pk-l">From stock, or fresh?</span>
-                        {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand' && s.quantity > 0).map((s) => (
+                        <span className="pk-l">From stock, or fresh? Pick the exact unit.</span>
+                        {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand').map((s) => (
                             <button key={s.id} className="chip go" onClick={() => {
                                 addChild(id, pickedType, s.id); setPicking(false); setPickedType(null);
-                            }}>{stockLabel(s, library, suppliers)} ({s.quantity})</button>
+                            }}>{s.label || stockLabel(s, library, suppliers)}</button>
                         ))}
                         <button className="chip" onClick={() => { addChild(id, pickedType); setPicking(false); setPickedType(null); }}>Not from stock</button>
                         <button className="chip" onClick={() => setPickedType(null)}>Back</button>
@@ -3421,8 +3534,15 @@ const COLS = 3, ROWS = 10;
 const PER_SHEET = COLS * ROWS;
 const DEFAULT_TOP = 0.5, DEFAULT_LEFT = 0.1875, DEFAULT_GAP_X = 0.125, DEFAULT_GAP_Y = 0;
 
-function PrintLabels({ items, genetics, species, preselected, onClose }) {
-    const [checked, setChecked] = useState(() => new Set(preselected));
+/* Generalized over what's being printed - items (kept in the lineage tree,
+   QR = ?item=<label>) or stock units (not in the tree yet, QR = ?stock=
+   <id>, see the deep-link handling in the data-loading effect and
+   consumeStock() for why that keeps working after the unit is consumed).
+   `candidates` is already the fully-resolved, caller-sorted browsable list
+   - every entry starts checked, and unchecking just drops it from what
+   prints without removing it from the list, same as before. */
+function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
+    const [checked, setChecked] = useState(() => new Set(candidates.map((c) => c.id)));
     const [startAt, setStartAt] = useState(1);
     const [topIn, setTopIn] = useState(String(DEFAULT_TOP));
     const [leftIn, setLeftIn] = useState(String(DEFAULT_LEFT));
@@ -3430,25 +3550,13 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
     const [gapYIn, setGapYIn] = useState(String(DEFAULT_GAP_Y));
     const [qrs, setQrs] = useState({});
 
-    const candidates = useMemo(() => {
-        const preset = new Set(preselected);
-        return items
-            .filter((i) => preset.has(i.id) || checked.has(i.id))
-            .map((i) => {
-                const g = genetics.find((x) => x.id === i.geneticsId);
-                const sp = g && species.find((s) => s.id === g.species_id);
-                return { id: i.id, sub: sp?.common_name ?? '', started: i.created };
-            })
-            .sort((a, b) => a.id.localeCompare(b.id));
-    }, [items, genetics, species, preselected, checked]);
-
     const selected = useMemo(() => candidates.filter((c) => checked.has(c.id)), [candidates, checked]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             const entries = await Promise.all(selected.map(async (c) => {
-                const url = `${APP_URL}?item=${encodeURIComponent(c.id)}`;
+                const url = `${APP_URL}?${linkParam}=${encodeURIComponent(c.id)}`;
                 // Error correction Q (~25% recovery) rather than the default M -
                 // these end up on jars and tubs in a humid grow space, splashed
                 // and misted, so a little print/label damage shouldn't kill the scan.
@@ -3458,7 +3566,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
             if (!cancelled) setQrs(Object.fromEntries(entries));
         })();
         return () => { cancelled = true; };
-    }, [selected]);
+    }, [selected, linkParam]);
 
     const toggle = (id) => setChecked((p) => {
         const next = new Set(p);
@@ -3479,7 +3587,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
             <div className="pl-controls">
                 <button className="back" onClick={onClose}>← Back</button>
                 <div className="bar"><div><h1>Print labels</h1>
-                    <div className="d-sub">Standard address labels (3 across x 10 down, {PER_SHEET} per sheet) - each QR opens straight to that item.</div>
+                    <div className="d-sub">Standard address labels (3 across x 10 down, {PER_SHEET} per sheet) - {subtitle}</div>
                 </div></div>
 
                 <div className="pl-field-row">
@@ -3504,7 +3612,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
                     {candidates.map((c) => (
                         <label key={c.id} className="pl-item">
                             <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggle(c.id)} />
-                            <span className="lc-code">{c.id}</span>
+                            <span className="lc-code">{c.printed}</span>
                             <span className="lc-name">{c.sub}</span>
                         </label>
                     ))}
@@ -3534,7 +3642,7 @@ function PrintLabels({ items, genetics, species, preselected, onClose }) {
                                             ? <div className="pl-qr" dangerouslySetInnerHTML={{ __html: qrs[item.id] }} />
                                             : <div className="pl-qr pl-qr-pending">…</div>}
                                         <div className="pl-text">
-                                            <span className="pl-id">{item.id}</span>
+                                            <span className="pl-id">{item.printed}</span>
                                             {item.sub && <span className="pl-sp">{item.sub}</span>}
                                             {item.started && <span className="pl-date">{fmt(item.started)}</span>}
                                         </div>
@@ -3817,6 +3925,11 @@ const CSS = `
 .equip-thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex:0 0 auto;background:var(--panel2);}
 .equip-thumb-empty{border:1px dashed var(--line);}
 .equip-qty{display:flex;align-items:center;gap:6px;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
+.equip-side{display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
+.stock-batch{margin-bottom:20px;padding-bottom:2px;}
+.stock-batch-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:14px 0 8px;flex-wrap:wrap;}
+.stock-batch-head .equip-name{font-family:var(--serif);font-size:15px;color:var(--ink);white-space:normal;}
+.stock-batch-head .equip-note{display:block;color:var(--ink-dim);white-space:normal;}
 .qty-btn{width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
 .qty-btn:hover{color:var(--amber);border-color:var(--amber);}
 .qty-num{font-family:var(--mono);font-size:13px;min-width:1.5em;text-align:center;}
