@@ -2416,7 +2416,7 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
    top-level nav item while Reference hid three clicks deep. Same
    underlying `library` table for both, split by `kind`. */
 function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete }) {
-    const [tab, setTab] = useState(initialTab || 'reference');   // 'reference' | 'recipes'
+    const [tab, setTab] = useState(initialTab || 'recipes');   // 'reference' | 'recipes'
     const recipes = tab === 'recipes';
     const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
@@ -2497,8 +2497,8 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
             </div>
 
             <div className="tabs">
-                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
                 <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
+                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
             </div>
 
             {form !== null && (
