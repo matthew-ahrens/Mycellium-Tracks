@@ -905,6 +905,7 @@ export default function App() {
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
+            photoUrl={photoUrl} onDeletePhoto={deletePhoto}
             onPrintLabels={(ids) => setPrinting(ids)}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
@@ -2675,9 +2676,10 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
 
 /* ---------------- TREE ---------------- */
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
+    const [lightbox, setLightbox] = useState(null);
     const [addingLine, setAddingLine] = useState(false);
     const [editLineId, setEditLineId] = useState(null);
     const [editSp, setEditSp] = useState(false);
@@ -2686,6 +2688,14 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
     const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
     const pos = useMemo(() => layout(items), [items]);
+
+    /* Every photo tied to any item in this species' whole lineage (`items`
+       here is already pre-filtered to this species by the caller), most
+       recent first - the "collage" living under the tree canvas below. */
+    const linPhotos = useMemo(() => photos
+        .filter((p) => items.some((i) => i.uid === p.item_id))
+        .sort((a, b) => (b.taken_on ?? '').localeCompare(a.taken_on ?? '')),
+        [photos, items]);
 
     const litChain = useMemo(() => {
         if (!hover) return [];
@@ -2959,6 +2969,45 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                 </svg>
                 <div className="hint">drag to pan · scroll or pinch to zoom · tap a node</div>
             </div>
+
+            <div className="lineage-collage">
+                <div className="eyebrow">Every photo across this lineage, not just one item</div>
+                <h2 className="lc-h2">Photos</h2>
+                {linPhotos.length === 0 ? (
+                    <p className="nf-help">No photos logged for this lineage yet - add one from any item's page.</p>
+                ) : (
+                    <div className="lc-columns">
+                        {linPhotos.map((p) => {
+                            const it = items.find((i) => i.uid === p.item_id);
+                            return (
+                                <button key={p.id} className="lc-tile" onClick={() => setLightbox({ photo: p, item: it })}>
+                                    <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} loading="lazy" />
+                                    <div className="lc-meta">
+                                        <span>{it?.id ?? 'Unlinked'}</span>
+                                        {p.taken_on && <span>{fmt(p.taken_on)}</span>}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {lightbox && (
+                <div className="lb-scrim" onClick={() => setLightbox(null)}>
+                    <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
+                        <img src={photoUrl(lightbox.photo.storage_path)} alt={lightbox.photo.caption ?? ''} className="lb-img" />
+                        <div className="lb-bar">
+                            <span>{lightbox.photo.taken_on ? fmt(lightbox.photo.taken_on) : ''}{lightbox.photo.caption ? ' · ' + lightbox.photo.caption : ''}</span>
+                            <div>
+                                {lightbox.item && <button className="mini ghost" onClick={() => onOpen(lightbox.item.id)}>Open {lightbox.item.id}</button>}
+                                <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDeletePhoto(lightbox.photo); setLightbox(null); } }}>Delete</button>
+                                <button className="mini ghost" onClick={() => setLightbox(null)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -3699,6 +3748,7 @@ const CSS = `
      hide the trigger here rather than let it produce a broken print.
      Desktop/native app is where this actually works. */
   .pl-trigger{display:none;}
+  .lc-columns{columns:2 140px;column-gap:9px;}
 }
 
 .lib-list{display:flex;flex-direction:column;gap:9px;margin-top:20px;}
@@ -3842,6 +3892,20 @@ const CSS = `
 .n-id{font-family:var(--mono);font-size:11px;fill:var(--bone);}
 .n-sub{font-family:var(--sans);font-size:9.5px;fill:var(--dim);}
 .hint{position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);pointer-events:none;}
+
+/* Species-scoped photo collage, under the tree canvas. Masonry via CSS
+   columns rather than the Gallery's uniform cropped-square grid - photos
+   keep their real aspect ratio and flow into columns, which is what
+   actually makes it read as a collage instead of another grid. */
+.lineage-collage{margin-top:28px;}
+.lc-h2{font-family:var(--serif);font-weight:400;font-size:22px;margin:3px 0 16px;color:var(--ink);}
+.lc-columns{columns:3 220px;column-gap:12px;}
+.lc-tile{display:block;width:100%;break-inside:avoid;margin-bottom:12px;padding:0;position:relative;
+  border-radius:11px;overflow:hidden;border:1px solid var(--line);cursor:pointer;background:var(--panel);}
+.lc-tile img{width:100%;display:block;transition:transform .2s;}
+.lc-tile:hover img{transform:scale(1.03);}
+.lc-meta{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;background:linear-gradient(transparent,rgba(0,0,0,.75));
+  display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:9.5px;color:var(--bone);}
 
 .back{background:none;border:none;color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;cursor:pointer;padding:0 0 18px;}
 .back:hover{color:var(--ink);}
