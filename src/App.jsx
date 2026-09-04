@@ -437,6 +437,10 @@ export default function App() {
             fruiting_temp: patch.fruiting_temp?.trim() || null,
             humidity: patch.humidity?.trim() || null,
             fae: patch.fae?.trim() || null,
+            colonize_temp: patch.colonize_temp?.trim() || null,
+            colonize_time: patch.colonize_time?.trim() || null,
+            pin_to_harvest: patch.pin_to_harvest?.trim() || null,
+            substrate_note: patch.substrate_note?.trim() || null,
             notes: patch.notes?.trim() || null,
         };
         const { error } = await supabase.from('species').update(cols).eq('id', speciesId);
@@ -751,6 +755,10 @@ export default function App() {
             fruiting_temp: fields.fruiting_temp?.trim() || null,
             humidity: fields.humidity?.trim() || null,
             fae: fields.fae?.trim() || null,
+            colonize_temp: fields.colonize_temp?.trim() || null,
+            colonize_time: fields.colonize_time?.trim() || null,
+            pin_to_harvest: fields.pin_to_harvest?.trim() || null,
+            substrate_note: fields.substrate_note?.trim() || null,
             notes: fields.notes?.trim() || null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not add species - check console'); return; }
@@ -2415,6 +2423,111 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
    as two tabs on one screen instead of Recipes being an oddly-promoted
    top-level nav item while Reference hid three clicks deep. Same
    underlying `library` table for both, split by `kind`. */
+function StepChecklist({ steps }) {
+    const [checked, setChecked] = useState(() => new Set());
+    const toggle = (i) => setChecked((prev) => {
+        const next = new Set(prev);
+        if (next.has(i)) next.delete(i); else next.add(i);
+        return next;
+    });
+    return (
+        <div className="checklist">
+            <div className="check-progress">
+                {checked.size}/{steps.length} done
+                {checked.size > 0 && <button className="mini ghost" onClick={() => setChecked(new Set())}>Reset</button>}
+            </div>
+            {steps.map((step, i) => (
+                <button key={i} type="button" className={`check-row ${checked.has(i) ? 'done' : ''}`} onClick={() => toggle(i)}>
+                    <span className="check-box">{checked.has(i) ? '\u2713' : i + 1}</span>
+                    <span className="check-label">{step}</span>
+                </button>
+            ))}
+        </div>
+    );
+}
+
+/* Species-level cultivation facts, pulled straight from the species record
+   (fruiting_temp, humidity, fae, colonize_temp, colonize_time, pin_to_harvest,
+   substrate_note, notes) - no separate copy of this data lives in library. */
+const QUICK_FACT_LABELS = [
+    ['fruiting_temp', 'Fruit \u00b0F'], ['colonize_temp', 'Colonize \u00b0F'], ['humidity', 'RH %'], ['fae', 'FAE'],
+    ['colonize_time', 'Colonize time'], ['pin_to_harvest', 'Pin to harvest'], ['substrate_note', 'Substrate'],
+];
+
+function SpeciesFactsCard({ sp, isOpen, onToggle }) {
+    const facts = QUICK_FACT_LABELS.filter(([key]) => sp[key]);
+    return (
+        <div className={`lib-card ${isOpen ? 'open' : ''}`}>
+            <button className="lib-head" onClick={onToggle}>
+                <div>
+                    <div className="lib-title">{sp.common_name}</div>
+                    <div className="lib-meta"><span className="lib-sp">{sp.latin_name}</span></div>
+                </div>
+                <span className="lib-chev">{isOpen ? '\u2212' : '+'}</span>
+            </button>
+            {isOpen && (
+                <div className="lib-body">
+                    {facts.length > 0 && (
+                        <div className="qf-grid">
+                            {facts.map(([key, label]) => (
+                                <div key={key} className="qf-tile">
+                                    <div className="qf-label">{label}</div>
+                                    <div className="qf-value">{sp[key]}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {sp.notes && <p className="qf-note">{sp.notes}</p>}
+                    {facts.length === 0 && !sp.notes && (
+                        <p className="notes empty-note">No cheat-sheet facts saved yet - edit this species from Cultures to add them.</p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/* Card rendering, shared between the flat Reference list and the
+   grouped-by-category Recipes view. A real component (not a closure called
+   during render) so the checklist inside can hold its own hook state. */
+function LibCard({ e, species, recipes, isOpen, onToggle, onEdit }) {
+    const sp = species.find((s) => s.id === e.species_id);
+    return (
+        <div className={`lib-card ${isOpen ? 'open' : ''}`}>
+            <button className="lib-head" onClick={onToggle}>
+                <div>
+                    <div className="lib-title">{e.title}</div>
+                    <div className="lib-meta">
+                        {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
+                        {recipes && e.yield_amount && <span className="lib-kind">
+                            {e.category === 'Capsule blend' ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
+                        </span>}
+                        {sp && <span className="lib-sp">{sp.common_name}</span>}
+                    </div>
+                </div>
+                <span className="lib-chev">{isOpen ? '\u2212' : '+'}</span>
+            </button>
+            {isOpen && (
+                <div className="lib-body">
+                    {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
+                    {recipes && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
+                        <CapsuleBlendCard recipe={e} species={species} />
+                    )}
+                    {recipes && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                    {e.steps?.length > 0 && <StepChecklist steps={e.steps} />}
+                    {e.body && (
+                        e.steps?.length > 0
+                            ? <details className="lib-fulltext"><summary>Full notes</summary><pre className="lib-text">{e.body}</pre></details>
+                            : <pre className="lib-text">{e.body}</pre>
+                    )}
+                    {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
+                    <button className="mini ghost" onClick={onEdit}>Edit</button>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete }) {
     const [tab, setTab] = useState(initialTab || 'recipes');   // 'reference' | 'recipes'
     const recipes = tab === 'recipes';
@@ -2424,6 +2537,9 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(null);
+    const [filterSpecies, setFilterSpecies] = useState(null);
+    const visibleEntries = filterSpecies ? entries.filter((e) => e.species_id === filterSpecies) : entries;
+    const filterableSpecies = species.filter((s) => !s.hidden);
 
     /* Every ingredient name already used anywhere in Recipes, so typing one
        in offers the browser's native autocomplete instead of retyping it
@@ -2439,47 +2555,13 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
         setForm(null); setF(blank);
     };
 
-    /* Card rendering, shared between the flat Reference list and the
-       grouped-by-category Recipes view. */
-    const renderLibCard = (e) => {
-        const sp = species.find((s) => s.id === e.species_id);
-        const isOpen = openId === e.id;
-        return (
-            <div key={e.id} className={`lib-card ${isOpen ? 'open' : ''}`}>
-                <button className="lib-head" onClick={() => setOpenId(isOpen ? null : e.id)}>
-                    <div>
-                        <div className="lib-title">{e.title}</div>
-                        <div className="lib-meta">
-                            {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
-                            {recipes && e.yield_amount && <span className="lib-kind">
-                                {e.category === 'Capsule blend' ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
-                            </span>}
-                            {sp && <span className="lib-sp">{sp.common_name}</span>}
-                        </div>
-                    </div>
-                    <span className="lib-chev">{isOpen ? '−' : '+'}</span>
-                </button>
-                {isOpen && (
-                    <div className="lib-body">
-                        {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
-                        {recipes && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
-                            <CapsuleBlendCard recipe={e} species={species} />
-                        )}
-                        {recipes && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
-                        {e.body && <pre className="lib-text">{e.body}</pre>}
-                        {!e.url && !e.body && !(e.ingredients?.length) && <p className="notes empty-note">No content saved.</p>}
-                        <button className="mini ghost" onClick={() => {
-                            setF({
-                                title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
-                                category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
-                                ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '',
-                            });
-                            setForm(e.id);
-                        }}>Edit</button>
-                    </div>
-                )}
-            </div>
-        );
+    const startEdit = (e) => {
+        setF({
+            title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
+            category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
+            ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '',
+        });
+        setForm(e.id);
     };
 
     return (
@@ -2500,6 +2582,31 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                 <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
                 <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
             </div>
+
+            {!recipes && filterableSpecies.length > 0 && (
+                <div className="sp-chips">
+                    <button className={`sp-chip ${!filterSpecies ? 'on' : ''}`} onClick={() => setFilterSpecies(null)}>All species</button>
+                    {filterableSpecies.map((s) => (
+                        <button key={s.id} className={`sp-chip ${filterSpecies === s.id ? 'on' : ''}`}
+                            onClick={() => setFilterSpecies(filterSpecies === s.id ? null : s.id)}>
+                            {s.common_name}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {!recipes && form === null && (
+                <>
+                    <div className="sec" style={{ marginTop: 4 }}><span>Species cheat sheet</span></div>
+                    <div className="lib-list" style={{ marginBottom: 18 }}>
+                        {filterableSpecies.filter((s) => !filterSpecies || s.id === filterSpecies).map((s) => (
+                            <SpeciesFactsCard key={s.id} sp={s} isOpen={openId === `sp:${s.id}`}
+                                onToggle={() => setOpenId(openId === `sp:${s.id}` ? null : `sp:${s.id}`)} />
+                        ))}
+                    </div>
+                    <div className="sec"><span>How-to guides</span></div>
+                </>
+            )}
 
             {form !== null && (
                 <div className="new-form">
@@ -2639,7 +2746,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                 </div>
             )}
 
-            {entries.length === 0 && form === null && (
+            {visibleEntries.length === 0 && form === null && (
                 <p className="nf-help" style={{ marginTop: 18 }}>
                     Nothing here yet. {recipes
                         ? 'Your agar and LC media recipes are the obvious first two.'
@@ -2650,7 +2757,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
             <div className="lib-list">
                 {recipes ? (
                     Object.entries(
-                        entries.reduce((groups, e) => {
+                        visibleEntries.reduce((groups, e) => {
                             const cat = e.category || 'Uncategorized';
                             (groups[cat] ||= []).push(e);
                             return groups;
@@ -2661,12 +2768,20 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                         <div key={cat}>
                             <div className="sec" style={{ marginTop: 18 }}><span>{cat}</span></div>
                             <div className="lib-list" style={{ marginTop: 0 }}>
-                                {[...group].sort((a, b) => a.title.localeCompare(b.title)).map((e) => renderLibCard(e))}
+                                {[...group].sort((a, b) => a.title.localeCompare(b.title)).map((e) => (
+                                    <LibCard key={e.id} e={e} species={species} recipes={recipes}
+                                        isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
+                                        onEdit={() => startEdit(e)} />
+                                ))}
                             </div>
                         </div>
                     ))
                 ) : (
-                    entries.map((e) => renderLibCard(e))
+                    visibleEntries.map((e) => (
+                        <LibCard key={e.id} e={e} species={species} recipes={recipes}
+                            isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
+                            onEdit={() => startEdit(e)} />
+                    ))
                 )}
             </div>
         </div>
@@ -2679,14 +2794,14 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
     const live = items.filter((i) => STATUS[i.status].live).length;
     const [adding, setAdding] = useState(false);
     const [showHidden, setShowHidden] = useState(false);
-    const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", notes: "" });
+    const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", notes: "" });
     const hiddenCount = species.filter((s) => s.hidden).length;
     const visible = showHidden ? species : species.filter((s) => !s.hidden);
 
     const submit = async () => {
         if (!f.common_name.trim()) return;
         await onAdd(f);
-        setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", notes: "" });
+        setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", notes: "" });
         setAdding(false);
     };
 
@@ -2736,6 +2851,26 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
                             <label>FAE</label>
                             <input className="in" value={f.fae} placeholder="High"
                                 onChange={(e) => setF({ ...f, fae: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Colonize temp</label>
+                            <input className="in" value={f.colonize_temp} placeholder="70-75F"
+                                onChange={(e) => setF({ ...f, colonize_temp: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Colonize time</label>
+                            <input className="in" value={f.colonize_time} placeholder="2-3 wk"
+                                onChange={(e) => setF({ ...f, colonize_time: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Pin to harvest</label>
+                            <input className="in" value={f.pin_to_harvest} placeholder="5-10 d"
+                                onChange={(e) => setF({ ...f, pin_to_harvest: e.target.value })} />
+                        </div>
+                        <div className="nf-field wide">
+                            <label>Substrate</label>
+                            <input className="in" value={f.substrate_note} placeholder="Supp. hardwood, no casing"
+                                onChange={(e) => setF({ ...f, substrate_note: e.target.value })} />
                         </div>
                         <div className="nf-field wide">
                             <label>Notes</label>
@@ -2902,7 +3037,10 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                         setSf({
                             common_name: species?.common_name ?? "", latin_name: species?.latin_name ?? "",
                             fruiting_temp: species?.fruiting_temp ?? "", humidity: species?.humidity ?? "",
-                            fae: species?.fae ?? "", notes: species?.notes ?? "",
+                            fae: species?.fae ?? "",
+                            colonize_temp: species?.colonize_temp ?? "", colonize_time: species?.colonize_time ?? "",
+                            pin_to_harvest: species?.pin_to_harvest ?? "", substrate_note: species?.substrate_note ?? "",
+                            notes: species?.notes ?? "",
                         });
                         setEditSp(true);
                     }}>✎ Species</button>
@@ -2947,6 +3085,14 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                             <input className="in" value={sf.humidity} onChange={(e) => setSf({ ...sf, humidity: e.target.value })} /></div>
                         <div className="nf-field"><label>FAE</label>
                             <input className="in" value={sf.fae} onChange={(e) => setSf({ ...sf, fae: e.target.value })} /></div>
+                        <div className="nf-field"><label>Colonize temp</label>
+                            <input className="in" value={sf.colonize_temp} onChange={(e) => setSf({ ...sf, colonize_temp: e.target.value })} /></div>
+                        <div className="nf-field"><label>Colonize time</label>
+                            <input className="in" value={sf.colonize_time} onChange={(e) => setSf({ ...sf, colonize_time: e.target.value })} /></div>
+                        <div className="nf-field"><label>Pin to harvest</label>
+                            <input className="in" value={sf.pin_to_harvest} onChange={(e) => setSf({ ...sf, pin_to_harvest: e.target.value })} /></div>
+                        <div className="nf-field wide"><label>Substrate</label>
+                            <input className="in" value={sf.substrate_note} onChange={(e) => setSf({ ...sf, substrate_note: e.target.value })} /></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="3" value={sf.notes} onChange={(e) => setSf({ ...sf, notes: e.target.value })} /></div>
                     </div>
@@ -3898,6 +4044,25 @@ const CSS = `
 .sr-snippet{font-family:var(--sans);font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.5;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:var(--bone);}
+.sp-chips{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 4px;}
+.sp-chip{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;transition:border-color .15s,color .15s;}
+.sp-chip:hover{border-color:var(--border-warm);color:var(--ink);}
+.sp-chip.on{border-color:var(--amber);color:var(--amber-ink);background:var(--panel2);}
+.qf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:12px;}
+.qf-tile{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
+.qf-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:3px;}
+.qf-value{font-size:13px;color:var(--bone);line-height:1.35;}
+.qf-note{font-size:13px;line-height:1.6;color:var(--bone);margin:0 0 13px;}
+.checklist{margin-bottom:13px;}
+.check-progress{font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.check-row{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:9px 0;cursor:pointer;color:var(--bone);font-family:var(--sans);font-size:13px;line-height:1.5;}
+.check-row:last-child{border-bottom:none;}
+.check-box{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1px solid var(--border-warm);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--dim);}
+.check-row.done .check-box{background:var(--amber);border-color:var(--amber);color:var(--panel);}
+.check-row.done .check-label{color:var(--dim);text-decoration:line-through;}
+.lib-fulltext{margin-bottom:13px;}
+.lib-fulltext summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;}
+.lib-fulltext .lib-text{margin-top:8px;}
 .ing-rows{display:flex;flex-direction:column;gap:6px;}
 .ing-row{display:flex;gap:6px;align-items:center;}
 .ing-row .in.sm{width:64px;flex:0 0 auto;}
