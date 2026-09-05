@@ -466,6 +466,7 @@ export default function App() {
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
             buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
+            steps: fields.steps?.filter((s) => s.trim()).length ? fields.steps.filter((s) => s.trim()) : null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setLibrary((p) => [...p, data]);
@@ -483,6 +484,7 @@ export default function App() {
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
             buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
+            steps: fields.steps?.filter((s) => s.trim()).length ? fields.steps.filter((s) => s.trim()) : null,
         };
         const { error } = await supabase.from('library').update(cols).eq('id', entryId);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -2533,7 +2535,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
     const recipes = tab === 'recipes';
     const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
     const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
-        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '' };
+        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(null);
@@ -2559,7 +2561,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
         setF({
             title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
             category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
-            ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '',
+            ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '', steps: e.steps ?? [],
         });
         setForm(e.id);
     };
@@ -2578,13 +2580,9 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                 )}
             </div>
 
-            <div className="tabs">
-                <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
-                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
-            </div>
-
-            {!recipes && filterableSpecies.length > 0 && (
+            {filterableSpecies.length > 0 && (
                 <div className="sp-chips">
+                    <span className="sp-chips-label">Filter by species (both tabs):</span>
                     <button className={`sp-chip ${!filterSpecies ? 'on' : ''}`} onClick={() => setFilterSpecies(null)}>All species</button>
                     {filterableSpecies.map((s) => (
                         <button key={s.id} className={`sp-chip ${filterSpecies === s.id ? 'on' : ''}`}
@@ -2594,6 +2592,11 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                     ))}
                 </div>
             )}
+
+            <div className="tabs">
+                <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
+                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
+            </div>
 
             {!recipes && form === null && (
                 <>
@@ -2733,6 +2736,41 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                                 placeholder="Paste the text from your printed sheet here so it is searchable and on your phone."
                                 onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
                         )}
+
+                        <div className="nf-field wide">
+                            <label>Checklist steps (optional)</label>
+                            <p className="nf-help" style={{ marginTop: 0 }}>
+                                Add steps to turn this into a tap-to-check list on the card - handy for
+                                anything you follow start to finish, like making a nutrient broth. Leave
+                                empty for a plain reference entry.
+                            </p>
+                            <div className="ing-rows">
+                                {f.steps.map((step, i) => (
+                                    <div key={i} className="ing-row">
+                                        <span className="step-num">{i + 1}</span>
+                                        <input className="in" style={{ flex: 1 }} value={step}
+                                            placeholder="Mix dry ingredients first, then add coconut water and stir to dissolve."
+                                            onChange={(e) => setF({ ...f, steps: f.steps.map((s, idx) => idx === i ? e.target.value : s) })} />
+                                        <button className="mini ghost" type="button" disabled={i === 0}
+                                            onClick={() => setF({ ...f, steps: (() => {
+                                                const next = [...f.steps];
+                                                [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                                                return next;
+                                            })() })}>&uarr;</button>
+                                        <button className="mini ghost" type="button" disabled={i === f.steps.length - 1}
+                                            onClick={() => setF({ ...f, steps: (() => {
+                                                const next = [...f.steps];
+                                                [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                                                return next;
+                                            })() })}>&darr;</button>
+                                        <button className="mini danger" type="button"
+                                            onClick={() => setF({ ...f, steps: f.steps.filter((_, idx) => idx !== i) })}>Remove</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button className="mini ghost" type="button" style={{ marginTop: 8 }}
+                                onClick={() => setF({ ...f, steps: [...f.steps, ''] })}>+ Add step</button>
+                        </div>
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={submit}>Save</button>
@@ -4044,7 +4082,9 @@ const CSS = `
 .sr-snippet{font-family:var(--sans);font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.5;}
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:var(--bone);}
-.sp-chips{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 4px;}
+.sp-chips{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:14px 0 4px;}
+.sp-chips-label{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);margin-right:2px;}
+.step-num{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center;}
 .sp-chip{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;transition:border-color .15s,color .15s;}
 .sp-chip:hover{border-color:var(--border-warm);color:var(--ink);}
 .sp-chip.on{border-color:var(--amber);color:var(--amber-ink);background:var(--panel2);}
