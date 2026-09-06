@@ -339,3 +339,23 @@ edit-species form, Supplier, Equipment, Reference/Recipe, and the
 Inventory add-lot form all just no-op'd on Save when a required field
 was empty - clicking Save looked like a broken button. Each now alerts
 with what's actually missing instead of doing nothing.
+
+## 2026-09-06 - Calculators no longer leak personal dev data
+
+- DryYield's species list was a hardcoded object disconnected from the
+  real `species` table, and its copy referenced "your own measured
+  figure" / "your notes" as if every user already had Matt's specific
+  data. Moved dry-yield % onto `species.dry_yield_pct` (new column,
+  editable from the Species edit form like the other cultivation
+  facts) - the calculator now pulls the real species list and shows a
+  species' own logged figure when there is one, falling back to a
+  clearly-labeled general 10% average instead of a fabricated
+  species-specific number when there isn't. Kept Blue Oyster's real
+  8.9% (genuinely measured data) as the only pre-populated value;
+  left every other species blank rather than carrying forward
+  unsourced "typical" numbers as if they were now verified.
+- Hydration's "1.65 mL/g ... from your notes" line was accurate
+  (verified earlier this session against North Spore's published
+  Cordyceps jar tek) but phrased at Matt specifically - reworded to
+  cite the source instead.
+- Migration: `species.dry_yield_pct` numeric, nullable.
