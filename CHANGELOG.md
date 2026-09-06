@@ -387,3 +387,12 @@ with what's actually missing instead of doing nothing.
   that link - which frees the amount back onto the source lot without
   touching the lot it fed, since that lot's own amount_g was entered
   independently at process time and was never derived from this number.
+
+## 2026-09-06 - Failure/contamination reason no longer wipes on re-edit
+
+- Re-clicking the status chip an item was already at (e.g. to fix a
+  typo in the contamination reason, or add more detail) reset the
+  reason box to blank instead of starting from what was already
+  there - easy to lose the original note. Only a genuine status
+  change now starts the box blank; re-clicking the current status
+  prefills it.
