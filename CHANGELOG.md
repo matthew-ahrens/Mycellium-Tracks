@@ -376,3 +376,14 @@ with what's actually missing instead of doing nothing.
   every other unlabeled unit of that kind. Saving now blocks with an
   alert until a made-in-house unit has a recipe picked, or a bought
   unit has a supplier or product name.
+
+## 2026-09-06 - lot_links now editable and deletable
+
+- A mis-entered amount on a process/blend link (`lot_links`) had no fix
+  short of deleting the whole derived lot it fed into. Both the "Made
+  from" and "Went into" lineage rows on a lot's detail page now have an
+  inline edit (pencil -> amount field, capped against what the source
+  lot actually has free across its other links) and a Delete for just
+  that link - which frees the amount back onto the source lot without
+  touching the lot it fed, since that lot's own amount_g was entered
+  independently at process time and was never derived from this number.
