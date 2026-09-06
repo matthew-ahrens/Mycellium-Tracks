@@ -634,6 +634,12 @@ export default function App() {
             label: fields.label?.trim() || null,
             notes: fields.notes?.trim() || null,
         };
+        /* consumed_into_item_id only means anything while status is 'used' -
+           if this edit is moving status away from that (undoing an
+           accidental consume, or just recategorizing the unit), drop the
+           link too. Otherwise a unit flipped back to "on hand" could still
+           show "became <item>" even though it's no longer marked used. */
+        if (fields.status !== 'used') cols.consumed_into_item_id = null;
         const { error } = await supabase.from('stock').update(cols).eq('id', id);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setStock((p) => p.map((s) => (s.id === id ? { ...s, ...cols } : s)));
