@@ -1790,10 +1790,15 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
     const [losing, setLosing] = useState(false);
     const [lossAmt, setLossAmt] = useState('');
     const [lossReason, setLossReason] = useState('');
+    const [editingNotes, setEditingNotes] = useState(false);
+    const [notesDraft, setNotesDraft] = useState('');
 
     if (!lot) return <div className="page"><button className="back" onClick={onBack}>← Inventory</button></div>;
 
     const rem = remaining(lotId);
+    /* What's already spoken for (processed elsewhere or logged as lost) -
+       amount_g can't be edited below this without going negative. */
+    const consumedOrLost = Number(lot.amount_g) - rem;
     const sp = lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species);
     const parents = lotLinks.filter((k) => k.child_lot_id === lotId);
     const children = lotLinks.filter((k) => k.parent_lot_id === lotId);
@@ -1813,9 +1818,23 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                         <select className="in sel" value={f.form} onChange={(e) => setF({ ...f, form: e.target.value })}>
                             {Object.keys(LOT_FORMS).map((k) => <option key={k} value={k}>{LOT_FORMS[k]}</option>)}
                         </select>
+                        <input className="in sm" inputMode="decimal" value={f.amount_g}
+                            onChange={(e) => setF({ ...f, amount_g: e.target.value })} placeholder="started with, g" />
+                        <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
+                            <option value="">— unknown / mixed —</option>
+                            {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                        </select>
                         <input className="in sm" type="date" value={f.harvested_on ?? ''} onChange={(e) => setF({ ...f, harvested_on: e.target.value })} />
                         <button className="mini" onClick={() => {
-                            onSave(lotId, { label: f.label.trim(), form: f.form, harvested_on: f.harvested_on || null });
+                            if (!f.label.trim()) { alert('Label is required.'); return; }
+                            const amt = n(f.amount_g);
+                            if (!amt) { alert('Enter a started-with amount.'); return; }
+                            if (amt < consumedOrLost - LOT_EPS) {
+                                alert(`Can't go below ${fmtG(consumedOrLost, f.form)}g - that's already been processed or logged as lost from this lot.`);
+                                return;
+                            }
+                            onSave(lotId, { label: f.label.trim(), form: f.form, amount_g: amt,
+                                species_id: f.species_id || null, harvested_on: f.harvested_on || null });
                             setEditing(false);
                         }}>Save</button>
                         <button className="mini ghost" onClick={() => setEditing(false)}>Cancel</button>
@@ -1831,7 +1850,8 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                 )}
                 {!editing && (
                     <button className="edit-btn" title="Edit"
-                        onClick={() => { setF({ label: lot.label ?? '', form: lot.form, harvested_on: lot.harvested_on ?? '' }); setEditing(true); }}>✎</button>
+                        onClick={() => { setF({ label: lot.label ?? '', form: lot.form, amount_g: lot.amount_g ?? '',
+                            species_id: lot.species_id ?? '', harvested_on: lot.harvested_on ?? '' }); setEditing(true); }}>✎</button>
                 )}
             </div>
 
@@ -1917,10 +1937,22 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                 </div>
 
                 <div>
-                    <Sec title="Notes" />
-                    {lot.notes
-                        ? <p className="notes">{lot.notes.split('\n').map((line, n2) => <span key={n2}>{line}<br /></span>)}</p>
-                        : <p className="notes empty-note">No notes.</p>}
+                    <Sec title="Notes" onEdit={() => { setNotesDraft(lot.notes ?? ''); setEditingNotes(true); }} />
+                    {editingNotes ? (
+                        <div className="field-form">
+                            <textarea className="in ta" rows="6" value={notesDraft}
+                                onChange={(e) => setNotesDraft(e.target.value)}
+                                placeholder="Anything worth remembering about this lot." />
+                            <div className="edit-row">
+                                <button className="mini" onClick={() => { onSave(lotId, { notes: notesDraft.trim() || null }); setEditingNotes(false); }}>Save</button>
+                                <button className="mini ghost" onClick={() => setEditingNotes(false)}>Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        lot.notes
+                            ? <p className="notes">{lot.notes.split('\n').map((line, n2) => <span key={n2}>{line}<br /></span>)}</p>
+                            : <p className="notes empty-note">No notes.</p>
+                    )}
                 </div>
             </div>
         </div>
