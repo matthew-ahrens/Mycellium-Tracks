@@ -519,6 +519,27 @@ export default function App() {
         setLibrary((p) => p.filter((e) => e.id !== entryId));
     };
 
+    /* Recipe/reference step checklists persist to the row itself (indices
+       into that entry's `steps` array) instead of living in local component
+       state - otherwise progress vanished every time the card collapsed or
+       you left the tab, which was the whole complaint. */
+    const toggleChecklistStep = async (entryId, stepIndex) => {
+        const entry = library.find((e) => e.id === entryId);
+        if (!entry) return;
+        const current = new Set(entry.checklist_checked ?? []);
+        if (current.has(stepIndex)) current.delete(stepIndex); else current.add(stepIndex);
+        const next = [...current].sort((a, b) => a - b);
+        const { error } = await supabase.from('library').update({ checklist_checked: next }).eq('id', entryId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLibrary((p) => p.map((e) => (e.id === entryId ? { ...e, checklist_checked: next } : e)));
+    };
+
+    const resetChecklist = async (entryId) => {
+        const { error } = await supabase.from('library').update({ checklist_checked: [] }).eq('id', entryId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLibrary((p) => p.map((e) => (e.id === entryId ? { ...e, checklist_checked: [] } : e)));
+    };
+
     const addEquipment = async (fields) => {
         const { data, error } = await supabase.from('equipment').insert({
             name: fields.name.trim(),
@@ -1016,7 +1037,8 @@ export default function App() {
     } else if (section === 'reference') {
         key = 'reference';
         screen = <ReferenceSection library={library} species={species} initialTab={referenceTab}
-            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary} />;
+            onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
+            onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -2624,22 +2646,17 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
    as two tabs on one screen instead of Recipes being an oddly-promoted
    top-level nav item while Reference hid three clicks deep. Same
    underlying `library` table for both, split by `kind`. */
-function StepChecklist({ steps }) {
-    const [checked, setChecked] = useState(() => new Set());
-    const toggle = (i) => setChecked((prev) => {
-        const next = new Set(prev);
-        if (next.has(i)) next.delete(i); else next.add(i);
-        return next;
-    });
+function StepChecklist({ steps, checked, onToggle, onReset }) {
+    const checkedSet = new Set(checked ?? []);
     return (
         <div className="checklist">
             <div className="check-progress">
-                {checked.size}/{steps.length} done
-                {checked.size > 0 && <button className="mini ghost" onClick={() => setChecked(new Set())}>Reset</button>}
+                {checkedSet.size}/{steps.length} done
+                {checkedSet.size > 0 && <button className="mini ghost" onClick={onReset}>Reset</button>}
             </div>
             {steps.map((step, i) => (
-                <button key={i} type="button" className={`check-row ${checked.has(i) ? 'done' : ''}`} onClick={() => toggle(i)}>
-                    <span className="check-box">{checked.has(i) ? '\u2713' : i + 1}</span>
+                <button key={i} type="button" className={`check-row ${checkedSet.has(i) ? 'done' : ''}`} onClick={() => onToggle(i)}>
+                    <span className="check-box">{checkedSet.has(i) ? '\u2713' : i + 1}</span>
                     <span className="check-label">{step}</span>
                 </button>
             ))}
@@ -2690,8 +2707,8 @@ function SpeciesFactsCard({ sp, isOpen, onToggle }) {
 
 /* Card rendering, shared between the flat Reference list and the
    grouped-by-category Recipes view. A real component (not a closure called
-   during render) so the checklist inside can hold its own hook state. */
-function LibCard({ e, species, recipes, isOpen, onToggle, onEdit }) {
+   during render) so state like the open/close chevron works cleanly. */
+function LibCard({ e, species, recipes, isOpen, onToggle, onEdit, onToggleChecklistStep, onResetChecklist }) {
     const sp = species.find((s) => s.id === e.species_id);
     return (
         <div className={`lib-card ${isOpen ? 'open' : ''}`}>
@@ -2715,7 +2732,8 @@ function LibCard({ e, species, recipes, isOpen, onToggle, onEdit }) {
                         <CapsuleBlendCard recipe={e} species={species} />
                     )}
                     {recipes && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
-                    {e.steps?.length > 0 && <StepChecklist steps={e.steps} />}
+                    {e.steps?.length > 0 && <StepChecklist steps={e.steps} checked={e.checklist_checked}
+                        onToggle={(i) => onToggleChecklistStep(e.id, i)} onReset={() => onResetChecklist(e.id)} />}
                     {e.body && (
                         e.steps?.length > 0
                             ? <details className="lib-fulltext"><summary>Full notes</summary><pre className="lib-text">{e.body}</pre></details>
@@ -2729,7 +2747,7 @@ function LibCard({ e, species, recipes, isOpen, onToggle, onEdit }) {
     );
 }
 
-function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete }) {
+function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist }) {
     const [tab, setTab] = useState(initialTab || 'recipes');   // 'reference' | 'recipes'
     const recipes = tab === 'recipes';
     const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
@@ -3008,7 +3026,8 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                                 {[...group].sort((a, b) => a.title.localeCompare(b.title)).map((e) => (
                                     <LibCard key={e.id} e={e} species={species} recipes={recipes}
                                         isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
-                                        onEdit={() => startEdit(e)} />
+                                        onEdit={() => startEdit(e)}
+                                        onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
                                 ))}
                             </div>
                         </div>
@@ -3017,7 +3036,8 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                     visibleEntries.map((e) => (
                         <LibCard key={e.id} e={e} species={species} recipes={recipes}
                             isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
-                            onEdit={() => startEdit(e)} />
+                            onEdit={() => startEdit(e)}
+                            onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
                     ))
                 )}
             </div>
