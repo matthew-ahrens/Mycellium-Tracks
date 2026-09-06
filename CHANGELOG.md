@@ -431,3 +431,21 @@ with what's actually missing instead of doing nothing.
 - Bonus: the `?stock=<uuid>` QR deep link for a not-yet-consumed unit
   had the same gap (landed on the Stock tab generically) and now uses
   the same mechanism to land on the exact unit.
+
+## 2026-09-06 - Hidden species no longer leak into assignment dropdowns
+
+- Hiding a species didn't actually get it out of the way - it still
+  showed up in every picker that assigns a species to something new:
+  Inventory's manual-lot form and LotDetail's edit form, Stock's
+  species field, and Reference/Recipe's species field (both the
+  entry-level one and the per-ingredient one in a capsule blend). Only
+  the Reference filter chips and the DryYield calculator (fixed
+  earlier today) respected `hidden` before this.
+- New shared `visibleSpeciesFor(species, currentId)` filters hidden
+  species out of the option list but keeps whatever's already selected
+  visible even if it's since been hidden, so opening something already
+  tagged to a since-hidden species shows the real saved value instead
+  of going blank. Left Gallery's species filter alone on purpose -
+  that one's for browsing existing photos, where filtering by a
+  species you've since hidden is still exactly what you'd want.
+- This was the last item on the 2026-09-05 usability audit list.
