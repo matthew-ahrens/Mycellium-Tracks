@@ -2315,6 +2315,14 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const isNew = form === 'new';
 
     const submit = () => {
+        if (f.source === 'made' && !f.recipe_id) {
+            alert("Pick a recipe, or switch to Bought if this stock isn't something you made.");
+            return;
+        }
+        if (f.source === 'bought' && !f.supplier_id && !f.product_name.trim()) {
+            alert('Pick a supplier or enter a product name so you can tell this stock apart later.');
+            return;
+        }
         if (isNew) onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
