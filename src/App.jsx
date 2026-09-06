@@ -126,11 +126,15 @@ export default function App() {
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
     const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock', ids: [...] }, or null
-    /* One-shot "land on this specific tab" hints for Search results that
-       point into Supplies/Reference - each of those screens fully remounts
-       on every visit (see the render switch below), so this only has to
-       seed their initial tab, not stay in sync afterward. */
+    /* One-shot "land on this specific tab, and this specific row" hints for
+       Search results (and the ?stock= QR deep link) that point into
+       Supplies/Reference - each of those screens fully remounts on every
+       visit (see the render switch below), so this only has to seed their
+       initial state, not stay in sync afterward. Every other navigation
+       path resets both back to null so a stale hint can't quietly re-open
+       an old search result the next time you visit Supplies normally. */
     const [suppliesTab, setSuppliesTab] = useState(null);
+    const [suppliesOpenId, setSuppliesOpenId] = useState(null);
     const [referenceTab, setReferenceTab] = useState(null);
 
     const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
@@ -222,9 +226,10 @@ export default function App() {
                while it was still just "on hand." Unlike an item label, a
                stock unit isn't in the lineage tree, so this can't jump
                straight to a tree/item screen the way ?item= does - it
-               lands on Supplies/Stock instead. But once that unit gets
-               consumed into a culture (consumeStock sets
-               consumed_into_item_id), the SAME printed sticker starts
+               lands on that exact row in Supplies/Stock instead (opened
+               via the same initialOpenId hint Search results use). But
+               once that unit gets consumed into a culture (consumeStock
+               sets consumed_into_item_id), the SAME printed sticker starts
                resolving straight through to whatever it became, no
                reprint needed - that's the whole point of printing stock
                labels off their own id instead of waiting for an item to
@@ -241,6 +246,7 @@ export default function App() {
                 } else if (unit) {
                     setSection('supplies');
                     setSuppliesTab('stock');
+                    setSuppliesOpenId(unit.id);
                 }
             }
 
@@ -1039,18 +1045,18 @@ export default function App() {
         key = 'search';
         screen = <Search items={items} genetics={genetics} species={species} lots={lots} lotLinks={lotLinks}
             library={library} equipment={equipment} suppliers={suppliers} stock={stock}
-            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
-            onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
-            onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
-            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setReferenceTab(entry.kind === 'recipe' ? 'recipes' : 'reference'); setSection('reference'); setDir('fwd'); }}
-            onOpenSupplies={(tab) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSection('supplies'); setDir('fwd'); }} />;
+            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
+            onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
+            onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
+            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.kind === 'recipe' ? 'recipes' : 'reference'); setSection('reference'); setDir('fwd'); }}
+            onOpenSupplies={(tab, id) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); }} />;
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
-            items={items} initialTab={suppliesTab}
+            items={items} initialTab={suppliesTab} initialOpenId={suppliesOpenId}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock}
             onPrintStock={(ids) => setPrinting({ kind: 'stock', ids })}
-            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setSection('cultures'); setOpen(label); setOpenLot(null); setDir('fwd'); }}
+            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setSection('cultures'); setOpen(label); setOpenLot(null); setDir('fwd'); }}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onBumpEquipQty={bumpEquipmentQty}
@@ -1122,7 +1128,7 @@ export default function App() {
                     <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
-                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setReferenceTab(null); }}>
+                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); }}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
@@ -1726,7 +1732,7 @@ function Search({ items, genetics, species, lots, lotLinks, library, equipment, 
             ], nq);
             return m && {
                 id: e.id, title: e.name, subtitle: e.category || '',
-                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('equipment'),
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('equipment', e.id),
             };
         }).filter(Boolean);
         if (equipHits.length) out.push({ key: 'equipment', label: 'Supplies — equipment', hits: equipHits });
@@ -1737,7 +1743,7 @@ function Search({ items, genetics, species, lots, lotLinks, library, equipment, 
             ], nq);
             return m && {
                 id: s.id, title: s.name, subtitle: s.category || '',
-                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('suppliers'),
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('suppliers', s.id),
             };
         }).filter(Boolean);
         if (supHits.length) out.push({ key: 'suppliers', label: 'Supplies — suppliers', hits: supHits });
@@ -1749,7 +1755,7 @@ function Search({ items, genetics, species, lots, lotLinks, library, equipment, 
             ], nq);
             return m && {
                 id: s.id, title: s.product_name || s.kind, subtitle: sp?.common_name ?? '',
-                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('stock'),
+                match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('stock', s.id),
             };
         }).filter(Boolean);
         if (stockHits.length) out.push({ key: 'stock', label: 'Supplies — stock', hits: stockHits });
@@ -2217,7 +2223,7 @@ const SUPPLIER_RATING = {
     avoid: { label: 'Avoid', tone: 'clay' },
 };
 
-function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
+function SupplierTab({ suppliers, onAdd, onEdit, onDelete, initialOpenId }) {
     const blank = { name: '', category: '', rating: 'unproven', notes: '', website: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -2227,6 +2233,22 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
         if (form === 'new') onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
+
+    /* Arriving here from a Search hit ("Supplies - suppliers") used to just
+       switch to this tab and leave you to scroll and find the row yourself.
+       Opens straight into editing the matched supplier instead - same
+       ref-for-the-list trick as the delete-undo timers elsewhere, so this
+       only fires once for the id Search actually sent, not every time the
+       suppliers array changes underneath it. */
+    const suppliersRef = useRef(suppliers);
+    useEffect(() => { suppliersRef.current = suppliers; });
+    useEffect(() => {
+        if (!initialOpenId) return;
+        const s = suppliersRef.current.find((x) => x.id === initialOpenId);
+        if (!s) return;
+        setF({ name: s.name, category: s.category ?? '', rating: s.rating, notes: s.notes ?? '', website: s.website ?? '' });
+        setForm(s.id);
+    }, [initialOpenId]);
 
     const order = ['trusted', 'mixed', 'unproven', 'avoid'];
     const sorted = [...suppliers].sort((a, b) => order.indexOf(a.rating) - order.indexOf(b.rating));
@@ -2315,7 +2337,7 @@ const EQUIP_STATUS = {
     wishlist: { label: 'Wishlist', tone: 'slate' },
 };
 
-function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpQty }) {
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpQty, initialOpenId }) {
     const blank = { name: '', category: '', status: 'active', quantity: '', notes: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -2325,6 +2347,16 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
         if (form === 'new') onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
+
+    const equipmentRef = useRef(equipment);
+    useEffect(() => { equipmentRef.current = equipment; });
+    useEffect(() => {
+        if (!initialOpenId) return;
+        const e = equipmentRef.current.find((x) => x.id === initialOpenId);
+        if (!e) return;
+        setF({ name: e.name, category: e.category ?? '', status: e.status, quantity: e.quantity ?? '', notes: e.notes ?? '' });
+        setForm(e.id);
+    }, [initialOpenId]);
 
     const groups = {};
     equipment.forEach((e) => { (groups[e.category || 'Uncategorized'] ||= []).push(e); });
@@ -2437,7 +2469,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
     other: 'Other',
 };
 
-function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items }) {
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '' };
     const [form, setForm] = useState(null);
@@ -2446,6 +2478,20 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
     const filteredRecipes = recipeCategory ? recipes.filter((r) => r.category === recipeCategory) : recipes;
     const isNew = form === 'new';
+
+    const stockRef = useRef(stock);
+    useEffect(() => { stockRef.current = stock; });
+    useEffect(() => {
+        if (!initialOpenId) return;
+        const s = stockRef.current.find((x) => x.id === initialOpenId);
+        if (!s) return;
+        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
+            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
+            species_id: s.species_id ?? '', quantity: '1', labels: '',
+            label: s.label ?? '',
+            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+        setForm(s.id);
+    }, [initialOpenId]);
 
     const submit = () => {
         if (f.source === 'made' && !f.recipe_id) {
@@ -2629,7 +2675,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
    which had drifted into a catch-all with no real shared identity. This
    half keeps the "stuff I have or can get" grouping; see ReferenceSection
    below for the "stuff I read" half. */
-function Supplies({ stock, library, species, suppliers, equipment, initialTab, items,
+function Supplies({ stock, library, species, suppliers, equipment, initialTab, initialOpenId, items,
     onAddStock, onEditStock, onDeleteStock, onPrintStock, onOpenItem,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpEquipQty,
     onAddSupplier, onEditSupplier, onDeleteSupplier }) {
@@ -2650,13 +2696,14 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
             {tab === 'stock' ? (
                 <StockTab stock={stock} library={library} suppliers={suppliers} species={species} items={items}
                     onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock}
-                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} />
+                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
                     photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} onEditPhoto={onEditPhoto}
-                    onBumpQty={onBumpEquipQty} />
+                    onBumpQty={onBumpEquipQty} initialOpenId={initialOpenId} />
             ) : (
-                <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
+                <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier}
+                    initialOpenId={initialOpenId} />
             )}
         </div>
     );
