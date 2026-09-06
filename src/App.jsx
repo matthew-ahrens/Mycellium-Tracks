@@ -462,6 +462,7 @@ export default function App() {
             colonize_time: patch.colonize_time?.trim() || null,
             pin_to_harvest: patch.pin_to_harvest?.trim() || null,
             substrate_note: patch.substrate_note?.trim() || null,
+            dry_yield_pct: patch.dry_yield_pct === '' || patch.dry_yield_pct == null ? null : Number(patch.dry_yield_pct),
             notes: patch.notes?.trim() || null,
         };
         const { error } = await supabase.from('species').update(cols).eq('id', speciesId);
@@ -792,6 +793,7 @@ export default function App() {
             colonize_time: fields.colonize_time?.trim() || null,
             pin_to_harvest: fields.pin_to_harvest?.trim() || null,
             substrate_note: fields.substrate_note?.trim() || null,
+            dry_yield_pct: fields.dry_yield_pct === '' || fields.dry_yield_pct == null ? null : Number(fields.dry_yield_pct),
             notes: fields.notes?.trim() || null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not add species - check console'); return; }
@@ -991,7 +993,7 @@ export default function App() {
             onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
     } else if (section === 'calculators') {
         key = 'calculators';
-        screen = <Calculators />;
+        screen = <Calculators species={species} />;
     } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture}
@@ -1053,11 +1055,6 @@ export default function App() {
 }
 
 /* ---------------- CALCULATORS ---------------- */
-
-const DRY_YIELD = {
-    'Blue Oyster': 8.9, 'Chestnut': 10, 'Lion\'s Mane': 7, 'Shiitake': 11,
-    'Enoki': 6, 'Panellus stipticus': 8, 'Cordyceps militaris': 15, 'Reishi': 12,
-};
 
 function CalcCard({ title, sub, children }) {
     return (
@@ -1154,7 +1151,7 @@ function Hydration() {
                     <span>of broth or water</span>
                 </div>
             )}
-            <p className="calc-note">Default 1.65 mL/g is the cordyceps flat-bag ratio from your notes. Change it for other teks.</p>
+            <p className="calc-note">Default 1.65 mL/g matches the commonly-used Cordyceps militaris rice/broth ratio (North Spore's published jar tek runs ~1.64 mL/g). Change it for other substrates or teks.</p>
         </CalcCard>
     );
 }
@@ -1185,31 +1182,43 @@ function BECalc() {
     );
 }
 
-function DryYield() {
+function DryYield({ species }) {
     const [wet, setWet] = useState('');
-    const [sp, setSp] = useState('Blue Oyster');
+    const visible = species.filter((s) => !s.hidden);
+    const [spId, setSpId] = useState(visible[0]?.id ?? '');
+    const sp = visible.find((s) => s.id === spId) ?? visible[0];
     const w = n(wet);
-    const pct = DRY_YIELD[sp] ?? 10;
+    const hasRealPct = sp?.dry_yield_pct != null;
+    const pct = hasRealPct ? Number(sp.dry_yield_pct) : 10;
     const dry = w ? w * (pct / 100) : null;
+
+    if (visible.length === 0) {
+        return (
+            <CalcCard title="Dry yield estimate" sub="Roughly what a wet harvest will weigh once dried">
+                <p className="nf-help">Add a species first - this estimates off each species' own logged dry-yield figure.</p>
+            </CalcCard>
+        );
+    }
 
     return (
         <CalcCard title="Dry yield estimate" sub="Roughly what a wet harvest will weigh once dried">
             <NumField label="Wet harvest weight" value={wet} onChange={setWet} placeholder="e.g. 300" unit="g" />
             <div className="calc-field">
                 <label>Species</label>
-                <select className="in sel" value={sp} onChange={(e) => setSp(e.target.value)}>
-                    {Object.keys(DRY_YIELD).map((s) => <option key={s} value={s}>{s} (~{DRY_YIELD[s]}%)</option>)}
+                <select className="in sel" value={spId || sp?.id} onChange={(e) => setSpId(e.target.value)}>
+                    {visible.map((s) => <option key={s.id} value={s.id}>{s.common_name}{s.dry_yield_pct != null ? ` (~${s.dry_yield_pct}%)` : ''}</option>)}
                 </select>
             </div>
             {dry && (
                 <div className="calc-result">
                     <strong>~{dry.toFixed(0)} g dry</strong>
-                    <span>at ~{pct}% typical for {sp}</span>
+                    <span>at ~{pct}% {hasRealPct ? `logged for ${sp.common_name}` : '(general average, not species-specific)'}</span>
                 </div>
             )}
             <p className="calc-note">
-                Blue Oyster's 8.9% is your own measured figure. The rest are species-typical estimates until
-                you weigh a real wet-to-dry run for each - worth doing once per species.
+                {hasRealPct
+                    ? `${sp.common_name}'s ${pct}% comes from its own Species page - update it any time you weigh a real dry run.`
+                    : `No dry-yield figure logged for ${sp?.common_name ?? 'this species'} yet, so this uses a general 10% average across most gourmet species rather than guessing a species-specific number. Weigh a real dry run once and add it from the Species page for an actual figure.`}
             </p>
         </CalcCard>
     );
@@ -1442,7 +1451,7 @@ function GrainVolume() {
     );
 }
 
-function Calculators() {
+function Calculators({ species }) {
     return (
         <div className="page">
             <div className="bar">
@@ -1455,7 +1464,7 @@ function Calculators() {
                 <SpawnRatio />
                 <Hydration />
                 <BECalc />
-                <DryYield />
+                <DryYield species={species} />
                 <UnitConverter />
                 <GrainVolume />
             </div>
@@ -2918,14 +2927,14 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
     const live = items.filter((i) => STATUS[i.status].live).length;
     const [adding, setAdding] = useState(false);
     const [showHidden, setShowHidden] = useState(false);
-    const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", notes: "" });
+    const [f, setF] = useState({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", dry_yield_pct: "", notes: "" });
     const hiddenCount = species.filter((s) => s.hidden).length;
     const visible = showHidden ? species : species.filter((s) => !s.hidden);
 
     const submit = async () => {
         if (!f.common_name.trim()) { alert('Common name is required.'); return; }
         await onAdd(f);
-        setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", notes: "" });
+        setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", dry_yield_pct: "", notes: "" });
         setAdding(false);
     };
 
@@ -2995,6 +3004,11 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
                             <label>Substrate</label>
                             <input className="in" value={f.substrate_note} placeholder="Supp. hardwood, no casing"
                                 onChange={(e) => setF({ ...f, substrate_note: e.target.value })} />
+                        </div>
+                        <div className="nf-field">
+                            <label>Dry yield % (optional)</label>
+                            <input className="in" inputMode="decimal" value={f.dry_yield_pct} placeholder="e.g. 8.9"
+                                onChange={(e) => setF({ ...f, dry_yield_pct: e.target.value })} />
                         </div>
                         <div className="nf-field wide">
                             <label>Notes</label>
@@ -3191,7 +3205,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                             fae: species?.fae ?? "",
                             colonize_temp: species?.colonize_temp ?? "", colonize_time: species?.colonize_time ?? "",
                             pin_to_harvest: species?.pin_to_harvest ?? "", substrate_note: species?.substrate_note ?? "",
-                            notes: species?.notes ?? "",
+                            dry_yield_pct: species?.dry_yield_pct ?? "", notes: species?.notes ?? "",
                         });
                         setEditSp(true);
                     }}>✎ Species</button>
@@ -3254,6 +3268,9 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                             <input className="in" value={sf.pin_to_harvest} onChange={(e) => setSf({ ...sf, pin_to_harvest: e.target.value })} /></div>
                         <div className="nf-field wide"><label>Substrate</label>
                             <input className="in" value={sf.substrate_note} onChange={(e) => setSf({ ...sf, substrate_note: e.target.value })} /></div>
+                        <div className="nf-field"><label>Dry yield % (optional)</label>
+                            <input className="in" inputMode="decimal" value={sf.dry_yield_pct} placeholder="e.g. 8.9"
+                                onChange={(e) => setSf({ ...sf, dry_yield_pct: e.target.value })} /></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="3" value={sf.notes} onChange={(e) => setSf({ ...sf, notes: e.target.value })} /></div>
                     </div>
