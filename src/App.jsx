@@ -1172,6 +1172,12 @@ function NumField({ label, value, onChange, placeholder, unit }) {
 
 const n = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
 
+/* Species dropdowns exclude hidden species by default, but keep whatever
+   is already selected visible even if it's since been hidden - otherwise
+   opening a lot/stock unit/recipe already tagged to a since-hidden
+   species would just show it blank instead of what's actually saved. */
+const visibleSpeciesFor = (species, currentId) => species.filter((s) => !s.hidden || s.id === currentId);
+
 function SpawnRatio() {
     const [grain, setGrain] = useState('');
     const [bulk, setBulk] = useState('');
@@ -1852,7 +1858,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                         <div className="nf-field"><label>Species (optional)</label>
                             <select className="in sel" value={f.speciesId} onChange={(e) => setF({ ...f, speciesId: e.target.value })}>
                                 <option value="">— unknown / mixed —</option>
-                                {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                                {visibleSpeciesFor(species, f.speciesId).map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
                             </select></div>
                         <div className="nf-field"><label>Date (optional)</label>
                             <input className="in" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
@@ -1945,7 +1951,7 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                             onChange={(e) => setF({ ...f, amount_g: e.target.value })} placeholder="started with, g" />
                         <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
                             <option value="">— unknown / mixed —</option>
-                            {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                            {visibleSpeciesFor(species, f.species_id).map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
                         </select>
                         <input className="in sm" type="date" value={f.harvested_on ?? ''} onChange={(e) => setF({ ...f, harvested_on: e.target.value })} />
                         <button className="mini" onClick={() => {
@@ -2576,7 +2582,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                         <div className="nf-field"><label>Species (optional)</label>
                             <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
                                 <option value="">— none —</option>
-                                {species.map((sp) => <option key={sp.id} value={sp.id}>{sp.common_name}</option>)}
+                                {visibleSpeciesFor(species, f.species_id).map((sp) => <option key={sp.id} value={sp.id}>{sp.common_name}</option>)}
                             </select></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="2" value={f.notes}
@@ -2913,7 +2919,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                         <div className="nf-field"><label>Species (optional)</label>
                             <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
                                 <option value="">— applies to everything —</option>
-                                {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                                {visibleSpeciesFor(species, f.species_id).map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
                             </select></div>
                         <div className="nf-field wide"><label>Link (optional)</label>
                             <input className="in" value={f.url} placeholder="https://…"
@@ -2951,7 +2957,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                                                         <select className="in sel" style={{ flex: 1 }} value={row.species_id ?? ''}
                                                             onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, species_id: e.target.value } : r) })}>
                                                             <option value="">— pick species —</option>
-                                                            {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                                                            {visibleSpeciesFor(species, row.species_id).map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
                                                         </select>
                                                         <input className="in sm" inputMode="decimal" value={row.mg ?? ''} placeholder="mg"
                                                             onChange={(e) => setF({ ...f, ingredients: f.ingredients.map((r, idx) => idx === i ? { ...r, mg: e.target.value } : r) })} />
