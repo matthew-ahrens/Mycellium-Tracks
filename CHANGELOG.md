@@ -359,3 +359,20 @@ with what's actually missing instead of doing nothing.
   Cordyceps jar tek) but phrased at Matt specifically - reworded to
   cite the source instead.
 - Migration: `species.dry_yield_pct` numeric, nullable.
+
+## 2026-09-06 - Un-consuming a stock unit no longer leaves a stale "became X" link
+
+- Editing a stock unit's status away from `used` (undoing an accidental
+  consume, or just recategorizing it) left `consumed_into_item_id`
+  pointing at the item it had been turned into, so the unit could still
+  show "became <item>" even after being flipped back to on hand. Now
+  clearing the status away from `used` also clears that link.
+
+## 2026-09-06 - Stock's add/edit form now requires real identifying info
+
+- You could save a stock unit with no recipe, no supplier, and no
+  product name - a row that only ever displays as its generic kind
+  label (e.g. just "Agar plate") with nothing to tell it apart from
+  every other unlabeled unit of that kind. Saving now blocks with an
+  alert until a made-in-house unit has a recipe picked, or a bought
+  unit has a supplier or product name.
