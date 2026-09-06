@@ -313,3 +313,21 @@ CVG in the current species lineup at all.
   rather than going negative), and Notes got a real edit-in-place field
   matching the item Detail page's pattern instead of being permanently
   read-only.
+
+## 2026-09-06 - Genetics lines can be hidden or safely deleted
+
+- Genetics (culture lines) previously had no removal path at all - no
+  hidden flag like species have, no delete. Added both:
+  - Hide/Unhide, same pattern as species - the safe default, no data
+    touched. Hidden lines stay visible in the line strip (dimmed,
+    labeled) rather than disappearing.
+  - A real Delete, but only offered when the line has zero containers
+    under it. `genetics_id` on `items` is `ON DELETE CASCADE`, so
+    deleting a line with cultures under it would silently wipe their
+    whole history (events, photos, harvests) too - blocked outright
+    with an explanation instead.
+  - Delete isn't an immediate confirm() - it starts a 5-second
+    countdown with an Undo button, and only actually fires if the
+    countdown runs out untouched. Leaving the page mid-countdown
+    cancels it as well.
+- Migration: `genetics.hidden` boolean, default false.
