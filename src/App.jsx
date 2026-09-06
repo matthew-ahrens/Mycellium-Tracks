@@ -3609,7 +3609,11 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
     const [reason, setReason] = useState("");
 
     const setStatus = (s) => {
-        if (STATUS[s].needsReason) { setPendingStatus(s); setReason(""); return; }
+        /* Re-clicking the status the item is already at (to fix a typo'd
+           or add-more-detail reason) should start from what's already
+           there, not wipe it - only a genuine status *change* starts the
+           box blank. */
+        if (STATUS[s].needsReason) { setPendingStatus(s); setReason(it.status === s ? (it.failureReason || "") : ""); return; }
         saveStatus(id, s);
     };
     const addNote = () => {
