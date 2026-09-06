@@ -279,3 +279,27 @@ defensible use for the CVG already on hand, Lion's Mane/Reishi/Chestnut/
 Shiitake are better off on a hardwood-based recipe (Masters Mix or
 Supplemented Hardwood), and there may not be a great home for 10lbs of
 CVG in the current species lineup at all.
+
+## 2026-09-06 - Stock recipe filter, photo bug fixes
+
+- **Stock form**: the Recipe dropdown now narrows to recipes matching the
+  selected Kind's category (agar->Agar media, lc->LC media, grain->Grain
+  spawn, bulk/block->Bulk substrate, other->Other) instead of listing
+  every recipe in the library. Switching kind clears a picked recipe that
+  no longer fits.
+- **Photos, two real gaps from the 2026-09-05 usability audit**:
+  - `photos.event_id` existed in the schema and `addPhoto()` already took
+    an `eventId`, but nothing ever called it with one - dead weight.
+    Each History log entry now has its own inline photo attach/view
+    (new `EventPhotos` component), so a picture can be tied to the
+    specific note it's about instead of dumped into the item's general
+    photo strip.
+  - Caption and taken-on date were write-once at upload - `Lightbox` only
+    had a Delete button. It now supports inline editing of both, backed
+    by a new `editPhoto()`.
+  - Along the way: Gallery and Tree each had their own hand-rolled copy
+    of the lightbox markup instead of using the shared `Lightbox`
+    component, so neither would've picked up editing without unifying
+    them first. Both now render the shared component (with an `extra`
+    slot for their "Open <item>" button), cutting ~50 lines of
+    duplicated markup.
