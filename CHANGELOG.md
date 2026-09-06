@@ -406,3 +406,16 @@ with what's actually missing instead of doing nothing.
   survives collapsing the card, switching tabs, a reload, or even
   picking the app back up on another device.
 - Migration: `library.checklist_checked` jsonb, default `[]`.
+
+## 2026-09-06 - Species can now be really deleted, not just hidden
+
+- Every other entity in the app now has some form of real delete
+  (genetics lines got this 2026-09-06); species was still hide-only.
+  Added a "Delete species" button to Tree's species toolbar, blocked
+  outright when culture lines exist under it (`genetics.species_id` is
+  `ON DELETE RESTRICT` - the DB would refuse anyway, but this surfaces
+  a clear message instead of a raw FK error) or when any library
+  entries are tagged to it (`library.species_id` is `ON DELETE
+  CASCADE`, so deleting would silently take those rows with it).
+  A species with neither gets the same 5s undo-timer delete already
+  used for genetics.
