@@ -1764,8 +1764,9 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={() => {
+                            if (!f.label.trim()) { alert('Label is required.'); return; }
                             const amt = n(f.amount);
-                            if (!f.label.trim() || !amt) return;
+                            if (!amt) { alert('Enter an amount on hand.'); return; }
                             onAddManual({ ...f, amount: amt });
                             setAdding(false);
                         }}>Add lot</button>
@@ -2074,7 +2075,7 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete }) {
     const [f, setF] = useState(blank);
 
     const submit = () => {
-        if (!f.name.trim()) return;
+        if (!f.name.trim()) { alert('Name is required.'); return; }
         if (form === 'new') onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
@@ -2172,7 +2173,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
     const [f, setF] = useState(blank);
 
     const submit = () => {
-        if (!f.name.trim()) return;
+        if (!f.name.trim()) { alert('Name is required.'); return; }
         if (form === 'new') onAdd(f); else onEdit(form, f);
         setForm(null); setF(blank);
     };
@@ -2636,7 +2637,7 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
     )].sort();
 
     const submit = () => {
-        if (!f.title.trim()) return;
+        if (!f.title.trim()) { alert('Title is required.'); return; }
         if (form === 'new') onAdd({ ...f, kind: recipes ? 'recipe' : f.kind });
         else onEdit(form, { ...f, kind: recipes ? 'recipe' : f.kind });
         setForm(null); setF(blank);
@@ -2922,7 +2923,7 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
     const visible = showHidden ? species : species.filter((s) => !s.hidden);
 
     const submit = async () => {
-        if (!f.common_name.trim()) return;
+        if (!f.common_name.trim()) { alert('Common name is required.'); return; }
         await onAdd(f);
         setF({ common_name: "", latin_name: "", fruiting_temp: "", humidity: "", fae: "", colonize_temp: "", colonize_time: "", pin_to_harvest: "", substrate_note: "", notes: "" });
         setAdding(false);
@@ -3258,7 +3259,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={() => {
-                            if (!sf.common_name.trim()) return;
+                            if (!sf.common_name.trim()) { alert('Common name is required.'); return; }
                             onEditSpecies(species.id, sf); setEditSp(false);
                         }}>Save</button>
                         <button className="mini ghost" onClick={() => setEditSp(false)}>Cancel</button>
@@ -3290,7 +3291,8 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={() => {
-                            if (!lf.name.trim() || !lf.code.trim()) return;
+                            if (!lf.name.trim()) { alert('Line name is required.'); return; }
+                            if (!lf.code.trim()) { alert('Code is required.'); return; }
                             onEditLine(editLineId, lf); setEditLineId(null);
                         }}>Save</button>
                         <button className="mini ghost" onClick={() => setEditLineId(null)}>Cancel</button>
@@ -3359,7 +3361,8 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     </div>
                     <div className="edit-row">
                         <button className="mini" onClick={async () => {
-                            if (!nf.name.trim() || !nf.code.trim()) return;
+                            if (!nf.name.trim()) { alert('Line name is required.'); return; }
+                            if (!nf.code.trim()) { alert('Code is required.'); return; }
                             await onAddLine(nf, nf.firstType, nf.stockId || null);
                             setNf({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
                             setAddingLine(false);
