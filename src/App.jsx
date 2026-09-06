@@ -476,6 +476,27 @@ export default function App() {
         setSpecies((p) => p.map((s) => (s.id === speciesId ? { ...s, hidden } : s)));
     };
 
+    /* genetics.species_id is ON DELETE RESTRICT (the DB itself would refuse),
+       but library.species_id is ON DELETE CASCADE - deleting a species with
+       recipes/references tagged to it would silently wipe those rows too.
+       Both are checked up front so the message is clear either way rather
+       than a raw FK error or, worse, quietly losing library entries. A
+       species with neither is safe to actually delete; the
+       confirm-with-undo-timer lives in Tree. */
+    const deleteSpecies = async (speciesId) => {
+        if (genetics.some((g) => g.species_id === speciesId)) {
+            alert('This species has culture lines under it - remove or reassign those first, or hide the species instead.');
+            return;
+        }
+        if (library.some((e) => e.species_id === speciesId)) {
+            alert('This species is tagged on one or more recipes/reference entries - untag those first (deleting the species would remove them too), or hide the species instead.');
+            return;
+        }
+        const { error } = await supabase.from('species').delete().eq('id', speciesId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setSpecies((p) => p.filter((s) => s.id !== speciesId));
+    };
+
     const addLibrary = async (fields) => {
         const { data, error } = await supabase.from('library').insert({
             species_id: fields.species_id || null,
@@ -1068,12 +1089,12 @@ export default function App() {
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
-        screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
+        screen = <Tree items={mine} lines={lines} species={sp} library={library} onOpen={setOpen} photos={photos} stock={stock}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onDeleteLine={deleteGenetics} onToggleLineHidden={toggleGeneticsHidden}
-            onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
+            onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden} onDeleteSpecies={deleteSpecies}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
     } else {
         key = 'species';
@@ -3199,7 +3220,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
+function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -3210,6 +3231,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
     const [sf, setSf] = useState({});
     const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
     const [deletingLine, setDeletingLine] = useState(null);   // { id, secondsLeft } while a delete is pending undo
+    const [deletingSpecies, setDeletingSpecies] = useState(null);   // { secondsLeft } while a delete is pending undo
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
     const pos = useMemo(() => layout(items), [items]);
 
@@ -3225,6 +3247,20 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
         return () => clearTimeout(t);
     }, [deletingLine]);
 
+    const onDeleteSpeciesRef = useRef(onDeleteSpecies);
+    useEffect(() => { onDeleteSpeciesRef.current = onDeleteSpecies; });
+    const onBackRef = useRef(onBack);
+    useEffect(() => { onBackRef.current = onBack; });
+
+    useEffect(() => {
+        if (!deletingSpecies) return;
+        const t = setTimeout(() => {
+            if (deletingSpecies.secondsLeft <= 1) { onDeleteSpeciesRef.current(deletingSpecies.id); setDeletingSpecies(null); onBackRef.current(); }
+            else setDeletingSpecies((d) => d && { ...d, secondsLeft: d.secondsLeft - 1 });
+        }, 1000);
+        return () => clearTimeout(t);
+    }, [deletingSpecies]);
+
     /* genetics->items cascades in the DB, so a line with containers under
        it is never offered a real delete - hiding is the only removal for
        those. A clean line gets a 5s undo window instead of an immediate
@@ -3237,6 +3273,22 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
         }
         setEditLineId(null);
         setDeletingLine({ id: genId, secondsLeft: 5 });
+    };
+
+    /* Mirrors requestDeleteLine above, aimed at the species itself: blocked
+       outright if it has lines or library entries hanging off it (a DB
+       RESTRICT and a DB CASCADE respectively - see deleteSpecies), same 5s
+       undo window otherwise. */
+    const requestDeleteSpecies = () => {
+        if (lines.length) {
+            alert('This species has culture lines under it - remove or reassign those first, or hide the species instead.');
+            return;
+        }
+        if (library.some((e) => e.species_id === species.id)) {
+            alert('This species is tagged on one or more recipes/reference entries - untag those first, or hide the species instead.');
+            return;
+        }
+        setDeletingSpecies({ id: species.id, secondsLeft: 5 });
     };
 
     /* Every photo tied to any item in this species' whole lineage (`items`
@@ -3343,9 +3395,20 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     <button className="sw" onClick={() => onToggleHidden(species.id, !species.hidden)}>
                         {species?.hidden ? 'Unhide' : 'Hide'}
                     </button>
+                    <button className="sw danger" onClick={requestDeleteSpecies}>Delete species</button>
                 </div>
             </div>
             {species?.hidden && <p className="spec-note">Hidden from the species list - visible here until you unhide it.</p>}
+
+            {deletingSpecies && (
+                <div className="new-form" style={{ borderColor: 'var(--rust)' }}>
+                    <div className="nf-title">Deleting "{species?.common_name}"…</div>
+                    <p className="nf-help">This species has no culture lines or library entries tied to it, so this is a real delete - can't be undone once it happens. Going ahead in {deletingSpecies.secondsLeft}s.</p>
+                    <div className="edit-row">
+                        <button className="mini" onClick={() => setDeletingSpecies(null)}>Undo</button>
+                    </div>
+                </div>
+            )}
 
             <div className="line-strip">
                 {lines.map((g) => (
@@ -4526,6 +4589,8 @@ const CSS = `
 .bar h1{font-family:var(--serif);font-weight:400;font-size:30px;margin:5px 0 0;color:var(--ink);}
 .sw{background:var(--panel);border:1px solid var(--line);color:var(--bone);border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:var(--sans);}
 .sw:hover{border-color:var(--amber);}
+.sw.danger{border-color:var(--rust);color:var(--rust);}
+.sw.danger:hover{background:var(--rust);color:var(--bone);}
 
 .canvas{position:relative;height:min(70vh,600px);background:radial-gradient(circle at 50% 8%,#2A1D14 0%,#1A120C 66%);
   border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none;cursor:grab;}
