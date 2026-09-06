@@ -430,6 +430,27 @@ export default function App() {
         setGenetics((p) => p.map((g) => (g.id === genId ? { ...g, ...cols } : g)));
     };
 
+    const toggleGeneticsHidden = async (genId, hidden) => {
+        const { error } = await supabase.from('genetics').update({ hidden }).eq('id', genId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setGenetics((p) => p.map((g) => (g.id === genId ? { ...g, hidden } : g)));
+    };
+
+    /* genetics->items is ON DELETE CASCADE in the DB, so deleting a line
+       with containers under it would silently wipe their whole history
+       (events, photos, harvests) along with it - blocked here rather than
+       left to the foreign key. A line with nothing under it is safe to
+       actually delete; the confirm-with-undo-timer lives in Tree. */
+    const deleteGenetics = async (genId) => {
+        if (items.some((i) => i.geneticsId === genId)) {
+            alert('This line has containers under it - remove or reassign those first, or hide the line instead.');
+            return;
+        }
+        const { error } = await supabase.from('genetics').delete().eq('id', genId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setGenetics((p) => p.filter((g) => g.id !== genId));
+    };
+
     const saveSpeciesFields = async (speciesId, patch) => {
         const cols = {
             common_name: patch.common_name.trim(),
@@ -987,7 +1008,8 @@ export default function App() {
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
-            onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
+            onEditLine={saveGeneticsFields} onDeleteLine={deleteGenetics} onToggleLineHidden={toggleGeneticsHidden}
+            onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
             onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
     } else {
         key = 'species';
@@ -3038,7 +3060,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -3048,8 +3070,35 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
     const [lf, setLf] = useState({});
     const [sf, setSf] = useState({});
     const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
+    const [deletingLine, setDeletingLine] = useState(null);   // { id, secondsLeft } while a delete is pending undo
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
     const pos = useMemo(() => layout(items), [items]);
+
+    const onDeleteLineRef = useRef(onDeleteLine);
+    useEffect(() => { onDeleteLineRef.current = onDeleteLine; });
+
+    useEffect(() => {
+        if (!deletingLine) return;
+        const t = setTimeout(() => {
+            if (deletingLine.secondsLeft <= 1) { onDeleteLineRef.current(deletingLine.id); setDeletingLine(null); }
+            else setDeletingLine((d) => d && { ...d, secondsLeft: d.secondsLeft - 1 });
+        }, 1000);
+        return () => clearTimeout(t);
+    }, [deletingLine]);
+
+    /* genetics->items cascades in the DB, so a line with containers under
+       it is never offered a real delete - hiding is the only removal for
+       those. A clean line gets a 5s undo window instead of an immediate
+       confirm(), since "accidentally selected the wrong line" is exactly
+       the kind of misclick this is meant to protect against. */
+    const requestDeleteLine = (genId) => {
+        if (items.some((i) => i.geneticsId === genId)) {
+            alert("This line has containers under it - remove or reassign those first, or hide the line instead.");
+            return;
+        }
+        setEditLineId(null);
+        setDeletingLine({ id: genId, secondsLeft: 5 });
+    };
 
     /* Every photo tied to any item in this species' whole lineage (`items`
        here is already pre-filtered to this species by the caller), most
@@ -3161,9 +3210,9 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
             <div className="line-strip">
                 {lines.map((g) => (
-                    <span key={g.id} className="line-chip">
+                    <span key={g.id} className={`line-chip ${g.hidden ? 'hidden' : ''}`}>
                         <span className="lc-code">{g.code}</span>
-                        <span className="lc-name">{g.name}</span>
+                        <span className="lc-name">{g.name}{g.hidden ? ' (hidden)' : ''}</span>
                         <button className="edit-btn" title="Edit this line" onClick={() => {
                             setLf({ name: g.name, code: g.code, source: g.source ?? "", acquired_on: g.acquired_on ?? "", notes: g.notes ?? "" });
                             setEditLineId(g.id);
@@ -3171,6 +3220,16 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                     </span>
                 ))}
             </div>
+
+            {deletingLine && (
+                <div className="new-form" style={{ borderColor: 'var(--rust)' }}>
+                    <div className="nf-title">Deleting "{lines.find((l) => l.id === deletingLine.id)?.name}"…</div>
+                    <p className="nf-help">This line has no containers under it, so this is a real delete - can't be undone once it happens. Going ahead in {deletingLine.secondsLeft}s.</p>
+                    <div className="edit-row">
+                        <button className="mini" onClick={() => setDeletingLine(null)}>Undo</button>
+                    </div>
+                </div>
+            )}
 
             {editSp && (
                 <div className="new-form">
@@ -3235,6 +3294,11 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
                             onEditLine(editLineId, lf); setEditLineId(null);
                         }}>Save</button>
                         <button className="mini ghost" onClick={() => setEditLineId(null)}>Cancel</button>
+                        <button className="mini ghost" onClick={() => {
+                            const g = lines.find((l) => l.id === editLineId);
+                            onToggleLineHidden(editLineId, !g?.hidden);
+                        }}>{lines.find((l) => l.id === editLineId)?.hidden ? 'Unhide' : 'Hide'}</button>
+                        <button className="mini danger" onClick={() => requestDeleteLine(editLineId)}>Delete</button>
                     </div>
                 </div>
             )}
@@ -4304,6 +4368,7 @@ const CSS = `
 .mono-in{font-family:var(--mono);letter-spacing:.06em;}
 .line-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
 .line-chip{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:5px 8px 5px 12px;}
+.line-chip.hidden{opacity:.5;}
 .lc-code{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--amber);}
 .lc-name{font-size:12px;color:var(--bone);}
 .line-label{font-family:var(--serif);font-size:15px;fill:var(--bone);opacity:.72;}
