@@ -2210,12 +2210,28 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
    screen still reads "6 plates from Tuesday's PDA batch," while each
    individual unit underneath gets its own label, status, and - once
    consumed - a link to exactly which culture it became. */
+/* Narrows the Recipe dropdown in the stock form to recipes whose category
+   matches the selected stock Kind, so you're not scrolling every recipe in
+   the library to find e.g. an LC media recipe when adding liquid culture
+   stock. Kinds with no clean 1:1 recipe category (currently just 'aio')
+   fall back to showing the full recipe list. */
+const STOCK_KIND_RECIPE_CATEGORY = {
+    agar: 'Agar media',
+    lc: 'LC media',
+    grain: 'Grain spawn',
+    bulk: 'Bulk substrate',
+    block: 'Bulk substrate',
+    other: 'Other',
+};
+
 function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
     const recipes = library.filter((e) => e.kind === 'recipe');
+    const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
+    const filteredRecipes = recipeCategory ? recipes.filter((r) => r.category === recipeCategory) : recipes;
     const isNew = form === 'new';
 
     const submit = () => {
@@ -2238,7 +2254,12 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                     <div className="nf-title">{isNew ? 'New' : 'Edit'} stock</div>
                     <div className="nf-grid">
                         <div className="nf-field"><label>Kind</label>
-                            <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+                            <select className="in sel" value={f.kind} onChange={(e) => {
+                                const newKind = e.target.value;
+                                const cat = STOCK_KIND_RECIPE_CATEGORY[newKind];
+                                const stillValid = !cat || recipes.some((r) => r.id === f.recipe_id && r.category === cat);
+                                setF({ ...f, kind: newKind, recipe_id: stillValid ? f.recipe_id : '' });
+                            }}>
                                 {Object.keys(STOCK_KIND).map((k) => <option key={k} value={k}>{STOCK_KIND[k]}</option>)}
                             </select></div>
                         <div className="nf-field"><label>Source</label>
@@ -2249,8 +2270,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                         {f.source === 'made' ? (
                             <div className="nf-field wide"><label>Recipe</label>
                                 <select className="in sel" value={f.recipe_id} onChange={(e) => setF({ ...f, recipe_id: e.target.value })}>
-                                    <option value="">— pick a recipe —</option>
-                                    {recipes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                                    <option value="">{filteredRecipes.length ? '— pick a recipe —' : '— no recipes in this category yet —'}</option>
+                                    {filteredRecipes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
                                 </select></div>
                         ) : (
                             <>
