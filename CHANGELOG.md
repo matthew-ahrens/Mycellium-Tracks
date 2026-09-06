@@ -331,3 +331,11 @@ CVG in the current species lineup at all.
     countdown runs out untouched. Leaving the page mid-countdown
     cancels it as well.
 - Migration: `genetics.hidden` boolean, default false.
+
+## 2026-09-06 - Forms no longer fail silently on blank fields
+
+Species, Genetics (Tree's edit-line and add-line forms), Tree's
+edit-species form, Supplier, Equipment, Reference/Recipe, and the
+Inventory add-lot form all just no-op'd on Save when a required field
+was empty - clicking Save looked like a broken button. Each now alerts
+with what's actually missing instead of doing nothing.
