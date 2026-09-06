@@ -303,3 +303,13 @@ CVG in the current species lineup at all.
     them first. Both now render the shared component (with an `extra`
     slot for their "Open <item>" button), cutting ~50 lines of
     duplicated markup.
+
+## 2026-09-06 - Harvest lots are fully editable
+
+- LotDetail's edit form only let you fix label/form/date - amount_g,
+  species_id, and notes were write-once at creation. Amount and species
+  are now in the header edit form (shrinking amount below what's already
+  been processed out or logged as lost is blocked with an explanation
+  rather than going negative), and Notes got a real edit-in-place field
+  matching the item Detail page's pattern instead of being permanently
+  read-only.
