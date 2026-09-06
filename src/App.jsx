@@ -745,6 +745,16 @@ export default function App() {
         setPhotos((p) => p.filter((x) => x.id !== photo.id));
     };
 
+    const editPhoto = async (photo, patch) => {
+        const cols = {
+            caption: patch.caption?.trim() || null,
+            taken_on: patch.taken_on || null,
+        };
+        const { error } = await supabase.from('photos').update(cols).eq('id', photo.id);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setPhotos((p) => p.map((x) => (x.id === photo.id ? { ...x, ...cols } : x)));
+    };
+
     /* Bucket is private now, so photos need signed, time-limited URLs
        rather than a plain public link. Keyed by storage path so every
        photoUrl(path) call site stays unchanged. */
@@ -938,7 +948,7 @@ export default function App() {
             onPrintStock={(ids) => setPrinting({ kind: 'stock', ids })}
             onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setReferenceTab(null); setSection('cultures'); setOpen(label); setOpenLot(null); setDir('fwd'); }}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
-            photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto}
+            photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onBumpEquipQty={bumpEquipmentQty}
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
     } else if (section === 'reference') {
@@ -956,7 +966,7 @@ export default function App() {
     } else if (section === 'gallery') {
         key = 'gallery';
         screen = <Gallery photos={photos} items={items} genetics={genetics} species={species} equipment={equipment}
-            photoUrl={photoUrl} onDelete={deletePhoto} onAddPhoto={addPhoto}
+            photoUrl={photoUrl} onDelete={deletePhoto} onAddPhoto={addPhoto} onEditPhoto={editPhoto}
             onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
     } else if (section === 'calculators') {
         key = 'calculators';
@@ -969,12 +979,12 @@ export default function App() {
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
-            photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto}
+            photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} editPhoto={editPhoto}
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} onOpen={setOpen} photos={photos} stock={stock}
-            photoUrl={photoUrl} onDeletePhoto={deletePhoto}
+            photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden}
@@ -2102,7 +2112,7 @@ const EQUIP_STATUS = {
     wishlist: { label: 'Wishlist', tone: 'slate' },
 };
 
-function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpQty }) {
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpQty }) {
     const blank = { name: '', category: '', status: 'active', quantity: '', notes: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -2148,7 +2158,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
 
                     {form !== 'new' && (
                         <PhotoStrip attach={{ equipmentId: form }} photos={photos.filter((p) => p.equipment_id === form)}
-                            photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDeletePhoto} label="Photo (optional)" />
+                            photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDeletePhoto} onEdit={onEditPhoto} label="Photo (optional)" />
                     )}
 
                     <div className="edit-row">
@@ -2410,7 +2420,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
    below for the "stuff I read" half. */
 function Supplies({ stock, library, species, suppliers, equipment, initialTab, items,
     onAddStock, onEditStock, onDeleteStock, onPrintStock, onOpenItem,
-    onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onBumpEquipQty,
+    onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpEquipQty,
     onAddSupplier, onEditSupplier, onDeleteSupplier }) {
     const [tab, setTab] = useState(initialTab || 'stock');
     return (
@@ -2432,7 +2442,7 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
                     onPrintStock={onPrintStock} onOpenItem={onOpenItem} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
-                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto}
+                    photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} onEditPhoto={onEditPhoto}
                     onBumpQty={onBumpEquipQty} />
             ) : (
                 <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier} />
@@ -2996,7 +3006,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto }) {
+function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, onEditSpecies, onToggleHidden, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -3328,19 +3338,9 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
             </div>
 
             {lightbox && (
-                <div className="lb-scrim" onClick={() => setLightbox(null)}>
-                    <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
-                        <img src={photoUrl(lightbox.photo.storage_path)} alt={lightbox.photo.caption ?? ''} className="lb-img" />
-                        <div className="lb-bar">
-                            <span>{lightbox.photo.taken_on ? fmt(lightbox.photo.taken_on) : ''}{lightbox.photo.caption ? ' · ' + lightbox.photo.caption : ''}</span>
-                            <div>
-                                {lightbox.item && <button className="mini ghost" onClick={() => onOpen(lightbox.item.id)}>Open {lightbox.item.id}</button>}
-                                <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDeletePhoto(lightbox.photo); setLightbox(null); } }}>Delete</button>
-                                <button className="mini ghost" onClick={() => setLightbox(null)}>Close</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo.storage_path)}
+                    onClose={() => setLightbox(null)} onDelete={onDeletePhoto} onEdit={onEditPhoto}
+                    extra={lightbox.item && <button className="mini ghost" onClick={() => onOpen(lightbox.item.id)}>Open {lightbox.item.id}</button>} />
             )}
         </div>
     );
@@ -3348,7 +3348,7 @@ function Tree({ items, lines, species, onOpen, onBack, onAddLine, onEditLine, on
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, onPrintLabel }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -3469,7 +3469,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
             </div>
 
             <PhotoStrip attach={{ itemId: it.uid }} photos={photos.filter((p) => p.item_id === it.uid)}
-                photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} />
+                photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} onEdit={editPhoto} />
 
             <div className="actions">
                 {!picking ? (
@@ -3687,6 +3687,11 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                                 <span className="log-d">{fmt(l.date)}</span>
                                 <span className="log-t">{l.body}</span>
                                 {l.id && (
+                                    <EventPhotos photos={photos.filter((p) => p.event_id === l.id)} photoUrl={photoUrl}
+                                        onAdd={(file) => addPhoto(file, { itemId: it.uid, eventId: l.id })}
+                                        onDelete={deletePhoto} onEdit={editPhoto} />
+                                )}
+                                {l.id && (
                                     <button className="log-x" title="Edit this entry"
                                         onClick={() => { setEditing(l.id); setDraft({ date: l.date, body: l.body, wet: "" }); }}>✎</button>
                                 )}
@@ -3871,20 +3876,75 @@ const Sec = ({ title, onEdit }) => (
 
 /* ---------------- PHOTOS ---------------- */
 
-function Lightbox({ photo, url, onClose, onDelete }) {
+function Lightbox({ photo, url, onClose, onDelete, onEdit, extra }) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState({ caption: photo.caption ?? '', taken_on: photo.taken_on ?? '' });
+
+    const save = () => {
+        onEdit(photo, draft);
+        setEditing(false);
+    };
+
     return (
         <div className="lb-scrim" onClick={onClose}>
             <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
                 <img src={url} alt={photo.caption ?? ''} className="lb-img" />
-                <div className="lb-bar">
-                    <span>{photo.taken_on ? fmt(photo.taken_on) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
-                    <div>
-                        <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(photo); onClose(); } }}>Delete</button>
-                        <button className="mini ghost" onClick={onClose}>Close</button>
+                {editing ? (
+                    <div className="lb-bar editing">
+                        <input className="in sm" type="date" value={draft.taken_on}
+                            onChange={(e) => setDraft({ ...draft, taken_on: e.target.value })} />
+                        <input className="in" value={draft.caption} placeholder="caption"
+                            onChange={(e) => setDraft({ ...draft, caption: e.target.value })}
+                            onKeyDown={(e) => e.key === 'Enter' && save()} />
+                        <div>
+                            <button className="mini" onClick={save}>Save</button>
+                            <button className="mini ghost" onClick={() => setEditing(false)}>Cancel</button>
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="lb-bar">
+                        <span>{photo.taken_on ? fmt(photo.taken_on) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
+                        <div>
+                            {extra}
+                            {onEdit && <button className="mini ghost" onClick={() => { setDraft({ caption: photo.caption ?? '', taken_on: photo.taken_on ?? '' }); setEditing(true); }}>Edit</button>}
+                            <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(photo); onClose(); } }}>Delete</button>
+                            <button className="mini ghost" onClick={onClose}>Close</button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+/* Small inline photo attachment for a single History log entry - reuses
+   the addPhoto/deletePhoto/editPhoto plumbing that already supports
+   photos.event_id, which nothing in the app called with an eventId
+   before this. Usually 0 or 1 photo per note, but nothing stops more. */
+function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit }) {
+    const [lightbox, setLightbox] = useState(null);
+    const fileRef = useRef(null);
+    const onFile = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        onAdd(file);
+        e.target.value = '';
+    };
+    return (
+        <span className="log-photos">
+            {photos.map((p) => (
+                <button key={p.id} className="log-photo" onClick={() => setLightbox(p)}>
+                    <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} />
+                </button>
+            ))}
+            <button type="button" className="log-photo-add" title="Attach a photo to this note"
+                onClick={() => fileRef.current?.click()}>+</button>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
+            {lightbox && (
+                <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)}
+                    onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} />
+            )}
+        </span>
     );
 }
 
@@ -3894,7 +3954,7 @@ function Lightbox({ photo, url, onClose, onDelete }) {
    Deliberately no `capture` attribute on the file input - that forces
    mobile browsers straight into the camera and hides the "choose from
    library" option, which is exactly what's needed to backlog old photos. */
-function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, label }) {
+function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, label }) {
     const [adding, setAdding] = useState(false);
     const [caption, setCaption] = useState('');
     const [lightbox, setLightbox] = useState(null);
@@ -3932,14 +3992,14 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, label }) {
                         style={{ display: 'none' }} onChange={onFile} />
                 </div>
             )}
-            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} />}
+            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} />}
         </div>
     );
 }
 
 /* ---------------- GALLERY ---------------- */
 
-function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDelete, onOpenItem, onAddPhoto }) {
+function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDelete, onOpenItem, onAddPhoto, onEditPhoto }) {
     const [speciesFilter, setSpeciesFilter] = useState('all');
     const [lightbox, setLightbox] = useState(null);
 
@@ -3968,7 +4028,7 @@ function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDele
                 </select>
             </div>
 
-            <PhotoStrip attach={{}} photos={[]} photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDelete}
+            <PhotoStrip attach={{}} photos={[]} photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDelete} onEdit={onEditPhoto}
                 label="Add a photo not tied to anything in particular" />
 
             {visible.length === 0 && (
@@ -3990,19 +4050,9 @@ function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDele
             </div>
 
             {lightbox && (
-                <div className="lb-scrim" onClick={() => setLightbox(null)}>
-                    <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
-                        <img src={photoUrl(lightbox.photo.storage_path)} alt={lightbox.photo.caption ?? ''} className="lb-img" />
-                        <div className="lb-bar">
-                            <span>{lightbox.photo.taken_on ? fmt(lightbox.photo.taken_on) : ''}{lightbox.photo.caption ? ' · ' + lightbox.photo.caption : ''}</span>
-                            <div>
-                                {lightbox.item && <button className="mini ghost" onClick={() => onOpenItem(lightbox.item.id)}>Open {lightbox.item.id}</button>}
-                                <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(lightbox.photo); setLightbox(null); } }}>Delete</button>
-                                <button className="mini ghost" onClick={() => setLightbox(null)}>Close</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo.storage_path)}
+                    onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEditPhoto}
+                    extra={lightbox.item && <button className="mini ghost" onClick={() => onOpenItem(lightbox.item.id)}>Open {lightbox.item.id}</button>} />
             )}
         </div>
     );
@@ -4356,6 +4406,11 @@ const CSS = `
 .log li:hover .log-x,.tbl tr:hover .log-x{opacity:1;}
 .log-x:hover{color:var(--amber);}
 .log-x:focus-visible{opacity:1;outline:2px solid var(--amber);outline-offset:2px;}
+.log-photos{display:flex;gap:4px;align-items:center;flex:0 0 auto;}
+.log-photo{width:26px;height:26px;border-radius:6px;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer;background:var(--panel);flex:0 0 auto;}
+.log-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+.log-photo-add{width:26px;height:26px;border-radius:6px;border:1px dashed var(--line);background:none;color:var(--ink-dim);cursor:pointer;font-size:15px;line-height:1;flex:0 0 auto;padding:0;}
+.log-photo-add:hover{border-color:var(--amber);color:var(--amber);}
 .mini.danger{background:var(--panel2);color:var(--rust);border-color:var(--border-warm);margin-left:auto;}
 .mini.danger:hover{color:var(--clay);border-color:var(--rust);}
 .x-cell{width:34px;text-align:right;padding-left:6px;}
@@ -4412,6 +4467,8 @@ const CSS = `
 .lb-img{max-width:100%;max-height:74vh;object-fit:contain;background:#000;}
 .lb-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;font-size:12px;color:var(--dim);}
 .lb-bar div{display:flex;gap:8px;}
+.lb-bar.editing{flex-wrap:wrap;}
+.lb-bar.editing .in{flex:1 1 140px;}
 
 .gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:18px;}
 .gallery-tile{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer;background:var(--panel);}
