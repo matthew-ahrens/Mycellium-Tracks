@@ -740,6 +740,39 @@ export default function App() {
         setOpenLot(null);
     };
 
+    /* Fixes a mis-entered draw amount on an existing process/blend link
+       without touching the child lot it fed (that amount_g was entered
+       separately at process time and isn't derived from this number).
+       Capped at what the parent lot actually has free, checked against
+       every *other* link off that same parent so two edits can't
+       independently overdraw it. */
+    const editLotLink = async (linkId, newAmount) => {
+        const link = lotLinks.find((k) => k.id === linkId);
+        if (!link) return;
+        const parent = lots.find((l) => l.id === link.parent_lot_id);
+        if (!parent) return;
+        const otherTaken = lotLinks.filter((k) => k.parent_lot_id === link.parent_lot_id && k.id !== linkId)
+            .reduce((s, k) => s + Number(k.amount_taken_g), 0);
+        const cap = Number(parent.amount_g) - otherTaken - Number(parent.lost_g || 0);
+        if (newAmount > cap + LOT_EPS) {
+            alert(`Only ${fmtG(cap, parent.form)}g free on "${parent.label}" - can't set this link that high.`);
+            return;
+        }
+        const { error } = await supabase.from('lot_links').update({ amount_taken_g: newAmount }).eq('id', linkId);
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setLotLinks((p) => p.map((k) => (k.id === linkId ? { ...k, amount_taken_g: newAmount } : k)));
+    };
+
+    /* Removes just this one link - e.g. it was recorded against the wrong
+       source lot entirely. The child lot itself is untouched; the parent's
+       derived remaining just goes back up since lotRemaining reads
+       lot_links live. */
+    const deleteLotLink = async (linkId) => {
+        const { error } = await supabase.from('lot_links').delete().eq('id', linkId);
+        if (error) { console.error(error); alert('Could not delete - check console'); return; }
+        setLotLinks((p) => p.filter((k) => k.id !== linkId));
+    };
+
     /* Upload goes straight from the browser to Supabase Storage, then a row
        tracks where it lives. It can attach to an item, to equipment, or to
        nothing at all - a plain gallery photo isn't required to be about
@@ -989,7 +1022,8 @@ export default function App() {
         screen = openLot
             ? <LotDetail lots={lots} lotLinks={lotLinks} lotId={openLot} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={setOpenLot}
-                onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot} />
+                onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot}
+                onEditLink={editLotLink} onDeleteLink={deleteLotLink} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onOpen={setOpenLot} onAddManual={addManualLot} />;
     } else if (section === 'gallery') {
@@ -1820,7 +1854,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
 
 /* ---------------- LOT DETAIL ---------------- */
 
-function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete }) {
+function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete, onEditLink, onDeleteLink }) {
     const lot = lots.find((l) => l.id === lotId);
     const [editing, setEditing] = useState(false);
     const [f, setF] = useState({});
@@ -1830,6 +1864,8 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
     const [lossReason, setLossReason] = useState('');
     const [editingNotes, setEditingNotes] = useState(false);
     const [notesDraft, setNotesDraft] = useState('');
+    const [editingLinkId, setEditingLinkId] = useState(null);
+    const [linkAmt, setLinkAmt] = useState('');
 
     if (!lot) return <div className="page"><button className="back" onClick={onBack}>← Inventory</button></div>;
 
@@ -1950,11 +1986,38 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                         <div className="lineage-list">
                             {parents.map((k) => {
                                 const pl = lots.find((l) => l.id === k.parent_lot_id);
-                                return pl ? (
-                                    <button key={k.id} className="lnk-row" onClick={() => onOpen(pl.id)}>
-                                        <span>{pl.label}</span><span className="lnk-amt">{k.amount_taken_g}g used</span>
-                                    </button>
-                                ) : null;
+                                if (!pl) return null;
+                                if (editingLinkId === k.id) {
+                                    return (
+                                        <div key={k.id} className="lnk-row-edit">
+                                            <span className="lnk-edit-label">{pl.label}</span>
+                                            <input className="in sm" inputMode="decimal" value={linkAmt}
+                                                onChange={(e) => setLinkAmt(e.target.value)} />
+                                            <button className="mini" onClick={() => {
+                                                const amt = n(linkAmt);
+                                                if (!amt) { alert('Enter an amount.'); return; }
+                                                onEditLink(k.id, amt);
+                                                setEditingLinkId(null);
+                                            }}>Save</button>
+                                            <button className="mini ghost" onClick={() => setEditingLinkId(null)}>Cancel</button>
+                                            <button className="mini danger" onClick={() => {
+                                                if (confirm(`Remove this link? "${pl.label}" will show ${k.amount_taken_g}g as free again.`)) {
+                                                    onDeleteLink(k.id);
+                                                    setEditingLinkId(null);
+                                                }
+                                            }}>Delete</button>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={k.id} className="lnk-row-outer">
+                                        <button className="lnk-row" onClick={() => onOpen(pl.id)}>
+                                            <span>{pl.label}</span><span className="lnk-amt">{k.amount_taken_g}g used</span>
+                                        </button>
+                                        <button className="edit-btn" title="Edit amount"
+                                            onClick={() => { setLinkAmt(String(k.amount_taken_g)); setEditingLinkId(k.id); }}>✎</button>
+                                    </div>
+                                );
                             })}
                         </div>
                     ) : <p className="notes empty-note">This is an original harvest - nothing feeds into it.</p>}
@@ -1964,11 +2027,38 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                         <div className="lineage-list">
                             {children.map((k) => {
                                 const cl = lots.find((l) => l.id === k.child_lot_id);
-                                return cl ? (
-                                    <button key={k.id} className="lnk-row" onClick={() => onOpen(cl.id)}>
-                                        <span>{cl.label}</span><span className="lnk-amt">took {k.amount_taken_g}g</span>
-                                    </button>
-                                ) : null;
+                                if (!cl) return null;
+                                if (editingLinkId === k.id) {
+                                    return (
+                                        <div key={k.id} className="lnk-row-edit">
+                                            <span className="lnk-edit-label">{cl.label}</span>
+                                            <input className="in sm" inputMode="decimal" value={linkAmt}
+                                                onChange={(e) => setLinkAmt(e.target.value)} />
+                                            <button className="mini" onClick={() => {
+                                                const amt = n(linkAmt);
+                                                if (!amt) { alert('Enter an amount.'); return; }
+                                                onEditLink(k.id, amt);
+                                                setEditingLinkId(null);
+                                            }}>Save</button>
+                                            <button className="mini ghost" onClick={() => setEditingLinkId(null)}>Cancel</button>
+                                            <button className="mini danger" onClick={() => {
+                                                if (confirm(`Remove this link? "${lot.label}" will show ${k.amount_taken_g}g as free again.`)) {
+                                                    onDeleteLink(k.id);
+                                                    setEditingLinkId(null);
+                                                }
+                                            }}>Delete</button>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={k.id} className="lnk-row-outer">
+                                        <button className="lnk-row" onClick={() => onOpen(cl.id)}>
+                                            <span>{cl.label}</span><span className="lnk-amt">took {k.amount_taken_g}g</span>
+                                        </button>
+                                        <button className="edit-btn" title="Edit amount"
+                                            onClick={() => { setLinkAmt(String(k.amount_taken_g)); setEditingLinkId(k.id); }}>✎</button>
+                                    </div>
+                                );
                             })}
                         </div>
                     ) : <p className="notes empty-note">Nothing made from this yet.</p>}
@@ -4575,6 +4665,10 @@ const CSS = `
 .lineage-list{display:flex;flex-direction:column;gap:6px;}
 .lnk-row{display:flex;justify-content:space-between;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;font-size:12.5px;text-align:left;font-family:var(--sans);}
 .lnk-row:hover{border-color:var(--amber);}
+.lnk-row-outer{display:flex;align-items:stretch;gap:4px;}
+.lnk-row-outer .lnk-row{flex:1;}
+.lnk-row-edit{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--amber);border-radius:9px;padding:7px 10px;flex-wrap:wrap;}
+.lnk-edit-label{font-size:12.5px;font-family:var(--sans);color:var(--bone);margin-right:auto;}
 .lnk-amt{font-family:var(--mono);font-size:11px;color:var(--dim);}
 .process-rows{display:flex;flex-direction:column;gap:7px;margin-bottom:8px;}
 .process-row{display:flex;align-items:center;gap:9px;}
