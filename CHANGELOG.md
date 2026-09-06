@@ -396,3 +396,13 @@ with what's actually missing instead of doing nothing.
   there - easy to lose the original note. Only a genuine status
   change now starts the box blank; re-clicking the current status
   prefills it.
+
+## 2026-09-06 - Recipe checklist progress now persists
+
+- `StepChecklist`'s checked steps lived only in local component state, so
+  progress reset to 0 every time the card collapsed (it unmounts on
+  close) or you left the Reference/Recipes tab entirely. Moved the
+  checked step indices onto the library row itself instead, so progress
+  survives collapsing the card, switching tabs, a reload, or even
+  picking the app back up on another device.
+- Migration: `library.checklist_checked` jsonb, default `[]`.
