@@ -419,3 +419,15 @@ with what's actually missing instead of doing nothing.
   CASCADE`, so deleting would silently take those rows with it).
   A species with neither gets the same 5s undo-timer delete already
   used for genetics.
+
+## 2026-09-06 - Search: Equipment/Supplier/Stock hits open the matched row
+
+- Clicking a search hit for equipment, a supplier, or a stock unit just
+  switched to the Supplies tab and left you to scroll and find it -
+  item/lot/library hits already jumped straight to the record. Added a
+  `suppliesOpenId` hint (same one-shot lifecycle as the existing
+  `suppliesTab` one) so whichever tab mounts opens straight into
+  editing the matched row instead.
+- Bonus: the `?stock=<uuid>` QR deep link for a not-yet-consumed unit
+  had the same gap (landed on the Stock tab generically) and now uses
+  the same mechanism to land on the exact unit.
