@@ -4,12 +4,16 @@
 only - what the app does and how it's built, right now. It is NOT a
 changelog. For history, past bugs, and how a decision got made, see
 `CHANGELOG.md` - don't read that file by default, only pull it up if a task
-needs the backstory. The app is `src/App.jsx` (one big file, ~3200+ lines -
-every screen is a component in there) plus `src/AuthGate.jsx` (login).
-Supabase project id `pbjgelklvlbzarasjcwt` holds the schema - check it
-directly rather than assuming from this file, since the DB is always more
-current than any doc. Everything below is real and current as of
-2026-09-04 unless marked otherwise.
+needs the backstory. Day-to-day bugs/upgrades in progress, and the beta
+rollout plan (multi-tenant rework, invite codes, feedback strategy -
+decided, not built yet), live in the `sporedesk-backlog.md` and
+`sporedesk-beta-launch-plan.md` docs in the Gourmet Mushrooms claude.ai
+Project, not in this repo. The app is `src/App.jsx` (one big file, ~4900
+lines - every screen is a component in there) plus `src/AuthGate.jsx`
+(login). Supabase project id `pbjgelklvlbzarasjcwt` holds the schema -
+check it directly rather than assuming from this file, since the DB is
+always more current than any doc. Everything below is real and current as
+of 2026-09-07 unless marked otherwise.
 
 Lineage and inventory tracker for mushroom cultivation. Deployed at
 mycellium-tracks.vercel.app, gated behind sign-in. Also ships as a native
@@ -26,8 +30,9 @@ Three layers:
   `lots` + `lot_links` (many parents, many children)
 - **Library** — reference, stock, equipment, suppliers, recipes. Flat, no
   relation to the cultivation graph.
-- **Photos** — attach to an item, to equipment, or to nothing (plain
-  gallery upload). Private Supabase Storage bucket, signed URLs.
+- **Photos** — attach to an item, to equipment, to a specific history
+  event, or to nothing (plain gallery upload). Private Supabase Storage
+  bucket, signed URLs.
 
 Rules:
 
@@ -47,23 +52,32 @@ Rules:
   this in code; direct SQL edits don't get that check for free.
 - Single-user app. RLS policies check "is someone logged in," not per-row
   ownership — correct for one person, would need `user_id` columns if this
-  ever supported more than one grower.
+  ever supported more than one grower. A real multi-tenant rework is
+  planned for the upcoming beta (see `sporedesk-beta-launch-plan.md` in
+  the Project) - decided, not built yet.
 
 ## Built
 
 **Cultures** — species grid -> parallel-tree screen -> item detail. Full
 CRUD: add/edit species, add/edit genetics lines, add/edit/delete/reparent
 items, inoculate-from (including "inoculate from on-hand stock," see
-Supplies below). Species can be hidden from the main grid without deleting
-history. Status includes contamination/failure with required reason
-(preset chips + free text). History entries and harvest rows fully
-editable/deletable in place. BE% calculated live. Mycelial top-down tree,
-pan/zoom, hover lights ancestry back to origin.
+Supplies below). Species and genetics lines can each be hidden or, once
+nothing depends on them, really deleted (species: blocked if culture
+lines or library entries are tagged to it; genetics: blocked if it has
+any containers under it) - deletes use a 5s undo-timer, not an immediate
+confirm(). Status includes contamination/failure with required reason
+(preset chips + free text, prefilled with the existing reason on re-edit,
+blank only on a genuine status change). History entries and harvest rows
+fully editable/deletable in place. BE% calculated live. Mycelial top-down
+tree, pan/zoom, hover lights ancestry back to origin.
 
 **Inventory** — every logged harvest becomes a wet lot automatically.
 Process (transform/merge/split are one action), write-off (eaten/given
 away/sampled/lost), manual lot entry for material with no clean paper
-trail, full lineage view (made-from / went-into).
+trail, full lineage view (made-from / went-into) with inline edit/delete
+on individual `lot_links` (capped against what the source lot actually
+has free). Harvest lots' amount, species, and notes are all editable
+in place from the header form, not just label/form/date.
 
 **Supplies** (Stock, Equipment, Suppliers - "what do I have, or where do I
 get it"):
@@ -72,16 +86,20 @@ get it"):
   physical unit (a specific plate/jar/bag, not an aggregate count) - its
   own optional label (e.g. "LC10"), its own status (on hand/used/
   contaminated/discarded), and once consumed, a direct link to which
-  culture it became. "Add stock" logs a whole batch at once (how many,
-  from what recipe/supplier, when); the screen groups units back into
-  that batch for display by shared metadata, no stored batch id. Either
-  `source='made'` (linked to a Recipe) or `source='bought'` (linked to a
-  Supplier). Optional species tag. Feeds into Cultures as "made from
-  on-hand stock" when starting or continuing a line - picking a unit
-  there selects the exact physical container, not just "one of however
-  many." Stock units are also printable (see QR label printing below) -
-  a label printed while a unit is still on hand keeps working, unchanged,
-  after it's inoculated into a culture.
+  culture it became (cleared automatically if status is edited back away
+  from "used"). "Add stock" logs a whole batch at once (how many, from
+  what recipe/supplier, when); the screen groups units back into that
+  batch for display by shared metadata, no stored batch id. Either
+  `source='made'` (linked to a Recipe, filtered to the recipe category
+  matching the stock's kind) or `source='bought'` (linked to a Supplier).
+  Saving requires enough identifying info to tell a unit apart later - a
+  made unit needs a recipe, a bought unit needs a supplier or product
+  name. Optional species tag. Feeds into Cultures as "made from on-hand
+  stock" when starting or continuing a line - picking a unit there
+  selects the exact physical container, not just "one of however many."
+  Stock units are also printable (see QR label printing below) - a label
+  printed while a unit is still on hand keeps working, unchanged, after
+  it's inoculated into a culture.
 - **Equipment** — category-grouped, status, optional quantity stepper,
   optional photo.
 - **Suppliers** — rated, sorted by trust, optional website link.
@@ -91,12 +109,18 @@ is the default since it gets used more):
 - **Recipes** — structured ingredient rows (amount/unit/name) with a live
   batch-size scaler (type a target or tap ×2/×3/×5, every ingredient
   recomputes). Ingredient names autocomplete from ones already used.
-  Covers agar media, LC media, grain spawn, bulk substrate (incl. Masters
-  Mix, Supplemented Hardwood, and a manure-based recipe), casing mixes,
-  and nutrient broth. Every recipe body opens with a "Good for" line
-  naming which species it actually suits, checked against real grow
-  guides rather than assumed - some of that checking overturned a first
-  guess (see CHANGELOG).
+  Covers agar media, LC media, grain spawn (rye, and a separate rye/millet
+  blend), bulk substrate (Masters Mix, Supplemented Hardwood, and a
+  manure-based recipe), casing mixes, and nutrient broth. Every recipe
+  body opens with a "Good for" line naming which species it actually
+  suits, checked against real grow guides rather than assumed - some of
+  that checking overturned a first guess (see CHANGELOG). Grain-spawn and
+  bulk-substrate recipes and their companion Reference notes were synced
+  to corrected guide PDFs 2026-09-06/07 (hydration math and gram weights
+  fixed, plus a real bug: several had the bag-sealing step written
+  *before* sterilizing instead of after cooling, which is what actually
+  causes ballooned/split bags) - pure Supabase data changes, no code
+  involved so nothing here in CHANGELOG.
 - **Reference** — your instruction sheets, general + Cordyceps tagged, plus
   two additions:
   - A **species cheat-sheet** grid at the top - fruiting/colonize temp,
@@ -107,25 +131,35 @@ is the default since it gets used more):
     from the same Species edit form in Cultures, no separate data entry
     screen).
   - Procedural notes (casing layer, cordyceps flat bag tek, dual
-    extraction, the two grain/substrate bag guides) render as tap-to-check
+    extraction, and the grain/substrate bag guides) render as tap-to-check
     step checklists instead of a wall of text, with the original full
     text still available under a collapsed "Full notes" toggle. Backed by
-    a new `library.steps` jsonb column.
+    a `library.steps` jsonb column; checked-off progress persists on the
+    row itself (`library.checklist_checked`), so it survives collapsing
+    the card, switching tabs, a reload, or another device.
   - Species filter chips narrow both the cheat sheet and the how-to list
     down to one species.
 
 **Capsule blends** — its own recipe category/math, since a capsule's
 per-dose amount is fixed regardless of batch size. Each ingredient is a
-species from the real species list plus a dose in mg/capsule. Batch size
-is capsule count, optional spillage buffer %. Shows total mg/capsule
-against a 500mg 00-capsule reference and a live weigh-out table.
+species from the real species list (filtered to non-hidden, like every
+other species picker in the app) plus a dose in mg/capsule. Batch size is
+capsule count, optional spillage buffer %. Shows total mg/capsule against
+a 500mg 00-capsule reference and a live weigh-out table.
 
-**Photos** — upload from item pages, equipment, or standalone via Gallery.
-Species filter in Gallery. Native camera-or-library chooser. Signed URLs,
-6hr expiry, private bucket.
+**Photos** — upload from item pages, equipment, standalone via Gallery, or
+inline on a specific History log entry (`EventPhotos`, using the
+`photos.event_id` column). Species filter in Gallery. Native
+camera-or-library chooser. Caption and taken-on date are editable in place
+from the shared `Lightbox` component (used consistently by Gallery, Tree,
+and item pages - no more duplicated hand-rolled lightbox markup). Signed
+URLs, 6hr expiry, private bucket.
 
 **Calculators** — spawn ratio (either direction), hydration, BE, dry yield
-estimate, unit converter, grain weight<->volume (flagged approximate).
+estimate (pulls each species' own logged `dry_yield_pct` when set,
+otherwise a clearly-labeled general average - never a fabricated
+per-species number), unit converter, grain weight<->volume (flagged
+approximate).
 
 **QR label printing** — "Print label" (single item, on item detail),
 "Print labels" (whole species, all lines), and "Print labels" (per stock
@@ -151,8 +185,8 @@ equipment, suppliers) - client-side, no extra query, since there's no
 pagination to work around. Results are grouped by category, each showing
 which field matched with a short snippet. Clicking a result jumps
 straight to it - items/species open in Cultures, lots open in Inventory,
-everything else lands on the right Supplies/Reference tab via a one-shot
-`initialTab` prop those screens accept.
+everything else lands on the exact matched row in Supplies/Reference via
+a one-shot `initialTab`/`suppliesOpenId` prop those screens accept.
 
 **Lineage photo collage** — every species' Tree page has a mosaic-grid
 photo section below the pan/zoom canvas, covering every photo tied to any
@@ -165,7 +199,9 @@ every other photo tile in the app already makes.
 
 **Auth + security** — email/password sign-in, no self-serve sign-up. RLS on
 all tables and the storage bucket. Deployed on Vercel, connected to GitHub
-for auto-deploy on push.
+for auto-deploy on push. Self-serve sign-up gated by a per-tester invite
+code is planned for the beta rollout (see `sporedesk-beta-launch-plan.md`
+in the Project) - decided, not built yet.
 
 **Mobile** — bottom tab-bar nav (thumb reach, no scrolling), safe-area
 support, installable as a home-screen PWA (own icon, no browser chrome) on
@@ -198,17 +234,12 @@ reishi (wordmark): #6B2717   reishi (status pill fill): #8C3B26
 
 Logo assets (glyph/favicon/wordmark/badge) are placeholder art for the
 prototype - a real design pass is planned as its own dedicated chat
-thread later (see `claude/sporedesk-logo-design-brief.md` in the Gourmet
+thread later (see `sporedesk-logo-design-brief.md` in the Gourmet
 Mushrooms Project).
 
 ## Known gaps
 
-- No delete for genetics or species (items have it, with child
-  reparenting). Only real gap in "every create/edit/delete works" - SQL
-  still required to remove one.
 - Hover-lit lineage path has no touch equivalent (desktop-only).
-- Photos can't attach to a specific history entry yet - schema supports it
-  (`event_id` column) but no UI exposes an event picker.
 - No photo thumbnail on species/genetics tiles - only item pages,
   equipment rows, and Gallery show images.
 - Harvest event <-> lot links are matched by text in one older code path
@@ -217,7 +248,12 @@ Mushrooms Project).
 - Logging a harvest always sets item status to `fruiting` - fine live,
   needs a manual status fix after back-filling history on a retired item.
 
-## Backlog (not started, not scoped)
+## Backlog (bigger ideas without their own doc yet)
+
+Day-to-day bugs/upgrades and the beta/multi-tenant rollout plan both live
+in the claude.ai Project (`sporedesk-backlog.md` and
+`sporedesk-beta-launch-plan.md`), not in this repo. This section is only
+for the smaller loose ideas that don't have a home yet:
 
 - **Species-specific background texture** behind the lineage tree canvas,
   hinting at that species' real cap surface. Simple procedural SVG pattern
@@ -226,21 +262,12 @@ Mushrooms Project).
 - **Unused sterile media log** distinct from Stock - track agar
   plates/LC jars made and sitting ready but not yet inoculated into
   anything, tagged to the recipe that made them.
-- **Species/strain quick-add templates** (e.g. "Lion's Mane" with sensible
-  defaults) instead of the full add-species form - framed around a future
-  public version of the app.
 - **Raw ingredient inventory**, possibly with brand/product tracking, so
   recipe ingredients become real on-hand records instead of free text -
   and potentially tying a specific brand back to results (contamination
   rate, BE%, yield). Genuinely undecided if this is worth the complexity.
 - **Reimagine the logo** — see Visual design above. Its own dedicated
   chat thread, not this one.
-- **Bigger, unscoped question:** native app + customer-facing site +
-  App Store distribution, subscription-based. Not a feature - this is
-  currently one person's data with no user separation at all (see
-  "Single-user app" under Rules); a real multi-customer product needs
-  actual per-user data isolation. Needs its own dedicated conversation
-  before any code gets written toward it.
 - Tiered pricing (free/basic vs. paid) - business-model note only, logged
   so it isn't lost, nothing to design.
 
