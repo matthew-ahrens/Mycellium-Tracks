@@ -449,3 +449,74 @@ with what's actually missing instead of doing nothing.
   that one's for browsing existing photos, where filtering by a
   species you've since hidden is still exactly what you'd want.
 - This was the last item on the 2026-09-05 usability audit list.
+
+## 2026-09-07 - Vessel forms, drawing syringes, and how a culture started
+
+Started as "LC just says liquid culture and that could mean anything,"
+and split into three separate axes once the conflation got picked apart.
+
+**Rejected first**: adding `slant` and `syringe` as `items.type` values.
+A syringe drawn off a jar is still liquid culture - same material, new
+container - and a syringe that wasn't `type='lc'` would have broken every
+"inoculate from LC" path in the app. Became `items.form` instead (a
+vessel *within* a type), which made `slant` fall out for free as the agar
+equivalent rather than needing its own case. Don't re-propose the type
+version.
+
+**Also rejected**: modelling syringe volume as real accounting. Matt
+loses significant volume harvesting a jar into syringes, so any
+decrement/rollup math would be wrong on the first use. `items.amount` is
+a recorded note only - hand-edited after a spill or an overdraw - and is
+deliberately not wired into `lots`/`lot_links`.
+
+**`drawSyringes` is not a loop over `addChild`, on purpose.** Two real
+bugs were designed out rather than debugged: React state hasn't flushed
+between successive `addChild` calls, so every syringe in a batch would
+have generated the same label; and `reparentItem` looks its new parent up
+in `items`, where a just-created syringe doesn't exist yet, so it would
+have silently written `parent_id: null`. One function, one state update,
+reparenting by uid.
+
+**Mid-tree insertion.** Matt flagged that syringes already used up on
+grain exist in the log with no node - the grain hangs straight off the
+jar. So drawing has to be able to insert a syringe *between* a jar and
+its existing children, not just create leaves. Asked whether a batch
+always came off one syringe; answer was "it's gotta be built for nonsense
+that I or future users will do," so it's a per-child dropdown (stays on
+the jar / moves to syringe N) rather than checkboxes. Already-drawn
+syringes are filtered out of that list (a syringe never hangs under a
+syringe), and the whole section hides when the jar has no non-syringe
+children - it only appears when there's something to actually move.
+
+**`items.method` came from clicking around mid-session**: the lion's mane
+agar plate hangs straight off a fruiting block, and nothing recorded
+whether it was a clone from a fruit or tissue off the block's mycelium -
+two things with very different success rates, previously recoverable only
+from free-text notes. Third axis, keyed on the *parent's* type since
+that's what determines which methods are possible. Every list ends in
+`other` + free text so the vocabulary didn't have to be exhaustive to
+ship.
+
+**Contrast bug class, found the same way.** The amber used for the new
+method line was invisible - `--amber` on the tan `--ground`. The audit
+that followed found four more, and a rule: the palette has two mirrored
+halves (`bone`/`dim`/`amber` for dark panels, `ink`/`ink-dim`/`amber-ink`
+for the tan ground) and using one in the other's context doesn't look
+broken, it looks *absent*. That's how the entire "Filter by species"
+control on the Reference screen went unnoticed - Matt had never seen it.
+Fixed `.sp-chips-label`, `.sp-chip:hover`, `.sp-chip.on`, `.crumb:hover`,
+`.edit-btn:hover`. Rule now written into README's Visual design section.
+Also: `.hypha.drawn` has to reset `stroke-linecap` to `butt`, or the
+inherited `round` renders each dash as a blob that closes the gaps and
+reads as a solid line.
+
+Schema added but with no UI yet, all logged in README: `items.source` /
+`items.supplier_id` (made vs bought, backfilled), `stock.amount` /
+`stock.amount_unit` (per-unit, NOT recipe `yield_amount` - that's a batch
+for agar), `lots.badge_dismissed_at` / `suppliers.badge_dismissed_at`.
+The badge went through a full redesign before any code: started as
+yellow-incomplete + green-new with a precedence rule, ended as one badge
+after Matt pointed out that things you make on purpose don't need
+flagging. Briefly added to `items`, then dropped - species-screen
+creations are intentional; only side-created records (harvests, quick-added
+suppliers) get it.

@@ -14,6 +14,44 @@ const todayISO = () => {
 const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Monotub", block: "Fruiting block" };
 const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB" };
 
+/* A vessel/state WITHIN a type, not a transformation. A syringe drawn off
+   an LC jar is still liquid culture - same material, different container -
+   so it stays type='lc' and differs only by form. Slants are the same
+   story for agar. Deliberately not extra `type` values: a syringe that
+   wasn't `lc` would break every "inoculate from LC" path in the app.
+   Types with no entry here simply have no form choice. */
+const FORMS = {
+    lc: { jar: "Jar", syringe: "Syringe" },
+    agar: { plate: "Plate", slant: "Slant" },
+};
+/* Label codes keyed off form where one exists, so syringes read BO-SY1
+   rather than BO-LC2 and don't get mistaken for a second jar. */
+const FORM_CODE = { syringe: "SY", slant: "SL" };
+const codeFor = (type, form) => FORM_CODE[form] ?? CODE[type];
+
+/* HOW an item was started from its parent. A third axis, separate from
+   `type` (what it is) and `form` (which vessel): a lion's mane plate
+   hanging off a fruiting block could be a clone from a fruit or tissue
+   scraped off the block's mycelium, and those have very different
+   success rates - without this it's unrecoverable from anything but
+   free-text notes. Keyed on the PARENT's type, since that's what
+   determines which methods are even possible. `__root` covers items
+   with no parent. Every list ends in `other` + free text so the
+   vocabulary never has to be exhaustive to be useful. */
+const METHODS = {
+    block: { fruit_clone: "Clone from fruit", block_tissue: "Tissue from block", other: "Other" },
+    bulk: { fruit_clone: "Clone from fruit", block_tissue: "Tissue from substrate", other: "Other" },
+    agar: { wedge: "Wedge transfer", other: "Other" },
+    lc: { inoculation: "Inoculation", other: "Other" },
+    grain: { grain_transfer: "Grain transfer", other: "Other" },
+    spores: { spore_germ: "Spore germination", other: "Other" },
+    __root: { purchased: "Purchased culture", spore_print: "Spore print", other: "Other" },
+};
+/* A drawn syringe already says how it got there via `form`, so asking
+   for a method too is just redundant data entry. */
+const methodsFor = (parentType, form) =>
+    form === 'syringe' ? null : METHODS[parentType ?? '__root'] ?? METHODS.__root;
+
 const STATUS = {
     colonizing: { label: "Colonizing", tone: "amber", live: true },
     colonized: { label: "Colonized", tone: "jade", live: true },
@@ -188,6 +226,11 @@ export default function App() {
                 geneticsId: r.genetics_id,
                 parent: data.find((p) => p.id === r.parent_id)?.label ?? null,
                 type: r.type,
+                form: r.form ?? '',
+                amount: r.amount ?? undefined,
+                amountUnit: r.amount_unit ?? '',
+                method: r.method ?? '',
+                methodNote: r.method_note ?? '',
                 status: r.status,
                 created: r.created_on,
                 where: r.location ?? '',
@@ -404,6 +447,16 @@ export default function App() {
         const cols = {};
         if ('id' in patch) cols.label = patch.id;
         if ('type' in patch) cols.type = patch.type;
+        if ('form' in patch) cols.form = patch.form || null;
+        /* Recorded, never derived. Nothing decrements this - overdraw a
+           syringe or spill a jar and you edit the number by hand. */
+        if ('amount' in patch) cols.amount = patch.amount ?? null;
+        if ('amountUnit' in patch) cols.amount_unit = patch.amountUnit || null;
+        if ('method' in patch) cols.method = patch.method || null;
+        /* Only 'other' carries free text - clear it otherwise so a
+           stale note can't linger behind a preset value. */
+        if ('methodNote' in patch) cols.method_note = patch.methodNote || null;
+        if ('method' in patch && patch.method !== 'other') cols.method_note = null;
         if ('where' in patch) cols.location = patch.where || null;
         if ('substrate' in patch) cols.substrate = patch.substrate || null;
         if ('notes' in patch) cols.notes = patch.notes || null;
@@ -414,7 +467,11 @@ export default function App() {
         if (error) { console.error(error); alert('Could not save - check console'); return; }
 
         setItems((p) => p.map((i) => {
-            if (i.id === label) return { ...i, ...patch };
+            if (i.id === label) {
+                const next = { ...i, ...patch };
+                if ('method' in patch && patch.method !== 'other') next.methodNote = '';
+                return next;
+            }
             /* Children point at the parent by label, so a rename has to
                follow through or the tree loses its connection. */
             if ('id' in patch && i.parent === label) return { ...i, parent: patch.id };
@@ -966,10 +1023,12 @@ export default function App() {
         setItems((p) => p.map((i) => (i.id === label ? { ...i, parent: np?.id ?? null } : i)));
     };
 
-    const addChild = async (parentLabel, type, stockId = null) => {
+    const addChild = async (parentLabel, type, stockId = null, extra = {}) => {
         const today = todayISO();
         const parent = items.find((i) => i.id === parentLabel);
         const code = genetics.find((g) => g.id === parent.geneticsId)?.code ?? 'X';
+        const form = extra.form || '';
+        const kindCode = codeFor(type, form);
         /* Start counting from how many items of this type already exist,
            but that's only a good guess - an older item's `type` can drift
            out of sync with its label (e.g. relabeled by hand), so don't
@@ -977,35 +1036,132 @@ export default function App() {
            label isn't already taken by something. Two items sharing a
            label breaks the tree view outright (infinite loop walking
            parent -> child -> parent), so this has to be airtight. */
-        let n = items.filter((i) => i.geneticsId === parent.geneticsId && i.type === type).length + 1;
-        let label = `${code}-${CODE[type]}${n}`;
+        let n = items.filter((i) => i.geneticsId === parent.geneticsId
+            && i.type === type && (i.form || '') === form).length + 1;
+        let label = `${code}-${kindCode}${n}`;
         while (items.some((i) => i.id === label)) {
             n += 1;
-            label = `${code}-${CODE[type]}${n}`;
+            label = `${code}-${kindCode}${n}`;
         }
 
         const { data, error } = await supabase.from('items').insert({
             genetics_id: parent.geneticsId,
             parent_id: parent.uid,
             label, type, status: 'colonizing', created_on: today,
+            form: form || null,
+            amount: extra.amount ?? null,
+            amount_unit: extra.amountUnit || null,
         }).select('id').single();
 
         if (error) { console.error(error); alert('Could not create item - check console'); return; }
 
+        /* Drawing a syringe off a jar isn't a transformation, so it reads
+           differently in the log than an inoculation does. */
+        const body = extra.drawn
+            ? `Drawn from ${parentLabel}`
+            : `Inoculated from ${parentLabel}`;
+
         const { data: ev } = await supabase.from('item_events').insert({
             item_id: data.id, happened_on: today, kind: 'note',
-            body: `Inoculated from ${parentLabel}`,
+            body,
         }).select('id').single();
 
         setItems((p) => [...p, {
             id: label, uid: data.id, geneticsId: parent.geneticsId,
             parent: parentLabel, type, created: today, status: 'colonizing',
+            form, amount: extra.amount ?? undefined, amountUnit: extra.amountUnit || '',
             where: '', substrate: '', notes: '', harvests: [],
             dryWeight: undefined,
-            log: [{ id: ev?.id, date: today, body: `Inoculated from ${parentLabel}`, kind: 'note' }],
+            log: [{ id: ev?.id, date: today, body, kind: 'note' }],
         }]);
-        setOpen(label);
+        if (!extra.quiet) setOpen(label);
         if (stockId) consumeStock(stockId, data.id);
+        return label;
+    };
+
+    /* Draw N syringes off an LC jar. Deliberately NOT a loop over
+       addChild: React state hasn't flushed between calls, so every
+       syringe in the batch would generate the same label, and
+       reparentItem would look up a new syringe that isn't in `items`
+       yet and quietly null the parent instead. One function, one
+       state update.
+
+       `assignments` maps an EXISTING child label -> index of the new
+       syringe it should hang under (or null to leave it on the jar).
+       This exists because grain often gets logged before anyone
+       remembers to record the syringe it came from, so the syringe has
+       to be insertable *between* a jar and its existing children after
+       the fact - and with several syringes drawn at once, only the user
+       knows which bag came off which. */
+    const drawSyringes = async (parentLabel, count, amount, amountUnit, assignments = {}) => {
+        const today = todayISO();
+        const parent = items.find((i) => i.id === parentLabel);
+        if (!parent || count < 1) return;
+        const code = genetics.find((g) => g.id === parent.geneticsId)?.code ?? 'X';
+
+        const taken = new Set(items.map((i) => i.id));
+        let n = items.filter((i) => i.geneticsId === parent.geneticsId && i.form === 'syringe').length;
+        const labels = [];
+        for (let k = 0; k < count; k += 1) {
+            let label;
+            do { n += 1; label = `${code}-SY${n}`; } while (taken.has(label));
+            taken.add(label);
+            labels.push(label);
+        }
+
+        const { data: rows, error } = await supabase.from('items').insert(
+            labels.map((label) => ({
+                genetics_id: parent.geneticsId,
+                parent_id: parent.uid,
+                label, type: 'lc', form: 'syringe',
+                status: parent.status === 'colonized' ? 'colonized' : 'colonizing',
+                created_on: today,
+                amount: amount ?? null,
+                amount_unit: amountUnit || null,
+            }))
+        ).select('id,label');
+        if (error) { console.error(error); alert('Could not draw syringes - check console'); return; }
+
+        const uidFor = Object.fromEntries(rows.map((r) => [r.label, r.id]));
+
+        const { data: evs } = await supabase.from('item_events').insert(
+            labels.map((label) => ({
+                item_id: uidFor[label], happened_on: today, kind: 'note',
+                body: `Drawn from ${parentLabel}`,
+            }))
+        ).select('id,item_id');
+
+        /* Reparent by uid, not label - the label lookup helpers all read
+           from state that doesn't know these rows exist yet. */
+        const moves = Object.entries(assignments)
+            .filter(([, idx]) => idx !== null && idx !== undefined && idx !== '')
+            .map(([childLabel, idx]) => ({ childLabel, syringe: labels[Number(idx)] }))
+            .filter((m) => m.syringe);
+        for (const m of moves) {
+            const child = items.find((i) => i.id === m.childLabel);
+            if (!child) continue;
+            const { error: rErr } = await supabase.from('items')
+                .update({ parent_id: uidFor[m.syringe] }).eq('id', child.uid);
+            if (rErr) { console.error(rErr); alert(`Drew the syringes, but could not move ${m.childLabel} - check console`); }
+        }
+        const movedTo = Object.fromEntries(moves.map((m) => [m.childLabel, m.syringe]));
+
+        setItems((p) => [
+            ...p.map((i) => (movedTo[i.id] ? { ...i, parent: movedTo[i.id] } : i)),
+            ...labels.map((label) => ({
+                id: label, uid: uidFor[label], geneticsId: parent.geneticsId,
+                parent: parentLabel, type: 'lc', form: 'syringe',
+                amount: amount ?? undefined, amountUnit: amountUnit || '',
+                created: today,
+                status: parent.status === 'colonized' ? 'colonized' : 'colonizing',
+                where: '', substrate: '', notes: '', harvests: [],
+                dryWeight: undefined,
+                log: [{
+                    id: (evs ?? []).find((e) => e.item_id === uidFor[label])?.id,
+                    date: today, body: `Drawn from ${parentLabel}`, kind: 'note',
+                }],
+            })),
+        ]);
     };
 
     const sp = species.find((s) => s.id === nav.speciesId);
@@ -1087,7 +1243,7 @@ export default function App() {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture}
             onBack={() => { setDir('back'); setOpen(null); }}
-            onOpen={setOpen} addChild={addChild} saveStatus={saveStatus}
+            onOpen={setOpen} addChild={addChild} drawSyringes={drawSyringes} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
@@ -3643,7 +3799,7 @@ function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEdi
                         })}
                         {items.map((i) => i.parent && (
                             <path key={i.id}
-                                className={`hypha ${litChain.includes(i.id) && litChain.includes(i.parent) ? "lit" : hover ? "dim" : ""}`}
+                                className={`hypha ${i.form === 'syringe' ? "drawn " : ""}${litChain.includes(i.id) && litChain.includes(i.parent) ? "lit" : hover ? "dim" : ""}`}
                                 d={hypha(pos[i.parent], pos[i.id])} strokeWidth={thread(pos[i.id].depth)} />
                         ))}
                         {items.map((i) => {
@@ -3660,7 +3816,7 @@ function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEdi
                                     {st.tone !== "slate" && <circle r={r * 0.42} fill={tone} />}
                                     {hasPhoto && <circle cx={r * 0.72} cy={-r * 0.72} r="2.6" className="photo-dot" />}
                                     <text y={r + 17} className="n-id" textAnchor="middle">{i.id}</text>
-                                    <text y={r + 30} className="n-sub" textAnchor="middle">{TYPES[i.type]}{days(i.created) !== null ? ` · d${days(i.created)}` : ""}</text>
+                                    <text y={r + 30} className="n-sub" textAnchor="middle">{FORMS[i.type]?.[i.form] ?? TYPES[i.type]}{days(i.created) !== null ? ` · d${days(i.created)}` : ""}</text>
                                 </g>
                             );
                         })}
@@ -3704,7 +3860,7 @@ function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEdi
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -3715,6 +3871,8 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
     const [editHead, setEditHead] = useState(false);
     const [editFacts, setEditFacts] = useState(false);
     const [editNotes, setEditNotes] = useState(false);
+    /* null = closed. Otherwise the in-progress draw. */
+    const [drawing, setDrawing] = useState(null);
     const [f, setF] = useState({});                 // field drafts
 
     const kids = items.filter((i) => i.parent === id);
@@ -3776,9 +3934,35 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                     <div className="head-edit">
                         <input className="in" value={f.id ?? ""} onChange={(e) => setF({ ...f, id: e.target.value })}
                             placeholder="label, e.g. BO-GR2" />
-                        <select className="in sel" value={f.type ?? it.type} onChange={(e) => setF({ ...f, type: e.target.value })}>
+                        <select className="in sel" value={f.type ?? it.type} onChange={(e) => setF({ ...f, type: e.target.value, form: "" })}>
                             {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
                         </select>
+                        {FORMS[f.type ?? it.type] && (
+                            <select className="in sel" value={f.form ?? ""} onChange={(e) => setF({ ...f, form: e.target.value })}>
+                                <option value="">— form not set —</option>
+                                {Object.entries(FORMS[f.type ?? it.type]).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                        )}
+                        <div className="amt-pair">
+                            <input className="in sm" type="number" step="any" value={f.amount ?? ""}
+                                onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
+                            <input className="in sm" value={f.amountUnit ?? ""}
+                                onChange={(e) => setF({ ...f, amountUnit: e.target.value })} placeholder="mL / cc" />
+                        </div>
+                        {/* Options depend on what the PARENT is, so changing the
+                            parent above changes what's on offer here. */}
+                        {methodsFor(items.find((c) => c.id === (f.parent ?? it.parent))?.type, f.form ?? it.form) && (
+                            <select className="in sel" value={f.method ?? ""} onChange={(e) => setF({ ...f, method: e.target.value })}>
+                                <option value="">— how it was started —</option>
+                                {Object.entries(methodsFor(items.find((c) => c.id === (f.parent ?? it.parent))?.type, f.form ?? it.form))
+                                    .map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                        )}
+                        {f.method === 'other' && (
+                            <input className="in" value={f.methodNote ?? ""}
+                                onChange={(e) => setF({ ...f, methodNote: e.target.value })}
+                                placeholder="how? e.g. spore syringe from a swab" />
+                        )}
                         <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
                         <select className="in sel" value={f.parent ?? ""} onChange={(e) => setF({ ...f, parent: e.target.value })}>
                             <option value="">— no parent (start of the line) —</option>
@@ -3789,6 +3973,19 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                             const patch = {};
                             if (f.id?.trim() && f.id.trim() !== it.id) patch.id = f.id.trim();
                             if (f.type && f.type !== it.type) patch.type = f.type;
+                            if ((f.form ?? "") !== (it.form ?? "")) patch.form = f.form ?? "";
+                            {
+                                /* Blank clears it; anything unparseable is
+                                   ignored rather than silently stored as NaN. */
+                                const raw = (f.amount ?? "").toString().trim();
+                                const next = raw === "" ? null : Number(raw);
+                                if (raw === "" || Number.isFinite(next)) {
+                                    if (next !== (it.amount ?? null)) patch.amount = next;
+                                }
+                                if ((f.amountUnit ?? "") !== (it.amountUnit ?? "")) patch.amountUnit = f.amountUnit ?? "";
+                            }
+                            if ((f.method ?? "") !== (it.method ?? "")) patch.method = f.method ?? "";
+                            if ((f.methodNote ?? "") !== (it.methodNote ?? "")) patch.methodNote = f.methodNote ?? "";
                             if ((f.created || null) !== it.created) patch.created = f.created || null;
                             if (Object.keys(patch).length) saveItemFields(id, patch);
                             if ((f.parent || null) !== (it.parent || null)) reparentItem(patch.id ?? id, f.parent || null);
@@ -3806,13 +4003,21 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                 ) : (
                     <div className="head-read">
                         <h1 className="d-id">{it.id}</h1>
-                        <div className="d-sub">{TYPES[it.type]} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
+                        <div className="d-sub">{TYPES[it.type]}{it.form && FORMS[it.type]?.[it.form] ? ` · ${FORMS[it.type][it.form]}` : ""}{it.amount != null ? ` · ${it.amount}${it.amountUnit ? ' ' + it.amountUnit : ''}` : ""} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
+                        {it.method && (
+                            <div className="d-sub method">
+                                {it.method === 'other'
+                                    ? (it.methodNote || 'Other')
+                                    : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
+                                {it.parent ? ` from ${it.parent}` : ""}
+                            </div>
+                        )}
                     </div>
                 )}
                 {!editHead && (
                     <>
-                        <button className="edit-btn" title="Edit label, type, start date"
-                            onClick={() => { setF({ id: it.id, type: it.type, created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
+                        <button className="edit-btn" title="Edit label, type, form, amount, method, start date"
+                            onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
                         <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
@@ -3832,6 +4037,66 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, saveStatus, save
                 photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} onEdit={editPhoto} />
 
             <div className="actions">
+                {/* Only a jar can be drawn from - a syringe isn't decanted
+                    into further syringes. Form may be unset on older rows,
+                    so anything that isn't explicitly a syringe counts. */}
+                {it.type === 'lc' && it.form !== 'syringe' && !picking && !drawing && (
+                    <button className="cta ghost" onClick={() => setDrawing({ count: 1, amount: "", unit: "cc", assign: {} })}>
+                        Draw syringes
+                    </button>
+                )}
+                {drawing && (
+                    <div className="picker draw">
+                        <span className="pk-l">Draw off {it.id}. The jar stays as it is - retire it yourself when it's spent.</span>
+                        <div className="draw-row">
+                            <label>How many</label>
+                            <input className="in sm" type="number" min="1" max="24" value={drawing.count}
+                                onChange={(e) => setDrawing({ ...drawing, count: e.target.value })} />
+                            <label>Each</label>
+                            <input className="in sm" type="number" step="any" placeholder="10" value={drawing.amount}
+                                onChange={(e) => setDrawing({ ...drawing, amount: e.target.value })} />
+                            <input className="in sm" value={drawing.unit}
+                                onChange={(e) => setDrawing({ ...drawing, unit: e.target.value })} />
+                        </div>
+                        {kids.filter((k) => k.form !== 'syringe').length > 0 && (
+                            <div className="draw-assign">
+                                <span className="pk-l">
+                                    Anything already under {it.id} that actually came off one of these? Move it, and the
+                                    syringe slots in between.
+                                </span>
+                                {/* Syringes already drawn off this jar are excluded -
+                                    a syringe never hangs under another syringe, and
+                                    listing them just clutters a repeat draw. */}
+                                {kids.filter((k) => k.form !== 'syringe').map((k) => (
+                                    <div className="draw-row" key={k.id}>
+                                        <label>{k.id}</label>
+                                        <select className="in sel sm" value={drawing.assign[k.id] ?? ""}
+                                            onChange={(e) => setDrawing({ ...drawing, assign: { ...drawing.assign, [k.id]: e.target.value } })}>
+                                            <option value="">stays on {it.id}</option>
+                                            {Array.from({ length: Math.max(1, Math.min(24, Number(drawing.count) || 1)) })
+                                                .map((_, n) => <option key={n} value={n}>syringe {n + 1}</option>)}
+                                        </select>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <button className="chip go" onClick={() => {
+                            const count = Math.max(1, Math.min(24, Number(drawing.count) || 1));
+                            const raw = String(drawing.amount).trim();
+                            const amt = raw === "" ? null : Number(raw);
+                            /* Drop assignments pointing past the final count -
+                               easy to strand one by lowering the number after
+                               picking, and a dangling index would silently
+                               leave that child on the jar with no warning. */
+                            const assign = Object.fromEntries(
+                                Object.entries(drawing.assign).filter(([, v]) => v !== "" && Number(v) < count)
+                            );
+                            drawSyringes(id, count, Number.isFinite(amt) ? amt : null, drawing.unit.trim(), assign);
+                            setDrawing(null);
+                        }}>Draw {Math.max(1, Math.min(24, Number(drawing.count) || 1))}</button>
+                        <button className="chip" onClick={() => setDrawing(null)}>Cancel</button>
+                    </div>
+                )}
                 {!picking ? (
                     <button className="cta" onClick={() => setPicking(true)}>Inoculate from this</button>
                 ) : !pickedType ? (
@@ -4514,11 +4779,15 @@ const CSS = `
 .lib-link{display:block;font-family:var(--mono);font-size:11.5px;color:var(--amber);word-break:break-all;margin-bottom:11px;}
 .lib-text{font-family:var(--sans);font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0 0 13px;color:var(--bone);}
 .sp-chips{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:14px 0 4px;}
-.sp-chips-label{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);margin-right:2px;}
+.sp-chips-label{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-dim);margin-right:2px;}
 .step-num{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center;}
 .sp-chip{font-family:var(--sans);font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;transition:border-color .15s,color .15s;}
-.sp-chip:hover{border-color:var(--border-warm);color:var(--ink);}
-.sp-chip.on{border-color:var(--amber);color:var(--amber-ink);background:var(--panel2);}
+/* These chips carry their own dark --panel fill, so they take the
+   dark-panel palette (bone/dim/amber) - NOT the tan-ground palette
+   (ink/ink-dim/amber-ink). Both states below had it backwards and were
+   rendering dark-on-dark. */
+.sp-chip:hover{border-color:var(--border-warm);color:var(--bone);}
+.sp-chip.on{border-color:var(--amber);color:var(--amber);background:var(--panel2);}
 .qf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:12px;}
 .qf-tile{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
 .qf-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:3px;}
@@ -4652,6 +4921,11 @@ const CSS = `
 .node{cursor:pointer;transition:transform .55s cubic-bezier(.22,.68,.32,1),opacity .28s ease;}
 .node:hover circle:nth-of-type(1){opacity:.34;}
 .hypha{fill:none;stroke:var(--line);stroke-linecap:round;transition:stroke .28s ease,opacity .28s ease;}
+/* A drawn syringe isn't a transformation - same culture, new vessel - so
+   its edge reads as a dotted seam rather than a solid line of descent.
+   stroke-linecap has to go back to butt or the dots render as blobs that
+   close the gaps back up. */
+.hypha.drawn{stroke-dasharray:1.5 5;stroke-linecap:butt;opacity:.8;}
 .hypha.lit{stroke:var(--amber);}
 .hypha.dim{opacity:.3;}
 .node.faded{opacity:.34;}
@@ -4704,7 +4978,7 @@ const CSS = `
 
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:14px 0 20px;}
 .crumb{background:none;border:none;font-family:var(--mono);font-size:11px;color:var(--ink-dim);cursor:pointer;padding:2px 3px;}
-.crumb:hover{color:var(--amber);}
+.crumb:hover{color:var(--amber-ink);}
 .crumb.here{color:var(--ink);cursor:default;}
 .arrow{color:var(--ink-dim);font-size:10px;margin:0 4px;}
 
@@ -4718,12 +4992,24 @@ const CSS = `
 @media(max-width:780px){.cols{grid-template-columns:1fr;gap:8px;}}
 .sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin:24px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
 .edit-btn{background:none;border:none;padding:0 4px;color:var(--ink-dim);font-size:14px;line-height:1;cursor:pointer;transition:color .15s;}
-.edit-btn:hover{color:var(--amber);}
+.edit-btn:hover{color:var(--amber-ink);}
 .sec-edit{opacity:.6;}
 .sec:hover .sec-edit{opacity:1;}
 .head-read{flex:1;}
 .head-edit{flex:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
 .head-edit .in{flex:1 1 150px;font-family:var(--mono);}
+/* Amount + unit read as one field, so they stay adjacent and don't get
+   split across a wrap boundary by .head-edit's flex-wrap. */
+.amt-pair{display:flex;gap:6px;flex:1 1 150px;}
+.amt-pair .in{flex:1 1 60px;min-width:0;}
+/* --amber, not --amber-ink, is for dark panels only. This sits on the
+   tan --ground, where #D6934A is near-invisible. */
+.d-sub.method{color:var(--amber-ink);}
+.picker.draw{flex-direction:column;align-items:stretch;gap:9px;}
+.draw-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.draw-row label{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--card-dim);min-width:74px;}
+.draw-row .in{flex:0 1 88px;min-width:0;}
+.draw-assign{border-top:1px solid var(--line);padding-top:9px;display:flex;flex-direction:column;gap:7px;}
 .in.sel{color-scheme:dark;cursor:pointer;}
 .in.ta{width:100%;font-family:var(--sans);line-height:1.55;resize:vertical;}
 .field-form{display:flex;flex-direction:column;gap:7px;}

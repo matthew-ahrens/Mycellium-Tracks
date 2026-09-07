@@ -147,6 +147,45 @@ other species picker in the app) plus a dose in mg/capsule. Batch size is
 capsule count, optional spillage buffer %. Shows total mg/capsule against
 a 500mg 00-capsule reference and a live weigh-out table.
 
+**Vessel forms + drawing syringes** — `items.form` is a vessel *within* a
+type, not a sibling of it: `lc` is jar/syringe, `agar` is plate/slant. A
+drawn syringe is still `type='lc'`, so every "inoculate from LC" path
+keeps working. Labels key off form (`FORM_CODE`/`codeFor`) so a syringe
+reads `BO-SY1`, not `BO-LC2`. Adding these as `items.type` values was
+tried and rejected - see CHANGELOG before re-proposing it.
+
+"Draw syringes" on an LC jar (hidden on syringes) asks how many and how
+much each, then creates them as children in one shot. **The jar
+survives** - keeps its status, can be drawn from again later; retiring is
+always manual. New syringes inherit `colonized` if the jar is, else
+`colonizing`. The dialog can also **insert a syringe between a jar and
+its existing children** (grain often gets logged before the syringe
+does): one dropdown per existing child, hidden when there's nothing to
+move. `drawSyringes` is deliberately not a loop over `addChild` - see
+CHANGELOG for the two bugs that forces.
+
+`items.amount`/`amount_unit` is a **recorded note, never a calculation.**
+Nothing decrements or rolls up; hand-edit it after a spill or overdraw.
+Must not be wired into `lots`/`lot_links`.
+
+Syringe edges on the tree render dotted (`.hypha.drawn`) - decanted, not
+transformed. Node subtitles show the form where one is set.
+
+**How an item was started (`items.method`)** — a third axis, separate
+from `type` (what it is) and `form` (which vessel): a plate off a
+fruiting block could be a clone from a fruit or tissue off the block's
+mycelium, and those have very different success rates. Stored on the
+child, since each item has exactly one parent.
+
+Options key on the **parent's** type (`METHODS`/`methodsFor`), so
+changing the parent changes what's offered - block/monotub → fruit clone
+/ block tissue; agar → wedge transfer; lc → inoculation; grain → grain
+transfer; spores → spore germination; no parent → purchased / spore
+print. Every list ends in `other` + free text (`items.method_note`, its
+own column), cleared automatically when the method isn't `other`. Drawn
+syringes get no method - `form: syringe` already answers it. Renders
+under the item header, e.g. "Clone from fruit from LM-FB1".
+
 **Photos** — upload from item pages, equipment, standalone via Gallery, or
 inline on a specific History log entry (`EventPhotos`, using the
 `photos.event_id` column). Species filter in Gallery. Native
@@ -232,10 +271,46 @@ amber:        #D6934A      jade (olive):  #7FA66A      slate: #8A7862
 reishi (wordmark): #6B2717   reishi (status pill fill): #8C3B26
 ```
 
+**The palette has two mirrored halves and they are not interchangeable.**
+`bone`/`dim`/`amber` for anything on a dark panel; `ink`/`ink-dim`/
+`amber-ink` for anything on the tan `--ground`. A chip or button with its
+own `background:var(--panel)` takes the *dark* half even though it sits
+on the tan page. Amber as a *border* is fine on either. Getting this
+wrong doesn't look broken, it looks **absent** - that's how a whole
+"Filter by species" control went unnoticed. Five instances fixed
+2026-09-07; check new rules against this before adding colour.
+
 Logo assets (glyph/favicon/wordmark/badge) are placeholder art for the
 prototype - a real design pass is planned as its own dedicated chat
 thread later (see `sporedesk-logo-design-brief.md` in the Gourmet
 Mushrooms Project).
+
+## Decided + schema done, UI not built (2026-09-07)
+
+These DB changes are live in Supabase with no code behind them yet. The
+columns exist; nothing reads or writes them. CHANGELOG has the reasoning.
+
+- **`stock.amount` / `stock.amount_unit`** — per *physical unit*, NOT the
+  recipe's `yield_amount` (that's a batch for agar: 175mL MEA makes ~7
+  plates, so keying off it would report every plate as 175mL). Capture on
+  the "Add stock" form, carry onto `items.amount` when the unit is
+  inoculated. Blank for plates. Until wired, `items.amount` is typed by
+  hand.
+- **`items.source`** (`made`/`bought`) + **`items.supplier_id`** (FK →
+  `suppliers`) — backfilled already. **The rule: provenance of the
+  *culture*, not the container.** Commercial agar plates, AIO bags, and
+  bought Master's Mix that Matt inoculated himself all stay `made` -
+  bought *media* is the `stock` table's job and the two must not collide.
+  Needs a supplier picker on the item form with inline quick-add (name
+  alone is enough; every other supplier column is nullable).
+- **`lots.badge_dismissed_at`** / **`suppliers.badge_dismissed_at`** — one
+  badge meaning "this record has holes in it," only on records
+  side-created from another screen (a harvest logged from Cultures, a
+  supplier quick-added from a picker). Not a "new record" badge:
+  intentional creations don't need flagging, so there's no second colour
+  and no precedence rule. Self-clears when filled; the tap is an
+  "I know, leave it" override. Scoped **off** `items` on purpose. Open:
+  which fields count as holes.
 
 ## Known gaps
 
