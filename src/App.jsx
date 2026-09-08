@@ -148,6 +148,7 @@ function hypha(a, b) {
 export default function App() {
     const [section, setSection] = useState('cultures');
     const [library, setLibrary] = useState([]);
+    const [librarySpecies, setLibrarySpecies] = useState([]); // library_species join rows: {library_id, species_id}
     const [equipment, setEquipment] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
     const [stock, setStock] = useState([]);
@@ -195,6 +196,7 @@ export default function App() {
             const { data: sp } = await supabase.from('species').select('*').order('common_name');
             const { data: gen } = await supabase.from('genetics').select('*').order('name');
             const { data: lib } = await supabase.from('library').select('*').order('created_at');
+            const { data: libSp } = await supabase.from('library_species').select('*');
             const { data: eq } = await supabase.from('equipment').select('*').order('category').order('name');
             const { data: sup } = await supabase.from('suppliers').select('*').order('name');
             const { data: stk } = await supabase.from('stock').select('*').order('created_at');
@@ -213,6 +215,7 @@ export default function App() {
             setSpecies(sp ?? []);
             setGenetics(gen ?? []);
             setLibrary(lib ?? []);
+            setLibrarySpecies(libSp ?? []);
             setEquipment(eq ?? []);
             setSuppliers(sup ?? []);
             setStock(stk ?? []);
@@ -540,19 +543,19 @@ export default function App() {
     };
 
     /* genetics.species_id is ON DELETE RESTRICT (the DB itself would refuse),
-       but library.species_id is ON DELETE CASCADE - deleting a species with
-       recipes/references tagged to it would silently wipe those rows too.
-       Both are checked up front so the message is clear either way rather
-       than a raw FK error or, worse, quietly losing library entries. A
-       species with neither is safe to actually delete; the
-       confirm-with-undo-timer lives in Tree. */
+       but library_species.species_id is ON DELETE CASCADE - deleting a
+       species with recipes/references tagged to it would silently wipe
+       those tag rows too. Both are checked up front so the message is
+       clear either way rather than a raw FK error or, worse, quietly
+       losing tags with no explanation. A species with neither is safe to
+       actually delete; the confirm-with-undo-timer lives in Tree. */
     const deleteSpecies = async (speciesId) => {
         if (genetics.some((g) => g.species_id === speciesId)) {
             alert('This species has culture lines under it - remove or reassign those first, or hide the species instead.');
             return;
         }
-        if (library.some((e) => e.species_id === speciesId)) {
-            alert('This species is tagged on one or more recipes/reference entries - untag those first (deleting the species would remove them too), or hide the species instead.');
+        if (librarySpecies.some((r) => r.species_id === speciesId)) {
+            alert('This species is tagged on one or more recipes/reference entries - untag those first (deleting the species would remove those tags too), or hide the species instead.');
             return;
         }
         const { error } = await supabase.from('species').delete().eq('id', speciesId);
@@ -560,9 +563,13 @@ export default function App() {
         setSpecies((p) => p.filter((s) => s.id !== speciesId));
     };
 
+    /* Species tagging on a recipe/note is many-to-many (library_species),
+       not the old single species_id column - fields.speciesIds is always
+       an array here (possibly empty), and fields.general is the explicit
+       "applies to every species / not species-specific" flag (Agar media,
+       LC media, etc.) rather than an implied meaning of "no tags yet". */
     const addLibrary = async (fields) => {
         const { data, error } = await supabase.from('library').insert({
-            species_id: fields.species_id || null,
             title: fields.title.trim(),
             kind: fields.kind,
             url: fields.url?.trim() || null,
@@ -573,14 +580,21 @@ export default function App() {
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
             buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
             steps: fields.steps?.filter((s) => s.trim()).length ? fields.steps.filter((s) => s.trim()) : null,
+            general: !!fields.general,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setLibrary((p) => [...p, data]);
+        const speciesIds = fields.speciesIds ?? [];
+        if (speciesIds.length) {
+            const rows = speciesIds.map((species_id) => ({ library_id: data.id, species_id }));
+            const { error: linkErr } = await supabase.from('library_species').insert(rows);
+            if (linkErr) { console.error(linkErr); alert('Saved, but species tags failed - check console'); return; }
+            setLibrarySpecies((p) => [...p, ...rows]);
+        }
     };
 
     const editLibrary = async (entryId, fields) => {
         const cols = {
-            species_id: fields.species_id || null,
             title: fields.title.trim(),
             kind: fields.kind,
             url: fields.url?.trim() || null,
@@ -591,16 +605,30 @@ export default function App() {
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
             buffer_pct: fields.buffer_pct === '' || fields.buffer_pct == null ? null : Number(fields.buffer_pct),
             steps: fields.steps?.filter((s) => s.trim()).length ? fields.steps.filter((s) => s.trim()) : null,
+            general: !!fields.general,
         };
         const { error } = await supabase.from('library').update(cols).eq('id', entryId);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
         setLibrary((p) => p.map((e) => (e.id === entryId ? { ...e, ...cols } : e)));
+
+        // Species tags: simplest correct sync is replace-all rather than diffing.
+        const speciesIds = fields.speciesIds ?? [];
+        const { error: delErr } = await supabase.from('library_species').delete().eq('library_id', entryId);
+        if (delErr) { console.error(delErr); alert('Saved, but species tags failed - check console'); return; }
+        let newRows = [];
+        if (speciesIds.length) {
+            newRows = speciesIds.map((species_id) => ({ library_id: entryId, species_id }));
+            const { error: insErr } = await supabase.from('library_species').insert(newRows);
+            if (insErr) { console.error(insErr); alert('Saved, but species tags failed - check console'); return; }
+        }
+        setLibrarySpecies((p) => [...p.filter((r) => r.library_id !== entryId), ...newRows]);
     };
 
     const deleteLibrary = async (entryId) => {
         const { error } = await supabase.from('library').delete().eq('id', entryId);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
         setLibrary((p) => p.filter((e) => e.id !== entryId));
+        setLibrarySpecies((p) => p.filter((r) => r.library_id !== entryId)); // DB cascades too, keep local state matching
     };
 
     /* Recipe/reference step checklists persist to the row itself (indices
@@ -1204,7 +1232,7 @@ export default function App() {
             onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
             onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
             onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
-            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.kind === 'recipe' ? 'recipes' : 'reference'); setSection('reference'); setDir('fwd'); }}
+            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); }}
             onOpenSupplies={(tab, id) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); }} />;
     } else if (section === 'supplies') {
         key = 'supplies';
@@ -1219,7 +1247,7 @@ export default function App() {
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
     } else if (section === 'reference') {
         key = 'reference';
-        screen = <ReferenceSection library={library} species={species} initialTab={referenceTab}
+        screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
             onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} />;
     } else if (section === 'inventory') {
@@ -1251,7 +1279,7 @@ export default function App() {
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
-        screen = <Tree items={mine} lines={lines} species={sp} library={library} onOpen={setOpen} photos={photos} stock={stock}
+        screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={setOpen} photos={photos} stock={stock}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
@@ -2485,7 +2513,7 @@ function SupplierTab({ suppliers, onAdd, onEdit, onDelete, initialOpenId }) {
                 })}
             </div>
             {suppliers.length === 0 && form === null && (
-                <p className="nf-help" style={{ marginTop: 18 }}>No suppliers logged yet.</p>
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>No suppliers logged yet.</p>
             )}
         </>
     );
@@ -2605,7 +2633,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
                 </div>
             ))}
             {equipment.length === 0 && form === null && (
-                <p className="nf-help" style={{ marginTop: 18 }}>No equipment listed yet.</p>
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>No equipment listed yet.</p>
             )}
         </>
     );
@@ -2821,7 +2849,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                 );
             })}
             {stock.length === 0 && form === null && (
-                <p className="nf-help" style={{ marginTop: 18 }}>Nothing in stock yet.</p>
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>Nothing in stock yet.</p>
             )}
         </>
     );
@@ -2872,10 +2900,17 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
 }
 
 /* ---------------- REFERENCE ---------------- */
-/* "What I read, or what I follow" - instruction sheets/notes and recipes,
-   as two tabs on one screen instead of Recipes being an oddly-promoted
-   top-level nav item while Reference hid three clicks deep. Same
-   underlying `library` table for both, split by `kind`. */
+/* "What I read, or what I follow" - recipes, instruction sheets/notes, and
+   the species cheat sheet, merged into one filterable feed (2026-09-08
+   redesign - was two tabs plus a separate cheat-sheet section before).
+   Three chip rows AND together: Type (Recipe/Reference/Cheat Sheet),
+   Category (shared field across recipes+notes, cheat sheet has none so it
+   naturally drops out whenever a category chip is active), and Species
+   (true multi-select, plus an explicit General chip - "applies to every
+   species" is a real flag on the row, never implied by an empty tag list).
+   Recipes and notes both live in `library`, split by `kind`; species tags
+   live in the `library_species` join table, not a single species_id
+   column, since one recipe can suit several species. */
 function StepChecklist({ steps, checked, onToggle, onReset }) {
     const checkedSet = new Set(checked ?? []);
     return (
@@ -2935,22 +2970,29 @@ function SpeciesFactsCard({ sp, isOpen, onToggle }) {
     );
 }
 
-/* Card rendering, shared between the flat Reference list and the
-   grouped-by-category Recipes view. A real component (not a closure called
-   during render) so state like the open/close chevron works cleanly. */
-function LibCard({ e, species, recipes, isOpen, onToggle, onEdit, onToggleChecklistStep, onResetChecklist }) {
-    const sp = species.find((s) => s.id === e.species_id);
+/* Card rendering, shared across every kind now that Recipes/Reference/
+   Cheat Sheet are one merged feed. A real component (not a closure called
+   during render) so state like the open/close chevron works cleanly.
+   `recipes` used to come from which tab you were on - now each card
+   decides its own layout purely from e.kind, and shows every species it's
+   tagged to (not just one) plus a General badge when that flag is set. */
+function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggleChecklistStep, onResetChecklist }) {
+    const isRecipe = e.kind === 'recipe';
+    const tagIds = new Set(librarySpecies.filter((r) => r.library_id === e.id).map((r) => r.species_id));
+    const tags = species.filter((s) => tagIds.has(s.id));
     return (
         <div className={`lib-card ${isOpen ? 'open' : ''}`}>
             <button className="lib-head" onClick={onToggle}>
                 <div>
                     <div className="lib-title">{e.title}</div>
                     <div className="lib-meta">
-                        {!recipes && <span className="lib-kind">{KINDS[e.kind] ?? e.kind}</span>}
-                        {recipes && e.yield_amount && <span className="lib-kind">
+                        <span className="lib-kind">{isRecipe ? 'Recipe' : (KINDS[e.kind] ?? e.kind)}</span>
+                        {e.category && <span className="lib-kind">{e.category}</span>}
+                        {isRecipe && e.yield_amount && <span className="lib-kind">
                             {e.category === 'Capsule blend' ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
                         </span>}
-                        {sp && <span className="lib-sp">{sp.common_name}</span>}
+                        {e.general && <span className="lib-sp">General</span>}
+                        {tags.map((s) => <span key={s.id} className="lib-sp">{s.common_name}</span>)}
                     </div>
                 </div>
                 <span className="lib-chev">{isOpen ? '\u2212' : '+'}</span>
@@ -2958,10 +3000,10 @@ function LibCard({ e, species, recipes, isOpen, onToggle, onEdit, onToggleCheckl
             {isOpen && (
                 <div className="lib-body">
                     {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
-                    {recipes && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
+                    {isRecipe && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
                         <CapsuleBlendCard recipe={e} species={species} />
                     )}
-                    {recipes && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                    {isRecipe && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
                     {e.steps?.length > 0 && <StepChecklist steps={e.steps} checked={e.checklist_checked}
                         onToggle={(i) => onToggleChecklistStep(e.id, i)} onReset={() => onResetChecklist(e.id)} />}
                     {e.body && (
@@ -2977,111 +3019,157 @@ function LibCard({ e, species, recipes, isOpen, onToggle, onEdit, onToggleCheckl
     );
 }
 
-function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist }) {
-    const [tab, setTab] = useState(initialTab || 'recipes');   // 'reference' | 'recipes'
-    const recipes = tab === 'recipes';
-    const entries = library.filter((e) => recipes === (e.kind === 'recipe'));
-    const blank = { title: '', kind: recipes ? 'recipe' : 'note', url: '', body: '', species_id: '',
-        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
+function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist }) {
     const [form, setForm] = useState(null);   // null | 'new' | entry id
+    const blank = { title: '', kind: 'recipe', url: '', body: '', speciesIds: [], general: false,
+        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
     const [f, setF] = useState(blank);
-    const [openId, setOpenId] = useState(null);
-    const [filterSpecies, setFilterSpecies] = useState(null);
-    const visibleEntries = filterSpecies ? entries.filter((e) => e.species_id === filterSpecies) : entries;
+    const [openId, setOpenId] = useState(initialOpenId || null);
+    /* Three chip rows, ANDed together - Type narrows to Recipe/Reference/
+       Cheat Sheet (or none picked = everything mixed); Category is a
+       single-select over the shared `library.category` field (a Cheat
+       Sheet card has no category, so it simply can't match once a
+       category chip is active - expected, not a bug); Species is a real
+       multi-select via the library_species join table, plus an explicit
+       General toggle rather than "no tags" silently meaning general. */
+    const [typeFilter, setTypeFilter] = useState(null);        // null | 'recipe' | 'note' | 'cheat'
+    const [categoryFilter, setCategoryFilter] = useState(null);
+    const [speciesFilter, setSpeciesFilter] = useState(new Set());
+    const [generalFilter, setGeneralFilter] = useState(false);
     const filterableSpecies = species.filter((s) => !s.hidden);
+    const categories = [...new Set(library.map((e) => e.category).filter(Boolean))].sort();
+    const speciesIdsFor = (entryId) => librarySpecies.filter((r) => r.library_id === entryId).map((r) => r.species_id);
 
-    /* Every ingredient name already used anywhere in Recipes, so typing one
-       in offers the browser's native autocomplete instead of retyping it
-       fresh - and keeps spelling consistent across recipes over time. */
+    /* Every ingredient name already used anywhere in the library, so typing
+       one in offers the browser's native autocomplete instead of retyping
+       it fresh - and keeps spelling consistent across recipes over time. */
     const knownIngredients = [...new Set(
-        entries.flatMap((e) => e.ingredients?.map((row) => row.name?.trim()).filter(Boolean) ?? [])
+        library.flatMap((e) => e.ingredients?.map((row) => row.name?.trim()).filter(Boolean) ?? [])
     )].sort();
 
     const submit = () => {
         if (!f.title.trim()) { alert('Title is required.'); return; }
-        if (form === 'new') onAdd({ ...f, kind: recipes ? 'recipe' : f.kind });
-        else onEdit(form, { ...f, kind: recipes ? 'recipe' : f.kind });
+        if (form === 'new') onAdd(f);
+        else onEdit(form, f);
         setForm(null); setF(blank);
     };
 
     const startEdit = (e) => {
         setF({
-            title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '', species_id: e.species_id ?? '',
+            title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '',
+            speciesIds: speciesIdsFor(e.id), general: !!e.general,
             category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
             ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '', steps: e.steps ?? [],
         });
         setForm(e.id);
     };
 
+    const toggleSpeciesFilter = (id) => setSpeciesFilter((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+    const speciesFilterActive = speciesFilter.size > 0 || generalFilter;
+
+    const cheatCards = filterableSpecies.map((s) => ({ cardType: 'cheat', cardId: `sp:${s.id}`, sp: s }));
+    const libCards = library.map((e) => ({
+        cardType: e.kind === 'recipe' ? 'recipe' : 'note',
+        cardId: e.id, e,
+        category: e.category || null,
+        speciesIds: speciesIdsFor(e.id),
+        general: !!e.general,
+    }));
+    const visibleCards = [...cheatCards, ...libCards]
+        .filter((c) => !typeFilter || c.cardType === typeFilter)
+        .filter((c) => !categoryFilter || c.category === categoryFilter)
+        .filter((c) => {
+            if (!speciesFilterActive) return true;
+            if (c.cardType === 'cheat') return speciesFilter.has(c.sp.id);
+            return c.speciesIds.some((id) => speciesFilter.has(id)) || (generalFilter && c.general);
+        })
+        .sort((a, b) => (a.cardType === 'cheat' ? a.sp.common_name : a.e.title)
+            .localeCompare(b.cardType === 'cheat' ? b.sp.common_name : b.e.title));
+
     return (
         <div className="page">
             <div className="bar">
                 <div>
-                    <div className="eyebrow">{recipes ? 'Mixes you make again and again' : 'Reference you want at the bench'}</div>
-                    <h1>{recipes ? 'Recipes' : 'Reference'}</h1>
+                    <div className="eyebrow">Recipes, reference & the species cheat sheet - filter by any combination</div>
+                    <h1>Library</h1>
                 </div>
                 {form === null && (
-                    <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>
-                        + {recipes ? 'Add recipe' : 'Add entry'}
-                    </button>
+                    <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add</button>
                 )}
             </div>
 
+            <div className="sp-chips">
+                <span className="sp-chips-label">Type:</span>
+                <button className={`sp-chip ${!typeFilter ? 'on' : ''}`} onClick={() => setTypeFilter(null)}>All</button>
+                <button className={`sp-chip ${typeFilter === 'recipe' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'recipe' ? null : 'recipe')}>Recipe</button>
+                <button className={`sp-chip ${typeFilter === 'note' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'note' ? null : 'note')}>Reference</button>
+                <button className={`sp-chip ${typeFilter === 'cheat' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'cheat' ? null : 'cheat')}>Cheat Sheet</button>
+            </div>
+
+            {categories.length > 0 && (
+                <div className="sp-chips">
+                    <span className="sp-chips-label">Category:</span>
+                    <button className={`sp-chip ${!categoryFilter ? 'on' : ''}`} onClick={() => setCategoryFilter(null)}>All</button>
+                    {categories.map((c) => (
+                        <button key={c} className={`sp-chip ${categoryFilter === c ? 'on' : ''}`}
+                            onClick={() => setCategoryFilter(categoryFilter === c ? null : c)}>{c}</button>
+                    ))}
+                </div>
+            )}
+
             {filterableSpecies.length > 0 && (
                 <div className="sp-chips">
-                    <span className="sp-chips-label">Filter by species (both tabs):</span>
-                    <button className={`sp-chip ${!filterSpecies ? 'on' : ''}`} onClick={() => setFilterSpecies(null)}>All species</button>
+                    <span className="sp-chips-label">Species:</span>
+                    <button className={`sp-chip ${!speciesFilterActive ? 'on' : ''}`}
+                        onClick={() => { setSpeciesFilter(new Set()); setGeneralFilter(false); }}>All species</button>
+                    <button className={`sp-chip ${generalFilter ? 'on' : ''}`} onClick={() => setGeneralFilter((v) => !v)}>General</button>
                     {filterableSpecies.map((s) => (
-                        <button key={s.id} className={`sp-chip ${filterSpecies === s.id ? 'on' : ''}`}
-                            onClick={() => setFilterSpecies(filterSpecies === s.id ? null : s.id)}>
+                        <button key={s.id} className={`sp-chip ${speciesFilter.has(s.id) ? 'on' : ''}`}
+                            onClick={() => toggleSpeciesFilter(s.id)}>
                             {s.common_name}
                         </button>
                     ))}
                 </div>
             )}
 
-            <div className="tabs">
-                <button className={`tab ${tab === 'recipes' ? 'on' : ''}`} onClick={() => { setTab('recipes'); setForm(null); }}>Recipes</button>
-                <button className={`tab ${tab === 'reference' ? 'on' : ''}`} onClick={() => { setTab('reference'); setForm(null); }}>Reference</button>
-            </div>
-
-            {!recipes && form === null && (
-                <>
-                    <div className="sec" style={{ marginTop: 4 }}><span>Species cheat sheet</span></div>
-                    <div className="lib-list" style={{ marginBottom: 18 }}>
-                        {filterableSpecies.filter((s) => !filterSpecies || s.id === filterSpecies).map((s) => (
-                            <SpeciesFactsCard key={s.id} sp={s} isOpen={openId === `sp:${s.id}`}
-                                onToggle={() => setOpenId(openId === `sp:${s.id}` ? null : `sp:${s.id}`)} />
-                        ))}
-                    </div>
-                    <div className="sec"><span>How-to guides</span></div>
-                </>
-            )}
-
             {form !== null && (
                 <div className="new-form">
-                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} {recipes ? 'recipe' : 'entry'}</div>
+                    <div className="nf-title">{form === 'new' ? 'New' : 'Edit'} entry</div>
                     <div className="nf-grid">
                         <div className="nf-field wide"><label>Title</label>
                             <input className="in" autoFocus value={f.title}
-                                placeholder={recipes ? 'Homemade MEA - 8 oz jar' : 'Dual extraction sheet'}
+                                placeholder="Homemade MEA - 8 oz jar"
                                 onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-                        {!recipes && (
-                            <div className="nf-field"><label>Kind</label>
-                                <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
-                                    {Object.keys(KINDS).filter((k) => k !== 'recipe').map((k) => <option key={k} value={k}>{KINDS[k]}</option>)}
-                                </select></div>
-                        )}
-                        <div className="nf-field"><label>Species (optional)</label>
-                            <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
-                                <option value="">— applies to everything —</option>
-                                {visibleSpeciesFor(species, f.species_id).map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                        <div className="nf-field"><label>Kind</label>
+                            <select className="in sel" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+                                {Object.keys(KINDS).map((k) => <option key={k} value={k}>{KINDS[k]}</option>)}
                             </select></div>
+                        <div className="nf-field wide"><label>Species (pick any that apply)</label>
+                            <div className="sp-chips" style={{ marginTop: 4 }}>
+                                <button type="button" className={`sp-chip ${f.general ? 'on' : ''}`}
+                                    onClick={() => setF({ ...f, general: !f.general })}>General (all species)</button>
+                                {species.filter((s) => !s.hidden || f.speciesIds.includes(s.id)).map((s) => (
+                                    <button type="button" key={s.id} className={`sp-chip ${f.speciesIds.includes(s.id) ? 'on' : ''}`}
+                                        onClick={() => setF({ ...f, speciesIds: f.speciesIds.includes(s.id)
+                                            ? f.speciesIds.filter((id) => id !== s.id) : [...f.speciesIds, s.id] })}>
+                                        {s.common_name}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="nf-help" style={{ marginTop: 6 }}>
+                                Pick any species this applies to, or General for something like Agar/LC media
+                                that isn't species-specific. Not required, but every entry should get one or
+                                the other before shipping to testers.
+                            </p></div>
                         <div className="nf-field wide"><label>Link (optional)</label>
                             <input className="in" value={f.url} placeholder="https://…"
                                 onChange={(e) => setF({ ...f, url: e.target.value })} /></div>
 
-                        {recipes ? (
+                        {f.kind === 'recipe' ? (
                             <>
                                 <div className="nf-field"><label>Category</label>
                                     <select className="in sel" value={f.category} onChange={(e) => {
@@ -3231,45 +3319,23 @@ function ReferenceSection({ library, species, initialTab, onAdd, onEdit, onDelet
                 </div>
             )}
 
-            {visibleEntries.length === 0 && form === null && (
-                <p className="nf-help" style={{ marginTop: 18 }}>
-                    Nothing here yet. {recipes
-                        ? 'Your agar and LC media recipes are the obvious first two.'
-                        : 'Paste in the text from your printed sheets - casing layer, dual extraction, spore prints - so they are searchable and on your phone.'}
+            {visibleCards.length === 0 && form === null && (
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>
+                    Nothing matches these filters yet. Try clearing a chip above, or add a new recipe
+                    or reference entry.
                 </p>
             )}
 
             <div className="lib-list">
-                {recipes ? (
-                    Object.entries(
-                        visibleEntries.reduce((groups, e) => {
-                            const cat = e.category || 'Uncategorized';
-                            (groups[cat] ||= []).push(e);
-                            return groups;
-                        }, {})
-                    )
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([cat, group]) => (
-                        <div key={cat}>
-                            <div className="sec" style={{ marginTop: 18 }}><span>{cat}</span></div>
-                            <div className="lib-list" style={{ marginTop: 0 }}>
-                                {[...group].sort((a, b) => a.title.localeCompare(b.title)).map((e) => (
-                                    <LibCard key={e.id} e={e} species={species} recipes={recipes}
-                                        isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
-                                        onEdit={() => startEdit(e)}
-                                        onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
-                                ))}
-                            </div>
-                        </div>
-                    ))
+                {visibleCards.map((c) => c.cardType === 'cheat' ? (
+                    <SpeciesFactsCard key={c.cardId} sp={c.sp} isOpen={openId === c.cardId}
+                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} />
                 ) : (
-                    visibleEntries.map((e) => (
-                        <LibCard key={e.id} e={e} species={species} recipes={recipes}
-                            isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
-                            onEdit={() => startEdit(e)}
-                            onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
-                    ))
-                )}
+                    <LibCard key={c.cardId} e={c.e} species={species} librarySpecies={librarySpecies}
+                        isOpen={openId === c.e.id} onToggle={() => setOpenId(openId === c.e.id ? null : c.e.id)}
+                        onEdit={() => startEdit(c.e)}
+                        onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
+                ))}
             </div>
         </div>
     );
@@ -3429,7 +3495,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
+function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -3493,7 +3559,7 @@ function Tree({ items, lines, species, library, onOpen, onBack, onAddLine, onEdi
             alert('This species has culture lines under it - remove or reassign those first, or hide the species instead.');
             return;
         }
-        if (library.some((e) => e.species_id === species.id)) {
+        if (librarySpecies.some((r) => r.species_id === species.id)) {
             alert('This species is tagged on one or more recipes/reference entries - untag those first, or hide the species instead.');
             return;
         }
@@ -4657,7 +4723,7 @@ function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDele
                 label="Add a photo not tied to anything in particular" />
 
             {visible.length === 0 && (
-                <p className="nf-help" style={{ marginTop: 18 }}>
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>
                     No photos yet - add one from any item's page, from equipment, or right above, and it shows up here too.
                 </p>
             )}
@@ -4894,6 +4960,11 @@ const CSS = `
 .new-form{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:20px;animation:pop .22s ease-out;}
 .nf-title{font-family:var(--serif);font-size:19px;margin-bottom:6px;}
 .nf-help{font-size:12px;color:var(--dim);line-height:1.5;margin:0 0 14px;max-width:60ch;}
+/* --dim reads fine inside a dark .new-form panel, but is nearly invisible
+   sitting straight on the tan page background (too close to --ground) -
+   this modifier is for exactly that case, e.g. an empty-state message
+   rendered directly on .page rather than inside a form. */
+.nf-help.nf-help-page{color:var(--ink-dim);}
 .nf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px;}
 .nf-field{display:flex;flex-direction:column;gap:5px;}
 .nf-field.wide{grid-column:1 / -1;}
