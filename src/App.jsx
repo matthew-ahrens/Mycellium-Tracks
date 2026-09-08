@@ -574,7 +574,7 @@ export default function App() {
             kind: fields.kind,
             url: fields.url?.trim() || null,
             body: fields.body?.trim() || null,
-            category: fields.category?.trim() || null,
+            categories: fields.categories?.length ? fields.categories : [],
             yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
@@ -599,7 +599,7 @@ export default function App() {
             kind: fields.kind,
             url: fields.url?.trim() || null,
             body: fields.body?.trim() || null,
-            category: fields.category?.trim() || null,
+            categories: fields.categories?.length ? fields.categories : [],
             yield_amount: fields.yield_amount === '' || fields.yield_amount == null ? null : Number(fields.yield_amount),
             yield_unit: fields.yield_unit || null,
             ingredients: fields.ingredients?.length ? fields.ingredients : null,
@@ -1228,7 +1228,7 @@ export default function App() {
     } else if (section === 'search') {
         key = 'search';
         screen = <Search items={items} genetics={genetics} species={species} lots={lots} lotLinks={lotLinks}
-            library={library} equipment={equipment} suppliers={suppliers} stock={stock}
+            library={library} librarySpecies={librarySpecies} equipment={equipment} suppliers={suppliers} stock={stock}
             onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
             onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
             onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
@@ -1842,7 +1842,7 @@ function firstMatch(fields, nq) {
     return null;
 }
 
-function Search({ items, genetics, species, lots, lotLinks, library, equipment, suppliers, stock,
+function Search({ items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
     onOpenItem, onOpenSpecies, onOpenLot, onOpenLibrary, onOpenSupplies }) {
     const [q, setQ] = useState('');
     const nq = norm(q.trim());
@@ -1902,15 +1902,16 @@ function Search({ items, genetics, species, lots, lotLinks, library, equipment, 
         if (lotHits.length) out.push({ key: 'lots', label: 'Inventory — lots', hits: lotHits });
 
         const libHits = library.map((e) => {
-            const sp = species.find((s) => s.id === e.species_id);
+            const tagNames = librarySpecies.filter((r) => r.library_id === e.id)
+                .map((r) => species.find((s) => s.id === r.species_id)?.common_name).filter(Boolean).join(', ');
             const ingredientNames = e.ingredients?.map((row) => row.name).filter(Boolean).join(', ');
             const m = firstMatch([
-                ['Title', e.title], ['Category', e.category], ['Ingredients', ingredientNames],
-                ['Notes', e.body], ['Species', sp?.common_name],
+                ['Title', e.title], ['Category', e.categories?.join(', ')], ['Ingredients', ingredientNames],
+                ['Notes', e.body], ['Species', e.general ? 'General' : tagNames],
             ], nq);
             return m && {
                 id: e.id, title: e.title,
-                subtitle: e.kind === 'recipe' ? (e.category || 'Recipe') : (KINDS[e.kind] ?? e.kind),
+                subtitle: e.kind === 'recipe' ? (e.categories?.[0] || 'Recipe') : (KINDS[e.kind] ?? e.kind),
                 match: m.label, snippet: m.snippet, onClick: () => onOpenLibrary(e),
             };
         }).filter(Boolean);
@@ -1951,7 +1952,7 @@ function Search({ items, genetics, species, lots, lotLinks, library, equipment, 
         if (stockHits.length) out.push({ key: 'stock', label: 'Supplies — stock', hits: stockHits });
 
         return out;
-    }, [nq, items, genetics, species, lots, lotLinks, library, equipment, suppliers, stock]);
+    }, [nq, items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock]);
 
     const total = groups.reduce((n, g) => n + g.hits.length, 0);
 
@@ -2666,7 +2667,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const [f, setF] = useState(blank);
     const recipes = library.filter((e) => e.kind === 'recipe');
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
-    const filteredRecipes = recipeCategory ? recipes.filter((r) => r.category === recipeCategory) : recipes;
+    const filteredRecipes = recipeCategory ? recipes.filter((r) => r.categories?.includes(recipeCategory)) : recipes;
     const isNew = form === 'new';
 
     const stockRef = useRef(stock);
@@ -2714,7 +2715,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             <select className="in sel" value={f.kind} onChange={(e) => {
                                 const newKind = e.target.value;
                                 const cat = STOCK_KIND_RECIPE_CATEGORY[newKind];
-                                const stillValid = !cat || recipes.some((r) => r.id === f.recipe_id && r.category === cat);
+                                const stillValid = !cat || recipes.some((r) => r.id === f.recipe_id && r.categories?.includes(cat));
                                 setF({ ...f, kind: newKind, recipe_id: stillValid ? f.recipe_id : '' });
                             }}>
                                 {Object.keys(STOCK_KIND).map((k) => <option key={k} value={k}>{STOCK_KIND[k]}</option>)}
@@ -2987,9 +2988,9 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
                     <div className="lib-title">{e.title}</div>
                     <div className="lib-meta">
                         <span className="lib-kind">{isRecipe ? 'Recipe' : (KINDS[e.kind] ?? e.kind)}</span>
-                        {e.category && <span className="lib-kind">{e.category}</span>}
+                        {e.categories?.map((c) => <span key={c} className="lib-kind">{c}</span>)}
                         {isRecipe && e.yield_amount && <span className="lib-kind">
-                            {e.category === 'Capsule blend' ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
+                            {e.categories?.includes('Capsule blend') ? `${e.yield_amount} capsules` : `makes ${e.yield_amount}${e.yield_unit}`}
                         </span>}
                         {e.general && <span className="lib-sp">General</span>}
                         {tags.map((s) => <span key={s.id} className="lib-sp">{s.common_name}</span>)}
@@ -3000,10 +3001,10 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
             {isOpen && (
                 <div className="lib-body">
                     {e.url && <a className="lib-link" href={e.url} target="_blank" rel="noreferrer">{e.url}</a>}
-                    {isRecipe && e.category === 'Capsule blend' && e.ingredients?.length > 0 && (
+                    {isRecipe && e.categories?.includes('Capsule blend') && e.ingredients?.length > 0 && (
                         <CapsuleBlendCard recipe={e} species={species} />
                     )}
-                    {isRecipe && e.category !== 'Capsule blend' && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                    {isRecipe && !e.categories?.includes('Capsule blend') && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
                     {e.steps?.length > 0 && <StepChecklist steps={e.steps} checked={e.checklist_checked}
                         onToggle={(i) => onToggleChecklistStep(e.id, i)} onReset={() => onResetChecklist(e.id)} />}
                     {e.body && (
@@ -3022,22 +3023,29 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
 function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist }) {
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const blank = { title: '', kind: 'recipe', url: '', body: '', speciesIds: [], general: false,
-        category: '', yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
+        categories: [], yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(initialOpenId || null);
     /* Three chip rows, ANDed together - Type narrows to Recipe/Reference/
-       Cheat Sheet (or none picked = everything mixed); Category is a
-       single-select over the shared `library.category` field (a Cheat
-       Sheet card has no category, so it simply can't match once a
-       category chip is active - expected, not a bug); Species is a real
-       multi-select via the library_species join table, plus an explicit
-       General toggle rather than "no tags" silently meaning general. */
+       Cheat Sheet (or none picked = everything mixed); Category is a real
+       multi-select over `library.categories` (text[] - an entry can be
+       both Nutrient broth AND Bulk substrate, e.g. Cordyceps Nutrient
+       Broth; a Cheat Sheet card has no categories, so it simply can't
+       match once a category chip is active - expected, not a bug);
+       Species is a real multi-select via the library_species join table,
+       plus an explicit General toggle rather than "no tags" silently
+       meaning general. */
     const [typeFilter, setTypeFilter] = useState(null);        // null | 'recipe' | 'note' | 'cheat'
-    const [categoryFilter, setCategoryFilter] = useState(null);
+    const [categoryFilter, setCategoryFilter] = useState(new Set());
     const [speciesFilter, setSpeciesFilter] = useState(new Set());
     const [generalFilter, setGeneralFilter] = useState(false);
     const filterableSpecies = species.filter((s) => !s.hidden);
-    const categories = [...new Set(library.map((e) => e.category).filter(Boolean))].sort();
+    const categories = [...new Set(library.flatMap((e) => e.categories ?? []))].sort();
+    const toggleCategoryFilter = (c) => setCategoryFilter((prev) => {
+        const next = new Set(prev);
+        if (next.has(c)) next.delete(c); else next.add(c);
+        return next;
+    });
     const speciesIdsFor = (entryId) => librarySpecies.filter((r) => r.library_id === entryId).map((r) => r.species_id);
 
     /* Every ingredient name already used anywhere in the library, so typing
@@ -3058,7 +3066,7 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
         setF({
             title: e.title, kind: e.kind, url: e.url ?? '', body: e.body ?? '',
             speciesIds: speciesIdsFor(e.id), general: !!e.general,
-            category: e.category ?? '', yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
+            categories: e.categories ?? [], yield_amount: e.yield_amount ?? '', yield_unit: e.yield_unit ?? 'mL',
             ingredients: e.ingredients ?? [], buffer_pct: e.buffer_pct ?? '', steps: e.steps ?? [],
         });
         setForm(e.id);
@@ -3075,13 +3083,14 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
     const libCards = library.map((e) => ({
         cardType: e.kind === 'recipe' ? 'recipe' : 'note',
         cardId: e.id, e,
-        category: e.category || null,
+        categories: e.categories ?? [],
         speciesIds: speciesIdsFor(e.id),
         general: !!e.general,
     }));
+    const categoryFilterActive = categoryFilter.size > 0;
     const visibleCards = [...cheatCards, ...libCards]
         .filter((c) => !typeFilter || c.cardType === typeFilter)
-        .filter((c) => !categoryFilter || c.category === categoryFilter)
+        .filter((c) => !categoryFilterActive || c.categories?.some((cat) => categoryFilter.has(cat)))
         .filter((c) => {
             if (!speciesFilterActive) return true;
             if (c.cardType === 'cheat') return speciesFilter.has(c.sp.id);
@@ -3113,10 +3122,10 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
             {categories.length > 0 && (
                 <div className="sp-chips">
                     <span className="sp-chips-label">Category:</span>
-                    <button className={`sp-chip ${!categoryFilter ? 'on' : ''}`} onClick={() => setCategoryFilter(null)}>All</button>
+                    <button className={`sp-chip ${!categoryFilterActive ? 'on' : ''}`} onClick={() => setCategoryFilter(new Set())}>All</button>
                     {categories.map((c) => (
-                        <button key={c} className={`sp-chip ${categoryFilter === c ? 'on' : ''}`}
-                            onClick={() => setCategoryFilter(categoryFilter === c ? null : c)}>{c}</button>
+                        <button key={c} className={`sp-chip ${categoryFilter.has(c) ? 'on' : ''}`}
+                            onClick={() => toggleCategoryFilter(c)}>{c}</button>
                     ))}
                 </div>
             )}
@@ -3171,20 +3180,24 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
 
                         {f.kind === 'recipe' ? (
                             <>
-                                <div className="nf-field"><label>Category</label>
-                                    <select className="in sel" value={f.category} onChange={(e) => {
-                                        const wasCapsule = f.category === 'Capsule blend';
-                                        const isCapsule = e.target.value === 'Capsule blend';
-                                        /* The two ingredient shapes ({amount,unit,name} vs {species_id,mg})
-                                           aren't compatible - clear rows when crossing that line so a
-                                           half-filled row from one shape can't leak into the other. */
-                                        setF({ ...f, category: e.target.value, ingredients: wasCapsule !== isCapsule ? [] : f.ingredients });
-                                    }}>
-                                        <option value="">— pick one —</option>
-                                        {RECIPE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                                    </select></div>
+                                <div className="nf-field wide"><label>Category (pick any that apply)</label>
+                                    <div className="sp-chips" style={{ marginTop: 4 }}>
+                                        {RECIPE_CATEGORIES.map((c) => (
+                                            <button type="button" key={c} className={`sp-chip ${f.categories.includes(c) ? 'on' : ''}`}
+                                                onClick={() => {
+                                                    const wasCapsule = f.categories.includes('Capsule blend');
+                                                    const nextCategories = f.categories.includes(c)
+                                                        ? f.categories.filter((x) => x !== c) : [...f.categories, c];
+                                                    const isCapsule = nextCategories.includes('Capsule blend');
+                                                    /* The two ingredient shapes ({amount,unit,name} vs {species_id,mg})
+                                                       aren't compatible - clear rows when crossing that line so a
+                                                       half-filled row from one shape can't leak into the other. */
+                                                    setF({ ...f, categories: nextCategories, ingredients: wasCapsule !== isCapsule ? [] : f.ingredients });
+                                                }}>{c}</button>
+                                        ))}
+                                    </div></div>
 
-                                {f.category === 'Capsule blend' ? (
+                                {f.categories.includes('Capsule blend') ? (
                                     <>
                                         <div className="nf-field"><label>Capsule count</label>
                                             <input className="in" inputMode="numeric" value={f.yield_amount} placeholder="e.g. 100"
