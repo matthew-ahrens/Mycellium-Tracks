@@ -3422,6 +3422,57 @@ function DataTab({ items, genetics, species }) {
     const contamReasons = reasonTally('contaminated');
     const failReasons = reasonTally('failed');
 
+    /* Colonization speed - early days: only a handful of "Colonized" log
+       entries exist yet, most caught whenever Matt happened to check in
+       rather than the exact day it finished, so every number here is an
+       upper bound, not a precise measurement. Same-day created->colonized
+       entries are dropped - those are LC jars logged after the fact when
+       drawn into syringes (an already-colonized culture being subcultured,
+       not tracked from inoculation), so "0 days" would be a logging
+       artifact, not a real result. Confirmed with Matt 2026-09-09. */
+    const colonizeSpeeds = items
+        .filter((i) => i.created)
+        .map((i) => {
+            const colEvent = i.log?.find((e) => e.kind === 'status' && e.body === 'Colonized');
+            if (!colEvent) return null;
+            const days = Math.round((new Date(colEvent.date) - new Date(i.created)) / 86400000);
+            if (days <= 0) return null;
+            return { sp: speciesFor(i), days };
+        })
+        .filter((row) => row?.sp);
+
+    const speedBySpecies = {};
+    colonizeSpeeds.forEach(({ sp, days }) => {
+        (speedBySpecies[sp.id] ??= { sp, days: [] }).days.push(days);
+    });
+    const speedRows = Object.values(speedBySpecies).sort((a, b) => a.sp.common_name.localeCompare(b.sp.common_name));
+
+    /* Grow activity heatmap - last 90 days, grid-auto-flow:column so listing
+       cells in date order alone produces week-columns of 7 (no manual
+       week-bucketing math needed). Two much older entries from Matt's
+       earlier stint with mushrooms years back are real but would blow the
+       grid out to a mostly-empty multi-year span, so they're called out as
+       a count instead of plotted. */
+    const HEATMAP_DAYS = 90;
+    const heatToday = new Date();
+    heatToday.setHours(0, 0, 0, 0);
+    const heatStart = new Date(heatToday);
+    heatStart.setDate(heatStart.getDate() - (HEATMAP_DAYS - 1));
+    const toISO = (d) => d.toISOString().slice(0, 10);
+    const heatStartISO = toISO(heatStart);
+
+    const countsByDay = {};
+    items.forEach((i) => { if (i.created) countsByDay[i.created] = (countsByDay[i.created] || 0) + 1; });
+
+    const heatCells = [];
+    for (let k = 0; k < heatStart.getDay(); k++) heatCells.push(null);
+    for (let d = new Date(heatStart); d <= heatToday; d.setDate(d.getDate() + 1)) {
+        const iso = toISO(d);
+        heatCells.push({ date: iso, count: countsByDay[iso] || 0 });
+    }
+    const heatLevel = (count) => (count === 0 ? 0 : count <= 1 ? 1 : count <= 3 ? 2 : 3);
+    const outsideWindow = items.filter((i) => i.created && i.created < heatStartISO).length;
+
     const liveBySpecies = species
         .filter((s) => !s.hidden)
         .map((s) => {
@@ -3557,6 +3608,60 @@ function DataTab({ items, genetics, species }) {
                     </div>
                 </>
             )}
+
+            {speedRows.length > 0 && (
+                <>
+                    <div className="bar" style={{ marginTop: 30 }}>
+                        <div>
+                            <div className="eyebrow">Early data - upper bounds, not exact days. Same-day LC harvests excluded</div>
+                            <h1 style={{ fontSize: 21 }}>Colonization speed</h1>
+                        </div>
+                    </div>
+                    <div className="calc-grid">
+                        {speedRows.map(({ sp, days }) => (
+                            <div key={sp.id} className="calc-card">
+                                <div className="calc-head">
+                                    <div className="calc-title">{sp.common_name}</div>
+                                    <div className="calc-sub">{sp.colonize_time ? `Reference: ${sp.colonize_time}` : 'No reference colonize time logged for this species yet.'}</div>
+                                </div>
+                                <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {days.map((d, idx) => (
+                                        <span key={idx} className="pill tone-slate">{d}d</span>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+
+            <div className="bar" style={{ marginTop: 30 }}>
+                <div>
+                    <div className="eyebrow">Last {HEATMAP_DAYS} days, by day a grow was started</div>
+                    <h1 style={{ fontSize: 21 }}>Grow activity</h1>
+                </div>
+            </div>
+            <div className="heat-wrap">
+                <div className="heat-days">
+                    <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+                </div>
+                <div className="heat-grid">
+                    {heatCells.map((cell, idx) => cell ? (
+                        <div key={cell.date} className={`heat-cell lvl-${heatLevel(cell.count)}`} title={`${cell.date} — ${cell.count} started`} />
+                    ) : (
+                        <div key={`pad-${idx}`} className="heat-cell empty" />
+                    ))}
+                </div>
+            </div>
+            <div className="heat-legend">
+                <span>Less</span>
+                <span className="heat-cell lvl-0" />
+                <span className="heat-cell lvl-1" />
+                <span className="heat-cell lvl-2" />
+                <span className="heat-cell lvl-3" />
+                <span>More</span>
+                {outsideWindow > 0 && <span style={{ marginLeft: 14 }}>+{outsideWindow} earlier grow{outsideWindow === 1 ? '' : 's'} logged before this window, not shown</span>}
+            </div>
 
             <div className="bar" style={{ marginTop: 30 }}>
                 <div>
@@ -5293,6 +5398,22 @@ const CSS = `
 .tone-clay{background:var(--clay);color:var(--bone);}
 .tone-rust{background:var(--rust);color:var(--bone);}
 .tone-slate{background:var(--slate);color:var(--panel);}
+
+/* Grow-activity heatmap on the Data tab. Cells listed in date order with
+   grid-auto-flow:column + a fixed 7-row template is what turns a flat list
+   into GitHub-style week columns - no manual week math. Rendered directly
+   on the tan .page background, so labels use --ink-dim like every other
+   page-level caption (see .nf-help-page). */
+.heat-wrap{display:flex;gap:8px;margin-top:18px;align-items:flex-start;}
+.heat-days{display:grid;grid-template-rows:repeat(7,11px);gap:3px;font-family:var(--mono);font-size:8px;color:var(--ink-dim);text-align:right;padding-top:1px;}
+.heat-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:3px;overflow-x:auto;padding-bottom:4px;}
+.heat-cell{width:11px;height:11px;border-radius:3px;background:var(--panel2);border:1px solid var(--line);}
+.heat-cell.empty{visibility:hidden;}
+.heat-cell.lvl-1{background:rgba(214,147,74,.35);border-color:rgba(214,147,74,.35);}
+.heat-cell.lvl-2{background:rgba(214,147,74,.65);border-color:rgba(214,147,74,.65);}
+.heat-cell.lvl-3{background:var(--amber);border-color:var(--amber);}
+.heat-legend{display:flex;align-items:center;gap:5px;margin-top:8px;font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);}
+.heat-legend .heat-cell{width:10px;height:10px;}
 
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:14px 0 20px;}
 .crumb{background:none;border:none;font-family:var(--mono);font-size:11px;color:var(--ink-dim);cursor:pointer;padding:2px 3px;}
