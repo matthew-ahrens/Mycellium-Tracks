@@ -241,6 +241,7 @@ export default function App() {
                 notes: r.notes ?? '',
                 dryWeight: r.dry_substrate_g ?? undefined,
                 failureReason: r.failure_reason ?? null,
+                source: r.source ?? null,
                 harvests: (harvests ?? [])
                     .filter((h) => h.source_item_id === r.id)
                     .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g), lotId: h.id }))
@@ -3385,6 +3386,42 @@ function DataTab({ items, genetics, species }) {
     const LIVE_STATUSES = ['colonizing', 'colonized', 'fruiting'];
     const liveItems = items.filter((i) => STATUS[i.status]?.live);
 
+    // Made in-house vs. bought pre-colonized - `items.source` turned out to
+    // just be this binary, not the richer own-spawn/supplier/home-batch
+    // split from the original plan (supplier_id is only on 9 of 78 items,
+    // too thin for a real per-supplier cut yet). This is the honest version
+    // of "by source" until there's more supplier data logged.
+    const SOURCE_LABEL = { made: 'Made in-house', bought: 'Bought' };
+    const bySource = Object.keys(SOURCE_LABEL).map((src) => {
+        const rows = items.filter((i) => i.source === src && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
+        const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+        return { src, label: SOURCE_LABEL[src], rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
+    }).filter((row) => row.resolved > 0);
+
+    /* failure_reason is free text Matt types, not a clean enum - "Never
+       colonized, too much gypsum dried out the grain" is real logged text,
+       not an option from a dropdown. Bucketing it against the app's own
+       REASONS list via a literal substring match (first match in list
+       order wins) is honest about what it can and can't catch - a close
+       paraphrase that doesn't share the exact phrase lands in "Other"
+       rather than getting force-fit into the wrong bucket. Every pill
+       carries the real logged text in its title tooltip so nothing here
+       hides behind a category label. */
+    const reasonTally = (statusKey) => {
+        const keywords = REASONS[statusKey];
+        const buckets = {};
+        keywords.forEach((k) => { buckets[k] = []; });
+        buckets.Other = [];
+        items.filter((i) => i.status === statusKey && i.failureReason).forEach((i) => {
+            const text = i.failureReason.toLowerCase();
+            const hit = keywords.find((k) => text.includes(k.toLowerCase()));
+            (buckets[hit] ?? buckets.Other).push(i.failureReason);
+        });
+        return Object.entries(buckets).filter(([, ex]) => ex.length > 0).sort((a, b) => b[1].length - a[1].length);
+    };
+    const contamReasons = reasonTally('contaminated');
+    const failReasons = reasonTally('failed');
+
     const liveBySpecies = species
         .filter((s) => !s.hidden)
         .map((s) => {
@@ -3440,7 +3477,86 @@ function DataTab({ items, genetics, species }) {
                         </div>
                     </div>
                 ))}
+
+                {FAIL_STATUSES.map((st) => (
+                    <div key={st} className="calc-card">
+                        <div className="calc-head">
+                            <div className="calc-title">{STATUS[st].label}</div>
+                            <div className="calc-sub">All-time count, not just this run of resolved items.</div>
+                        </div>
+                        <div className="tally">
+                            <span className="num" style={{ color: TONE[STATUS[st].tone] }}>
+                                {items.filter((i) => i.status === st).length}
+                            </span>
+                            <span className="tally-l">total<br />{STATUS[st].label.toLowerCase()}</span>
+                        </div>
+                    </div>
+                ))}
             </div>
+
+            {bySource.length > 0 && (
+                <>
+                    <div className="bar" style={{ marginTop: 30 }}>
+                        <div>
+                            <div className="eyebrow">Resolved runs only - made vs. bought</div>
+                            <h1 style={{ fontSize: 21 }}>Success rate by source</h1>
+                        </div>
+                    </div>
+                    <div className="calc-grid">
+                        {bySource.map((row) => (
+                            <div key={row.src} className="calc-card">
+                                <div className="calc-head">
+                                    <div className="calc-title">{row.label}</div>
+                                    <div className="calc-sub">{row.resolved} resolved run{row.resolved === 1 ? '' : 's'}.</div>
+                                </div>
+                                <div className="calc-result block">
+                                    <strong>{row.rate}%</strong>
+                                    <span>{row.success} of {row.resolved} made it</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+
+            {(contamReasons.length > 0 || failReasons.length > 0) && (
+                <>
+                    <div className="bar" style={{ marginTop: 30 }}>
+                        <div>
+                            <div className="eyebrow">Grouped by keyword match on the logged reason - hover a pill for the exact text</div>
+                            <h1 style={{ fontSize: 21 }}>What's actually going wrong</h1>
+                        </div>
+                    </div>
+                    <div className="calc-grid">
+                        {contamReasons.length > 0 && (
+                            <div className="calc-card">
+                                <div className="calc-head">
+                                    <div className="calc-title">Contaminated</div>
+                                    <div className="calc-sub">Logged reason, bucketed.</div>
+                                </div>
+                                <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {contamReasons.map(([reason, examples]) => (
+                                        <span key={reason} className="pill tone-clay" title={examples.join('\n')}>{examples.length} {reason}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {failReasons.length > 0 && (
+                            <div className="calc-card">
+                                <div className="calc-head">
+                                    <div className="calc-title">Failed</div>
+                                    <div className="calc-sub">Logged reason, bucketed.</div>
+                                </div>
+                                <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {failReasons.map(([reason, examples]) => (
+                                        <span key={reason} className="pill tone-rust" title={examples.join('\n')}>{examples.length} {reason}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
 
             <div className="bar" style={{ marginTop: 30 }}>
                 <div>
