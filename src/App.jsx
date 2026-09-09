@@ -1267,6 +1267,9 @@ export default function App() {
     } else if (section === 'calculators') {
         key = 'calculators';
         screen = <Calculators species={species} />;
+    } else if (section === 'data') {
+        key = 'data';
+        screen = <DataTab items={items} genetics={genetics} species={species} />;
     } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture}
@@ -1301,6 +1304,7 @@ export default function App() {
         ['reference', 'Reference', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
         ['search', 'Search', 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM21 21l-5.4-5.4'],
         ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
+        ['data', 'Data', 'M4 19V10M10 19V4M16 19v-7M4 19h16'],
     ];
 
     return (
@@ -3350,6 +3354,120 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
                         onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
                 ))}
             </div>
+        </div>
+    );
+}
+
+/* ---------------- DATA ---------------- */
+/* Tester-facing rollup, not the admin analytics from the beta-launch-plan
+   doc - reads rows the app already logs (item status, the STATUS/live
+   flags, genetics->species) via plain aggregation, same spirit as
+   Calculators: a view over existing state, no new tracking table.
+   Stage 1 (2026-09-09): hero success rate + a live-right-now board by
+   species. Contamination/failure-reason breakdown, by-source, real
+   colonization-speed-vs-species-notes, and the activity heatmap are later
+   stages - deliberately not built yet, see sporedesk-beta-launch-plan.md. */
+function DataTab({ items, genetics, species }) {
+    const speciesFor = (item) => {
+        const gen = genetics.find((g) => g.id === item.geneticsId);
+        return gen && species.find((s) => s.id === gen.species_id);
+    };
+
+    // "Resolved" = the run is actually over, good or bad - colonizing is
+    // still in flight and shouldn't count against (or for) the rate yet.
+    const SUCCESS_STATUSES = ['colonized', 'fruiting', 'consumed', 'retired'];
+    const FAIL_STATUSES = ['contaminated', 'failed'];
+    const successCount = items.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+    const failCount = items.filter((i) => FAIL_STATUSES.includes(i.status)).length;
+    const resolvedCount = successCount + failCount;
+    const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
+
+    const LIVE_STATUSES = ['colonizing', 'colonized', 'fruiting'];
+    const liveItems = items.filter((i) => STATUS[i.status]?.live);
+
+    const liveBySpecies = species
+        .filter((s) => !s.hidden)
+        .map((s) => {
+            const counts = {};
+            LIVE_STATUSES.forEach((st) => {
+                counts[st] = liveItems.filter((i) => i.status === st && speciesFor(i)?.id === s.id).length;
+            });
+            const total = LIVE_STATUSES.reduce((n, st) => n + counts[st], 0);
+            return { sp: s, counts, total };
+        })
+        .filter((row) => row.total > 0)
+        .sort((a, b) => b.total - a.total);
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">How the grows are actually going</div>
+                    <h1>Data</h1>
+                </div>
+                <div className="bar-actions">
+                    <div className="tally"><span className="num">{liveItems.length}</span><span className="tally-l">live<br />right now</span></div>
+                </div>
+            </div>
+
+            <div className="calc-grid">
+                <div className="calc-card">
+                    <div className="calc-head">
+                        <div className="calc-title">Success rate</div>
+                        <div className="calc-sub">Colonized, fruited, consumed, or retired clean vs. contaminated or failed - still-colonizing runs aren't counted either way yet.</div>
+                    </div>
+                    {successRate === null ? (
+                        <p className="calc-note">Nothing's resolved yet - once a culture finishes, good or bad, it shows up here.</p>
+                    ) : (
+                        <div className="calc-result block">
+                            <strong>{successRate}%</strong>
+                            <span>{successCount} of {resolvedCount} resolved runs made it</span>
+                        </div>
+                    )}
+                </div>
+
+                {LIVE_STATUSES.map((st) => (
+                    <div key={st} className="calc-card">
+                        <div className="calc-head">
+                            <div className="calc-title">{STATUS[st].label}</div>
+                            <div className="calc-sub">Right now, across every species.</div>
+                        </div>
+                        <div className="tally">
+                            <span className="num" style={{ color: TONE[STATUS[st].tone] }}>
+                                {liveItems.filter((i) => i.status === st).length}
+                            </span>
+                            <span className="tally-l">active<br />{STATUS[st].label.toLowerCase()}</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="bar" style={{ marginTop: 30 }}>
+                <div>
+                    <div className="eyebrow">Snapshot, not history - resolved runs don't appear here</div>
+                    <h1 style={{ fontSize: 21 }}>What's live right now, by species</h1>
+                </div>
+            </div>
+
+            {liveBySpecies.length === 0 ? (
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>Nothing actively growing right now.</p>
+            ) : (
+                <div className="calc-grid">
+                    {liveBySpecies.map(({ sp, counts, total }) => (
+                        <div key={sp.id} className="calc-card">
+                            <div className="calc-head">
+                                <div className="calc-title">{sp.common_name}</div>
+                                {sp.latin_name && <div className="calc-sub" style={{ fontStyle: 'italic' }}>{sp.latin_name}</div>}
+                            </div>
+                            <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {LIVE_STATUSES.filter((st) => counts[st] > 0).map((st) => (
+                                    <span key={st} className={`pill tone-${STATUS[st].tone}`}>{counts[st]} {STATUS[st].label}</span>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
