@@ -11,8 +11,8 @@ const todayISO = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Monotub", block: "Fruiting block" };
-const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB" };
+const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Monotub", block: "Fruiting block", cake: "Nutrient cake" };
+const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB", cake: "NC" };
 
 /* A vessel/state WITHIN a type, not a transformation. A syringe drawn off
    an LC jar is still liquid culture - same material, different container -
@@ -41,6 +41,7 @@ const codeFor = (type, form) => FORM_CODE[form] ?? CODE[type];
 const METHODS = {
     block: { fruit_clone: "Clone from fruit", block_tissue: "Tissue from block", other: "Other" },
     bulk: { fruit_clone: "Clone from fruit", block_tissue: "Tissue from substrate", other: "Other" },
+    cake: { fruit_clone: "Clone from fruit", block_tissue: "Tissue from cake", other: "Other" },
     agar: { wedge: "Wedge transfer", other: "Other" },
     lc: { inoculation: "Inoculation", other: "Other" },
     grain: { grain_transfer: "Grain transfer", other: "Other" },
@@ -71,7 +72,7 @@ const REASONS = {
 
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
 
-const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", aio: "AIO bag", other: "Other" };
+const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", cake: "Nutrient cake", aio: "AIO bag", other: "Other" };
 const STOCK_STATUS = {
     on_hand: { label: "On hand", tone: "jade" },
     used: { label: "Used", tone: "slate" },
@@ -2662,6 +2663,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
     grain: 'Grain spawn',
     bulk: 'Bulk substrate',
     block: 'Bulk substrate',
+    cake: 'Bulk substrate',
     other: 'Other',
 };
 
@@ -4520,7 +4522,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                 ) : !pickedType ? (
                     <div className="picker">
                         <span className="pk-l">Into what?</span>
-                        {["agar", "lc", "grain", "bulk", "block"].map((t) => {
+                        {["agar", "lc", "grain", "bulk", "block", "cake"].map((t) => {
                             const matches = stock.filter((s) => s.kind === t && s.status === 'on_hand');
                             return (
                                 <button key={t} className="chip go" onClick={() => {
