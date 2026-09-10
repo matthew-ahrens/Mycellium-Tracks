@@ -285,6 +285,7 @@ export default function App() {
                 dryWeight: r.dry_substrate_g ?? undefined,
                 failureReason: r.failure_reason ?? null,
                 source: r.source ?? null,
+                supplierId: r.supplier_id ?? null,
                 harvests: (harvests ?? [])
                     .filter((h) => h.source_item_id === r.id)
                     .map((h) => ({ f: h.flush_number, date: h.harvested_on, wet: Number(h.amount_g), lotId: h.id }))
@@ -509,6 +510,7 @@ export default function App() {
         if ('notes' in patch) cols.notes = patch.notes || null;
         if ('created' in patch) cols.created_on = patch.created || null;
         if ('dryWeight' in patch) cols.dry_substrate_g = patch.dryWeight ?? null;
+        if ('supplierId' in patch) cols.supplier_id = patch.supplierId || null;
 
         const { error } = await supabase.from('items').update(cols).eq('id', item.uid);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -1343,6 +1345,7 @@ export default function App() {
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
+            onGetOrCreateSupplier={getOrCreateSupplier}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} editPhoto={editPhoto}
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
     } else if (nav.level === 'tree') {
@@ -4356,7 +4359,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -4459,6 +4462,11 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                                 onChange={(e) => setF({ ...f, methodNote: e.target.value })}
                                 placeholder="how? e.g. spore syringe from a swab" />
                         )}
+                        {f.method === 'purchased' && (
+                            <SupplierPicker suppliers={suppliers} value={f.supplierId}
+                                onChange={(supId) => setF({ ...f, supplierId: supId })}
+                                onCreate={onGetOrCreateSupplier} />
+                        )}
                         <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
                         <select className="in sel" value={f.parent ?? ""} onChange={(e) => setF({ ...f, parent: e.target.value })}>
                             <option value="">— no parent (start of the line) —</option>
@@ -4482,6 +4490,9 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             }
                             if ((f.method ?? "") !== (it.method ?? "")) patch.method = f.method ?? "";
                             if ((f.methodNote ?? "") !== (it.methodNote ?? "")) patch.methodNote = f.methodNote ?? "";
+                            if ((f.method === 'purchased' ? (f.supplierId || "") : "") !== (it.supplierId || "")) {
+                                patch.supplierId = f.method === 'purchased' ? (f.supplierId || null) : null;
+                            }
                             if ((f.created || null) !== it.created) patch.created = f.created || null;
                             if (Object.keys(patch).length) saveItemFields(id, patch);
                             if ((f.parent || null) !== (it.parent || null)) reparentItem(patch.id ?? id, f.parent || null);
@@ -4506,6 +4517,9 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                                     ? (it.methodNote || 'Other')
                                     : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
                                 {it.parent ? ` from ${it.parent}` : ""}
+                                {it.method === 'purchased' && it.supplierId
+                                    ? ` — ${suppliers.find((s) => s.id === it.supplierId)?.name ?? 'unknown vendor'}`
+                                    : ""}
                             </div>
                         )}
                     </div>
@@ -4513,7 +4527,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                 {!editHead && (
                     <>
                         <button className="edit-btn" title="Edit label, type, form, amount, method, start date"
-                            onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "" }); setEditHead(true); }}>✎</button>
+                            onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "", supplierId: it.supplierId ?? "" }); setEditHead(true); }}>✎</button>
                         <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
