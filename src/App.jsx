@@ -101,6 +101,48 @@ function stockBatchKey(s) {
 }
 const FRUITS = ["bulk", "block"];
 
+/* Shared vendor picker - Stock and genetics lines both need "pick an
+   existing supplier, or type one that isn't in the list yet and have it
+   just get added" rather than a dead-end select that sends you off to the
+   Suppliers tab first. onCreate does the actual lookup-or-insert (see
+   getOrCreateSupplier) and hands back the new id, which this reports
+   through onChange exactly like picking an existing one would. */
+function SupplierPicker({ suppliers, value, onChange, onCreate }) {
+    const [adding, setAdding] = useState(false);
+    const [name, setName] = useState('');
+
+    if (adding) {
+        const commit = async () => {
+            const trimmed = name.trim();
+            setAdding(false);
+            setName('');
+            if (!trimmed) return;
+            const id = await onCreate(trimmed);
+            if (id) onChange(id);
+        };
+        return (
+            <div style={{ display: 'flex', gap: 6 }}>
+                <input className="in" autoFocus value={name} placeholder="New vendor name"
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && commit()} />
+                <button type="button" className="mini" onClick={commit}>Add</button>
+                <button type="button" className="mini ghost" onClick={() => { setAdding(false); setName(''); }}>Cancel</button>
+            </div>
+        );
+    }
+
+    return (
+        <select className="in sel" value={value ?? ''} onChange={(e) => {
+            if (e.target.value === '__new__') setAdding(true);
+            else onChange(e.target.value);
+        }}>
+            <option value="">— pick a vendor —</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="__new__">+ Add new vendor…</option>
+        </select>
+    );
+}
+
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
 const fmt = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "date unknown";
 
@@ -492,6 +534,7 @@ export default function App() {
         if ('source' in patch) cols.source = patch.source?.trim() || null;
         if ('acquired_on' in patch) cols.acquired_on = patch.acquired_on || null;
         if ('notes' in patch) cols.notes = patch.notes?.trim() || null;
+        if ('supplier_id' in patch) cols.supplier_id = patch.supplier_id || null;
 
         const { error } = await supabase.from('genetics').update(cols).eq('id', genId);
         if (error) { console.error(error); alert('Could not save - check console'); return; }
@@ -724,6 +767,24 @@ export default function App() {
         const { error } = await supabase.from('suppliers').delete().eq('id', id);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
         setSuppliers((p) => p.filter((s) => s.id !== id));
+    };
+
+    /* For the "+ Add new vendor" escape hatch on a supplier picker (Stock,
+       genetics lines) - typing a name that isn't in suppliers yet shouldn't
+       be a dead end or a trip to a different screen. Case-insensitive match
+       against what's already there so "rhizo funga" and "Rhizo Funga" don't
+       create two rows; everything else about the row (category, rating,
+       website) stays unset, same as any quick add - fill it in properly
+       from the Suppliers tab later if it's worth it. */
+    const getOrCreateSupplier = async (name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return null;
+        const existing = suppliers.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
+        if (existing) return existing.id;
+        const { data, error } = await supabase.from('suppliers').insert({ name: trimmed }).select('*').single();
+        if (error) { console.error(error); alert('Could not add vendor - check console'); return null; }
+        setSuppliers((p) => [...p, data]);
+        return data.id;
     };
 
     /* Every stock row is one physical unit now (a specific agar plate, LC
@@ -988,6 +1049,7 @@ export default function App() {
             source: fields.source?.trim() || null,
             acquired_on: fields.acquired || null,
             notes: fields.notes?.trim() || null,
+            supplier_id: fields.supplier_id || null,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not add line - check console'); return; }
 
@@ -1246,7 +1308,8 @@ export default function App() {
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onBumpEquipQty={bumpEquipmentQty}
-            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier} />;
+            onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
+            onGetOrCreateSupplier={getOrCreateSupplier} />;
     } else if (section === 'reference') {
         key = 'reference';
         screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
@@ -1285,6 +1348,7 @@ export default function App() {
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={setOpen} photos={photos} stock={stock}
+            suppliers={suppliers} onGetOrCreateSupplier={getOrCreateSupplier}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
@@ -2667,7 +2731,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
     other: 'Other',
 };
 
-function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId }) {
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '' };
     const [form, setForm] = useState(null);
@@ -2741,10 +2805,9 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                         ) : (
                             <>
                                 <div className="nf-field wide"><label>Supplier</label>
-                                    <select className="in sel" value={f.supplier_id} onChange={(e) => setF({ ...f, supplier_id: e.target.value })}>
-                                        <option value="">— pick a supplier —</option>
-                                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select></div>
+                                    <SupplierPicker suppliers={suppliers} value={f.supplier_id}
+                                        onChange={(id) => setF({ ...f, supplier_id: id })}
+                                        onCreate={onGetOrCreateSupplier} /></div>
                                 <div className="nf-field wide"><label>Product name</label>
                                     <input className="in" value={f.product_name} placeholder="e.g. AIO substrate bag"
                                         onChange={(e) => setF({ ...f, product_name: e.target.value })} /></div>
@@ -2876,7 +2939,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
 function Supplies({ stock, library, species, suppliers, equipment, initialTab, initialOpenId, items,
     onAddStock, onEditStock, onDeleteStock, onPrintStock, onOpenItem,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpEquipQty,
-    onAddSupplier, onEditSupplier, onDeleteSupplier }) {
+    onAddSupplier, onEditSupplier, onDeleteSupplier, onGetOrCreateSupplier }) {
     const [tab, setTab] = useState(initialTab || 'stock');
     return (
         <div className="page">
@@ -2894,7 +2957,8 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
             {tab === 'stock' ? (
                 <StockTab stock={stock} library={library} suppliers={suppliers} species={species} items={items}
                     onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock}
-                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId} />
+                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId}
+                    onGetOrCreateSupplier={onGetOrCreateSupplier} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
                     photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} onEditPhoto={onEditPhoto}
@@ -3849,7 +3913,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto }) {
+function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -3858,7 +3922,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
     const [editSp, setEditSp] = useState(false);
     const [lf, setLf] = useState({});
     const [sf, setSf] = useState({});
-    const [nf, setNf] = useState({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
+    const [nf, setNf] = useState({ name: "", code: "", source: "", supplier_id: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
     const [deletingLine, setDeletingLine] = useState(null);   // { id, secondsLeft } while a delete is pending undo
     const [deletingSpecies, setDeletingSpecies] = useState(null);   // { secondsLeft } while a delete is pending undo
     const box = useRef(null), ptrs = useRef(new Map()), pinch = useRef(null), moved = useRef(false);
@@ -4045,7 +4109,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                         <span className="lc-code">{g.code}</span>
                         <span className="lc-name">{g.name}{g.hidden ? ' (hidden)' : ''}</span>
                         <button className="edit-btn" title="Edit this line" onClick={() => {
-                            setLf({ name: g.name, code: g.code, source: g.source ?? "", acquired_on: g.acquired_on ?? "", notes: g.notes ?? "" });
+                            setLf({ name: g.name, code: g.code, source: g.source ?? "", supplier_id: g.supplier_id ?? "", acquired_on: g.acquired_on ?? "", notes: g.notes ?? "" });
                             setEditLineId(g.id);
                         }}>✎</button>
                     </span>
@@ -4116,7 +4180,13 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                         <div className="nf-field"><label>Acquired</label>
                             <input className="in" type="date" value={lf.acquired_on}
                                 onChange={(e) => setLf({ ...lf, acquired_on: e.target.value })} /></div>
-                        <div className="nf-field wide"><label>Source</label>
+                        <div className="nf-field">
+                            <label>Vendor (optional)</label>
+                            <SupplierPicker suppliers={suppliers} value={lf.supplier_id}
+                                onChange={(id) => setLf({ ...lf, supplier_id: id })}
+                                onCreate={onGetOrCreateSupplier} />
+                        </div>
+                        <div className="nf-field wide"><label>Source note</label>
                             <input className="in" value={lf.source} onChange={(e) => setLf({ ...lf, source: e.target.value })} /></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="3" value={lf.notes}
@@ -4161,8 +4231,14 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                             <input className="in" type="date" value={nf.acquired}
                                 onChange={(e) => setNf({ ...nf, acquired: e.target.value })} />
                         </div>
+                        <div className="nf-field">
+                            <label>Vendor (optional)</label>
+                            <SupplierPicker suppliers={suppliers} value={nf.supplier_id}
+                                onChange={(id) => setNf({ ...nf, supplier_id: id })}
+                                onCreate={onGetOrCreateSupplier} />
+                        </div>
                         <div className="nf-field wide">
-                            <label>Source</label>
+                            <label>Source note</label>
                             <input className="in" value={nf.source} placeholder="Commercial LC — Out-Grow"
                                 onChange={(e) => setNf({ ...nf, source: e.target.value })} />
                         </div>
@@ -4197,7 +4273,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                             if (!nf.name.trim()) { alert('Line name is required.'); return; }
                             if (!nf.code.trim()) { alert('Code is required.'); return; }
                             await onAddLine(nf, nf.firstType, nf.stockId || null);
-                            setNf({ name: "", code: "", source: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
+                            setNf({ name: "", code: "", source: "", supplier_id: "", acquired: "", notes: "", firstType: "lc", stockId: "" });
                             setAddingLine(false);
                         }}>Add line</button>
                         <button className="mini ghost" onClick={() => setAddingLine(false)}>Cancel</button>
