@@ -4483,11 +4483,13 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                                 onChange={(e) => setF({ ...f, methodNote: e.target.value })}
                                 placeholder="how? e.g. spore syringe from a swab" />
                         )}
-                        {f.method === 'purchased' && (
-                            <SupplierPicker suppliers={suppliers} value={f.supplierId}
-                                onChange={(supId) => setF({ ...f, supplierId: supId })}
-                                onCreate={onGetOrCreateSupplier} />
-                        )}
+                        {/* Not gated on method - the vendor may be for the raw
+                            material (a bought all-in-one bag, say) even when
+                            the culture itself was self-inoculated, and it
+                            shouldn't require a Stock record to exist. */}
+                        <SupplierPicker suppliers={suppliers} value={f.supplierId}
+                            onChange={(supId) => setF({ ...f, supplierId: supId })}
+                            onCreate={onGetOrCreateSupplier} />
                         <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
                         <select className="in sel" value={f.parent ?? ""} onChange={(e) => setF({ ...f, parent: e.target.value })}>
                             <option value="">— no parent (start of the line) —</option>
@@ -4511,9 +4513,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             }
                             if ((f.method ?? "") !== (it.method ?? "")) patch.method = f.method ?? "";
                             if ((f.methodNote ?? "") !== (it.methodNote ?? "")) patch.methodNote = f.methodNote ?? "";
-                            if ((f.method === 'purchased' ? (f.supplierId || "") : "") !== (it.supplierId || "")) {
-                                patch.supplierId = f.method === 'purchased' ? (f.supplierId || null) : null;
-                            }
+                            if ((f.supplierId || "") !== (it.supplierId || "")) patch.supplierId = f.supplierId || null;
                             if ((f.created || null) !== it.created) patch.created = f.created || null;
                             if (Object.keys(patch).length) saveItemFields(id, patch);
                             if ((f.parent || null) !== (it.parent || null)) reparentItem(patch.id ?? id, f.parent || null);
@@ -4532,13 +4532,17 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                     <div className="head-read">
                         <h1 className="d-id">{it.id}</h1>
                         <div className="d-sub">{TYPES[it.type]}{it.form && FORMS[it.type]?.[it.form] ? ` · ${FORMS[it.type][it.form]}` : ""}{it.amount != null ? ` · ${it.amount}${it.amountUnit ? ' ' + it.amountUnit : ''}` : ""} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
-                        {it.method && (
+                        {(it.method || it.supplierId) && (
                             <div className="d-sub method">
-                                {it.method === 'other'
-                                    ? (it.methodNote || 'Other')
-                                    : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
-                                {it.parent ? ` from ${it.parent}` : ""}
-                                {it.method === 'purchased' && it.supplierId
+                                {it.method && (
+                                    <>
+                                        {it.method === 'other'
+                                            ? (it.methodNote || 'Other')
+                                            : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
+                                        {it.parent ? ` from ${it.parent}` : ""}
+                                    </>
+                                )}
+                                {it.supplierId
                                     ? ` — ${suppliers.find((s) => s.id === it.supplierId)?.name ?? 'unknown vendor'}`
                                     : ""}
                             </div>
