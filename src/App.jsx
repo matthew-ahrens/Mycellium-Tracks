@@ -48,10 +48,14 @@ const METHODS = {
     spores: { spore_germ: "Spore germination", other: "Other" },
     __root: { purchased: "Purchased culture", spore_print: "Spore print", other: "Other" },
 };
-/* A drawn syringe already says how it got there via `form`, so asking
-   for a method too is just redundant data entry. */
+/* A DRAWN syringe already says how it got there via `form`, so asking
+   for a method too is just redundant data entry - but that only holds
+   when there's an actual parent jar it was drawn from. A syringe with no
+   parent (bought directly - plenty of commercial LC ships that way) has
+   no such self-explanatory lineage and needs the method field same as
+   anything else, purchased included. */
 const methodsFor = (parentType, form) =>
-    form === 'syringe' ? null : METHODS[parentType ?? '__root'] ?? METHODS.__root;
+    form === 'syringe' && parentType ? null : METHODS[parentType ?? '__root'] ?? METHODS.__root;
 
 const STATUS = {
     colonizing: { label: "Colonizing", tone: "amber", live: true },
