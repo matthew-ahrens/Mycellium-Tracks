@@ -5523,9 +5523,9 @@ const CSS = `
 .rate-chart{display:flex;flex-direction:column;gap:16px;}
 .rate-chart-row{display:flex;flex-direction:column;gap:5px;}
 .rate-chart-label{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-family:var(--sans);font-size:13px;}
-.rate-chart-name{color:var(--ink);font-weight:600;}
-.rate-chart-stat{color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;white-space:nowrap;}
-.rate-chart-stat strong{color:var(--amber-ink);}
+.rate-chart-name{color:var(--bone);font-weight:600;}
+.rate-chart-stat{color:var(--dim);font-family:var(--mono);font-size:11.5px;white-space:nowrap;}
+.rate-chart-stat strong{color:var(--amber);}
 .rate-chart-track{position:relative;height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;overflow:hidden;}
 .rate-chart-fill{height:100%;background:var(--amber);border-radius:4px;}
 
