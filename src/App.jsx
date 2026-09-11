@@ -1340,7 +1340,7 @@ export default function App() {
         screen = <Calculators species={species} />;
     } else if (section === 'data') {
         key = 'data';
-        screen = <DataTab items={items} genetics={genetics} species={species} />;
+        screen = <DataTab items={items} genetics={genetics} species={species} suppliers={suppliers} />;
     } else if (open) {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture}
@@ -3433,15 +3433,39 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
 }
 
 /* ---------------- DATA ---------------- */
+/* Horizontal single-hue bar chart for a "success rate by X" breakdown -
+   magnitude comparison across a handful of categories, one series, so one
+   consistent hue and direct labels do the job (dataviz skill: no legend
+   needed for a single series). `rows` is pre-sorted by the caller
+   (descending by rate) and pre-filtered to resolved>0 only. */
+function RateBarChart({ rows }) {
+    return (
+        <div className="rate-chart">
+            {rows.map((row) => (
+                <div key={row.key} className="rate-chart-row">
+                    <div className="rate-chart-label">
+                        <span className="rate-chart-name">{row.label}</span>
+                        <span className="rate-chart-stat"><strong>{row.rate}%</strong> · {row.success}/{row.resolved}</span>
+                    </div>
+                    <div className="rate-chart-track">
+                        <div className="rate-chart-fill" style={{ width: `${row.rate}%` }} />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 /* Tester-facing rollup, not the admin analytics from the beta-launch-plan
    doc - reads rows the app already logs (item status, the STATUS/live
    flags, genetics->species) via plain aggregation, same spirit as
    Calculators: a view over existing state, no new tracking table.
    Stage 1 (2026-09-09): hero success rate + a live-right-now board by
-   species. Contamination/failure-reason breakdown, by-source, real
-   colonization-speed-vs-species-notes, and the activity heatmap are later
-   stages - deliberately not built yet, see sporedesk-beta-launch-plan.md. */
-function DataTab({ items, genetics, species }) {
+   species. Stage 2: contamination/failure-reason breakdown, by-source,
+   colonization speed. Stage 3 (2026-09-11): success rate by species/vendor
+   as horizontal bar charts, replacing the activity heatmap - see
+   sporedesk-beta-launch-plan.md. */
+function DataTab({ items, genetics, species, suppliers }) {
     const speciesFor = (item) => {
         const gen = genetics.find((g) => g.id === item.geneticsId);
         return gen && species.find((s) => s.id === gen.species_id);
@@ -3467,17 +3491,25 @@ function DataTab({ items, genetics, species }) {
     const LIVE_STATUSES = ['colonizing', 'colonized', 'fruiting'];
     const liveItems = visibleItems.filter((i) => STATUS[i.status]?.live);
 
-    // Made in-house vs. bought pre-colonized - `items.source` turned out to
-    // just be this binary, not the richer own-spawn/supplier/home-batch
-    // split from the original plan (supplier_id is only on 9 of 78 items,
-    // too thin for a real per-supplier cut yet). This is the honest version
-    // of "by source" until there's more supplier data logged.
+    // Made in-house vs. bought pre-colonized - `items.source` is just this
+    // binary. The by-vendor cut below is the richer version now that
+    // supplier_id is actually getting logged.
     const SOURCE_LABEL = { made: 'Made in-house', bought: 'Bought' };
     const bySource = Object.keys(SOURCE_LABEL).map((src) => {
         const rows = visibleItems.filter((i) => i.source === src && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
         const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
-        return { src, label: SOURCE_LABEL[src], rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
-    }).filter((row) => row.resolved > 0);
+        return { key: src, label: SOURCE_LABEL[src], rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
+    }).filter((row) => row.resolved > 0).sort((a, b) => b.rate - a.rate);
+
+    /* Success rate by vendor - same resolved-runs-only rule, gated on
+       supplier_id actually being logged (13/78 items as of 2026-09-11, still
+       thin but real). Matt asked to revisit this as more purchases get
+       tagged with a vendor. */
+    const bySupplier = suppliers.map((sup) => {
+        const rows = visibleItems.filter((i) => i.supplierId === sup.id && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
+        const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+        return { key: sup.id, label: sup.name, rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
+    }).filter((row) => row.resolved > 0).sort((a, b) => b.rate - a.rate);
 
     /* failure_reason is free text Matt types, not a clean enum - "Never
        colonized, too much gypsum dried out the grain" is real logged text,
@@ -3528,31 +3560,19 @@ function DataTab({ items, genetics, species }) {
     });
     const speedRows = Object.values(speedBySpecies).sort((a, b) => a.sp.common_name.localeCompare(b.sp.common_name));
 
-    /* Grow activity heatmap - last 90 days, grid-auto-flow:column so listing
-       cells in date order alone produces week-columns of 7 (no manual
-       week-bucketing math needed). Two much older entries from Matt's
-       earlier stint with mushrooms years back are real but would blow the
-       grid out to a mostly-empty multi-year span, so they're called out as
-       a count instead of plotted. */
-    const HEATMAP_DAYS = 90;
-    const heatToday = new Date();
-    heatToday.setHours(0, 0, 0, 0);
-    const heatStart = new Date(heatToday);
-    heatStart.setDate(heatStart.getDate() - (HEATMAP_DAYS - 1));
-    const toISO = (d) => d.toISOString().slice(0, 10);
-    const heatStartISO = toISO(heatStart);
-
-    const countsByDay = {};
-    visibleItems.forEach((i) => { if (i.created) countsByDay[i.created] = (countsByDay[i.created] || 0) + 1; });
-
-    const heatCells = [];
-    for (let k = 0; k < heatStart.getDay(); k++) heatCells.push(null);
-    for (let d = new Date(heatStart); d <= heatToday; d.setDate(d.getDate() + 1)) {
-        const iso = toISO(d);
-        heatCells.push({ date: iso, count: countsByDay[iso] || 0 });
-    }
-    const heatLevel = (count) => (count === 0 ? 0 : count <= 1 ? 1 : count <= 3 ? 2 : 3);
-    const outsideWindow = visibleItems.filter((i) => i.created && i.created < heatStartISO).length;
+    /* Success rate by species - same resolved-runs-only rule as by-source.
+       Replaces the old activity heatmap in this slot (Matt: "not a helpful
+       metric", 2026-09-11) - a per-species magnitude comparison is a bar
+       chart's job, not a calendar. */
+    const bySpecies = species
+        .filter((s) => !s.hidden)
+        .map((sp) => {
+            const rows = visibleItems.filter((i) => speciesFor(i)?.id === sp.id && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
+            const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+            return { key: sp.id, label: sp.common_name, rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
+        })
+        .filter((row) => row.resolved > 0)
+        .sort((a, b) => b.rate - a.rate);
 
     const liveBySpecies = species
         .filter((s) => !s.hidden)
@@ -3618,7 +3638,7 @@ function DataTab({ items, genetics, species }) {
                         </div>
                         <div className="tally">
                             <span className="num" style={{ color: TONE[STATUS[st].tone] }}>
-                                {items.filter((i) => i.status === st).length}
+                                {visibleItems.filter((i) => i.status === st).length}
                             </span>
                             <span className="tally-l">total<br />{STATUS[st].label.toLowerCase()}</span>
                         </div>
@@ -3634,19 +3654,22 @@ function DataTab({ items, genetics, species }) {
                             <h1 style={{ fontSize: 21 }}>Success rate by source</h1>
                         </div>
                     </div>
-                    <div className="calc-grid">
-                        {bySource.map((row) => (
-                            <div key={row.src} className="calc-card">
-                                <div className="calc-head">
-                                    <div className="calc-title">{row.label}</div>
-                                    <div className="calc-sub">{row.resolved} resolved run{row.resolved === 1 ? '' : 's'}.</div>
-                                </div>
-                                <div className="calc-result block">
-                                    <strong>{row.rate}%</strong>
-                                    <span>{row.success} of {row.resolved} made it</span>
-                                </div>
-                            </div>
-                        ))}
+                    <div className="calc-card">
+                        <RateBarChart rows={bySource} />
+                    </div>
+                </>
+            )}
+
+            {bySupplier.length > 0 && (
+                <>
+                    <div className="bar" style={{ marginTop: 30 }}>
+                        <div>
+                            <div className="eyebrow">Resolved runs only, by vendor - still early, small sample sizes</div>
+                            <h1 style={{ fontSize: 21 }}>Success rate by vendor</h1>
+                        </div>
+                    </div>
+                    <div className="calc-card">
+                        <RateBarChart rows={bySupplier} />
                     </div>
                 </>
             )}
@@ -3716,33 +3739,19 @@ function DataTab({ items, genetics, species }) {
                 </>
             )}
 
-            <div className="bar" style={{ marginTop: 30 }}>
-                <div>
-                    <div className="eyebrow">Last {HEATMAP_DAYS} days, by day a grow was started</div>
-                    <h1 style={{ fontSize: 21 }}>Grow activity</h1>
-                </div>
-            </div>
-            <div className="heat-wrap">
-                <div className="heat-days">
-                    <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
-                </div>
-                <div className="heat-grid">
-                    {heatCells.map((cell, idx) => cell ? (
-                        <div key={cell.date} className={`heat-cell lvl-${heatLevel(cell.count)}`} title={`${cell.date} — ${cell.count} started`} />
-                    ) : (
-                        <div key={`pad-${idx}`} className="heat-cell empty" />
-                    ))}
-                </div>
-            </div>
-            <div className="heat-legend">
-                <span>Less</span>
-                <span className="heat-cell lvl-0" />
-                <span className="heat-cell lvl-1" />
-                <span className="heat-cell lvl-2" />
-                <span className="heat-cell lvl-3" />
-                <span>More</span>
-                {outsideWindow > 0 && <span style={{ marginLeft: 14 }}>+{outsideWindow} earlier grow{outsideWindow === 1 ? '' : 's'} logged before this window, not shown</span>}
-            </div>
+            {bySpecies.length > 0 && (
+                <>
+                    <div className="bar" style={{ marginTop: 30 }}>
+                        <div>
+                            <div className="eyebrow">Resolved runs only, by species</div>
+                            <h1 style={{ fontSize: 21 }}>Success rate by species</h1>
+                        </div>
+                    </div>
+                    <div className="calc-card">
+                        <RateBarChart rows={bySpecies} />
+                    </div>
+                </>
+            )}
 
             <div className="bar" style={{ marginTop: 30 }}>
                 <div>
@@ -5503,21 +5512,18 @@ const CSS = `
 .tone-rust{background:var(--rust);color:var(--bone);}
 .tone-slate{background:var(--slate);color:var(--panel);}
 
-/* Grow-activity heatmap on the Data tab. Cells listed in date order with
-   grid-auto-flow:column + a fixed 7-row template is what turns a flat list
-   into GitHub-style week columns - no manual week math. Rendered directly
-   on the tan .page background, so labels use --ink-dim like every other
-   page-level caption (see .nf-help-page). */
-.heat-wrap{display:flex;gap:8px;margin-top:18px;align-items:flex-start;}
-.heat-days{display:grid;grid-template-rows:repeat(7,11px);gap:3px;font-family:var(--mono);font-size:8px;color:var(--ink-dim);text-align:right;padding-top:1px;}
-.heat-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:3px;overflow-x:auto;padding-bottom:4px;}
-.heat-cell{width:11px;height:11px;border-radius:3px;background:var(--panel2);border:1px solid var(--line);}
-.heat-cell.empty{visibility:hidden;}
-.heat-cell.lvl-1{background:rgba(214,147,74,.35);border-color:rgba(214,147,74,.35);}
-.heat-cell.lvl-2{background:rgba(214,147,74,.65);border-color:rgba(214,147,74,.65);}
-.heat-cell.lvl-3{background:var(--amber);border-color:var(--amber);}
-.heat-legend{display:flex;align-items:center;gap:5px;margin-top:8px;font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);}
-.heat-legend .heat-cell{width:10px;height:10px;}
+/* Success-rate bar charts on the Data tab (by source/vendor/species) - one
+   series, one hue (amber, matches .cta/the app's primary accent), thin
+   track with rounded ends, direct labels instead of a legend since there's
+   only one series per chart. */
+.rate-chart{display:flex;flex-direction:column;gap:16px;}
+.rate-chart-row{display:flex;flex-direction:column;gap:5px;}
+.rate-chart-label{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-family:var(--sans);font-size:13px;}
+.rate-chart-name{color:var(--ink);font-weight:600;}
+.rate-chart-stat{color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;white-space:nowrap;}
+.rate-chart-stat strong{color:var(--amber-ink);}
+.rate-chart-track{position:relative;height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+.rate-chart-fill{height:100%;background:var(--amber);border-radius:4px;}
 
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:14px 0 20px;}
 .crumb{background:none;border:none;font-family:var(--mono);font-size:11px;color:var(--ink-dim);cursor:pointer;padding:2px 3px;}
