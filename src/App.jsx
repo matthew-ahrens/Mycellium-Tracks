@@ -3447,17 +3447,25 @@ function DataTab({ items, genetics, species }) {
         return gen && species.find((s) => s.id === gen.species_id);
     };
 
+    /* Every rollup below reads from this, not the raw `items` prop, so a
+       hidden species (Blue Meanie, or whatever gets hidden next) actually
+       disappears from the Data tab instead of just the species list it
+       shows up on. An item whose species can't be resolved at all stays
+       in rather than getting silently dropped - only an explicit hidden
+       flag excludes it. */
+    const visibleItems = items.filter((i) => !speciesFor(i)?.hidden);
+
     // "Resolved" = the run is actually over, good or bad - colonizing is
     // still in flight and shouldn't count against (or for) the rate yet.
     const SUCCESS_STATUSES = ['colonized', 'fruiting', 'consumed', 'retired'];
     const FAIL_STATUSES = ['contaminated', 'failed'];
-    const successCount = items.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
-    const failCount = items.filter((i) => FAIL_STATUSES.includes(i.status)).length;
+    const successCount = visibleItems.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+    const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
     const resolvedCount = successCount + failCount;
     const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
 
     const LIVE_STATUSES = ['colonizing', 'colonized', 'fruiting'];
-    const liveItems = items.filter((i) => STATUS[i.status]?.live);
+    const liveItems = visibleItems.filter((i) => STATUS[i.status]?.live);
 
     // Made in-house vs. bought pre-colonized - `items.source` turned out to
     // just be this binary, not the richer own-spawn/supplier/home-batch
@@ -3466,7 +3474,7 @@ function DataTab({ items, genetics, species }) {
     // of "by source" until there's more supplier data logged.
     const SOURCE_LABEL = { made: 'Made in-house', bought: 'Bought' };
     const bySource = Object.keys(SOURCE_LABEL).map((src) => {
-        const rows = items.filter((i) => i.source === src && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
+        const rows = visibleItems.filter((i) => i.source === src && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
         const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
         return { src, label: SOURCE_LABEL[src], rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
     }).filter((row) => row.resolved > 0);
@@ -3485,7 +3493,7 @@ function DataTab({ items, genetics, species }) {
         const buckets = {};
         keywords.forEach((k) => { buckets[k] = []; });
         buckets.Other = [];
-        items.filter((i) => i.status === statusKey && i.failureReason).forEach((i) => {
+        visibleItems.filter((i) => i.status === statusKey && i.failureReason).forEach((i) => {
             const text = i.failureReason.toLowerCase();
             const hit = keywords.find((k) => text.includes(k.toLowerCase()));
             (buckets[hit] ?? buckets.Other).push(i.failureReason);
@@ -3503,7 +3511,7 @@ function DataTab({ items, genetics, species }) {
        drawn into syringes (an already-colonized culture being subcultured,
        not tracked from inoculation), so "0 days" would be a logging
        artifact, not a real result. Confirmed with Matt 2026-09-09. */
-    const colonizeSpeeds = items
+    const colonizeSpeeds = visibleItems
         .filter((i) => i.created)
         .map((i) => {
             const colEvent = i.log?.find((e) => e.kind === 'status' && e.body === 'Colonized');
@@ -3535,7 +3543,7 @@ function DataTab({ items, genetics, species }) {
     const heatStartISO = toISO(heatStart);
 
     const countsByDay = {};
-    items.forEach((i) => { if (i.created) countsByDay[i.created] = (countsByDay[i.created] || 0) + 1; });
+    visibleItems.forEach((i) => { if (i.created) countsByDay[i.created] = (countsByDay[i.created] || 0) + 1; });
 
     const heatCells = [];
     for (let k = 0; k < heatStart.getDay(); k++) heatCells.push(null);
@@ -3544,7 +3552,7 @@ function DataTab({ items, genetics, species }) {
         heatCells.push({ date: iso, count: countsByDay[iso] || 0 });
     }
     const heatLevel = (count) => (count === 0 ? 0 : count <= 1 ? 1 : count <= 3 ? 2 : 3);
-    const outsideWindow = items.filter((i) => i.created && i.created < heatStartISO).length;
+    const outsideWindow = visibleItems.filter((i) => i.created && i.created < heatStartISO).length;
 
     const liveBySpecies = species
         .filter((s) => !s.hidden)
