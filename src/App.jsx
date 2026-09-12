@@ -74,6 +74,15 @@ const REASONS = {
     failed: ["Browning / PPO", "Never colonized", "Dried out", "Heat stress", "Stalled", "Unknown"],
 };
 
+/* Item statuses that mean a stock unit consumed into it is done - not going
+   back into rotation. Deliberately excludes "consumed": whether a consumed
+   item is really finished depends on the type (an agar plate can still have
+   life left after a wedge is drawn; a spent grain bag usually doesn't), so
+   it stays ambiguous rather than getting guessed at. Retiring an item is the
+   manual "I'm done with this" signal for that case instead. Used by Stock's
+   "No longer active" grouping - see StockTab. */
+const DONE_ITEM_STATUSES = ['retired', 'contaminated', 'failed'];
+
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
 
 const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", cake: "Nutrient cake", aio: "AIO bag", other: "Other" };
@@ -2876,6 +2885,51 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             const first = sorted[0];
                             const sp = species.find((sx) => sx.id === first.species_id);
                             const onHand = sorted.filter((s) => s.status === 'on_hand');
+
+                            /* A unit whose item ended in a dead end (retired/
+                               contaminated/failed) is done - 9 times out of 10
+                               it's not going back into rotation, so it's a
+                               record now, not something to hunt through active
+                               stock for. Deliberately NOT including "consumed" -
+                               that one's genuinely ambiguous (a tapped agar
+                               plate can still have life left, a spent grain bag
+                               usually doesn't), so it's left in the active list;
+                               if a specific unit really is finished, retiring
+                               its item gets the same archiving effect on
+                               purpose. Confirmed with Matt 2026-09-12. */
+                            const madeIntoFor = (s) => s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
+                            const isDone = (s) => DONE_ITEM_STATUSES.includes(madeIntoFor(s)?.status);
+                            const withIdx = sorted.map((s, i) => ({ s, i }));
+                            const activeUnits = withIdx.filter(({ s }) => !isDone(s));
+                            const doneUnits = withIdx.filter(({ s }) => isDone(s));
+
+                            const renderUnit = ({ s, i }) => {
+                                const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
+                                const madeInto = madeIntoFor(s);
+                                const done = isDone(s);
+                                return (
+                                    <div key={s.id} className={`equip-row${done ? ' done' : ''}`}>
+                                        <button className="equip-row-main" onClick={() => {
+                                            setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
+                                                supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
+                                                species_id: s.species_id ?? '', quantity: '1', labels: '',
+                                                label: s.label ?? '',
+                                                made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+                                            setForm(s.id);
+                                        }}>
+                                            <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
+                                            {madeInto && <span className="equip-note">→ became {madeInto.id}</span>}
+                                            <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                        </button>
+                                        {madeInto && (
+                                            <div className="equip-side">
+                                                <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            };
+
                             return (
                                 <div key={stockBatchKey(first)} className="stock-batch">
                                     <div className="stock-batch-head">
@@ -2894,32 +2948,16 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                         )}
                                     </div>
                                     <div className="equip-list">
-                                        {sorted.map((s, i) => {
-                                            const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
-                                            const madeInto = s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
-                                            return (
-                                                <div key={s.id} className="equip-row">
-                                                    <button className="equip-row-main" onClick={() => {
-                                                        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
-                                                            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
-                                                            species_id: s.species_id ?? '', quantity: '1', labels: '',
-                                                            label: s.label ?? '',
-                                                            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
-                                                        setForm(s.id);
-                                                    }}>
-                                                        <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
-                                                        {madeInto && <span className="equip-note">→ became {madeInto.id}</span>}
-                                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
-                                                    </button>
-                                                    {madeInto && (
-                                                        <div className="equip-side">
-                                                            <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+                                        {activeUnits.map(renderUnit)}
                                     </div>
+                                    {doneUnits.length > 0 && (
+                                        <>
+                                            <div className="stock-archive-label">No longer active</div>
+                                            <div className="equip-list">
+                                                {doneUnits.map(renderUnit)}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             );
                         })}
@@ -5370,6 +5408,8 @@ const CSS = `
 .stock-batch-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:14px 0 8px;flex-wrap:wrap;}
 .stock-batch-head .equip-name{font-family:var(--serif);font-size:15px;color:var(--ink);white-space:normal;}
 .stock-batch-head .equip-note{display:block;color:var(--ink-dim);white-space:normal;}
+.stock-archive-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin:12px 0 6px;}
+.equip-row.done{opacity:.55;}
 .qty-btn{width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
 .qty-btn:hover{color:var(--amber);border-color:var(--amber);}
 .qty-num{font-family:var(--mono);font-size:13px;min-width:1.5em;text-align:center;}
