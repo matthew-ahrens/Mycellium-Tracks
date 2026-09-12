@@ -75,13 +75,14 @@ const REASONS = {
 };
 
 /* Item statuses that mean a stock unit consumed into it is done - not going
-   back into rotation. Deliberately excludes "consumed": whether a consumed
-   item is really finished depends on the type (an agar plate can still have
-   life left after a wedge is drawn; a spent grain bag usually doesn't), so
-   it stays ambiguous rather than getting guessed at. Retiring an item is the
-   manual "I'm done with this" signal for that case instead. Used by Stock's
-   "No longer active" grouping - see StockTab. */
-const DONE_ITEM_STATUSES = ['retired', 'contaminated', 'failed'];
+   back into rotation. Includes "consumed": a fully-used item is the norm
+   (a spent grain bag, a drawn-dry LC jar), not the exception - a plate or
+   jar that's still good for another draw is the edge case. If a specific
+   unit is marked consumed too early and it's still usable, that's a status
+   correction on the item, not a reason to leave the whole status out of
+   this list. Used by Stock's "No longer active" grouping - see StockTab.
+   Widened to include "consumed" 2026-09-12 per Matt. */
+const DONE_ITEM_STATUSES = ['retired', 'contaminated', 'failed', 'consumed'];
 
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
 
@@ -2886,17 +2887,11 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             const sp = species.find((sx) => sx.id === first.species_id);
                             const onHand = sorted.filter((s) => s.status === 'on_hand');
 
-                            /* A unit whose item ended in a dead end (retired/
-                               contaminated/failed) is done - 9 times out of 10
-                               it's not going back into rotation, so it's a
-                               record now, not something to hunt through active
-                               stock for. Deliberately NOT including "consumed" -
-                               that one's genuinely ambiguous (a tapped agar
-                               plate can still have life left, a spent grain bag
-                               usually doesn't), so it's left in the active list;
-                               if a specific unit really is finished, retiring
-                               its item gets the same archiving effect on
-                               purpose. Confirmed with Matt 2026-09-12. */
+                            /* A unit whose item is done (retired/contaminated/
+                               failed/consumed - see DONE_ITEM_STATUSES) isn't
+                               going back into rotation 9 times out of 10, so
+                               it's a record now, not something to hunt through
+                               active stock for. */
                             const madeIntoFor = (s) => s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
                             const isDone = (s) => DONE_ITEM_STATUSES.includes(madeIntoFor(s)?.status);
                             const withIdx = sorted.map((s, i) => ({ s, i }));
