@@ -2757,17 +2757,19 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
     const filteredRecipes = recipeCategory ? recipes.filter((r) => r.categories?.includes(recipeCategory)) : recipes;
     const isNew = form === 'new';
+    /* The edit form renders inline right at the unit being edited (see
+       formPanel below), so a normal click never needs to scroll anywhere -
+       the panel just opens exactly where you already are. The one case
+       that still needs help is a deep link (search result, QR code):
+       that mounts the tab fresh with some unit possibly far down a long
+       list pre-selected for editing, and the page has no reason to have
+       scrolled there on its own. formRef + deepLinkOpen flag that one
+       case only, so a manual click never gets an unwanted scroll. */
     const formRef = useRef(null);
+    const deepLinkOpen = useRef(false);
 
     const stockRef = useRef(stock);
     useEffect(() => { stockRef.current = stock; });
-    /* The form always renders at the top of this tab's content, no matter
-       which unit (possibly far down a long batch list) was clicked to open
-       it - without this, opening an edit from the bottom of a long "Grain
-       spawn" section leaves the form off-screen above the scroll position. */
-    useEffect(() => {
-        if (form !== null) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, [form]);
     useEffect(() => {
         if (!initialOpenId) return;
         const s = stockRef.current.find((x) => x.id === initialOpenId);
@@ -2778,8 +2780,15 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
             label: s.label ?? '',
             made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
             amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
+        deepLinkOpen.current = true;
         setForm(s.id);
     }, [initialOpenId]);
+    useEffect(() => {
+        if (form !== null && deepLinkOpen.current) {
+            formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            deepLinkOpen.current = false;
+        }
+    }, [form]);
 
     const submit = () => {
         if (f.source === 'made' && !f.recipe_id) {
@@ -2797,17 +2806,15 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const kindGroups = {};
     stock.forEach((s) => { (kindGroups[s.kind] ||= []).push(s); });
 
-    return (
-        <>
-            <div className="bar" style={{ marginTop: 4 }}>
-                <div className="eyebrow">Sterile and uninoculated - not yet in the lineage tree</div>
-                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add stock</button>}
-            </div>
-
-            {form !== null && (
-                <div className="new-form" ref={formRef}>
-                    <div className="nf-title">{isNew ? 'New' : 'Edit'} stock</div>
-                    <div className="nf-grid">
+    /* Rendered in one of two spots below, never both at once (form only
+       ever holds one value): at the top for a new unit, or inline right
+       under the specific row being edited, via {form === s.id && formPanel}
+       inside renderUnit - that's what lets an edit expand in place instead
+       of always opening at the top of the tab. */
+    const formPanel = (
+        <div className="new-form" ref={formRef}>
+            <div className="nf-title">{isNew ? 'New' : 'Edit'} stock</div>
+            <div className="nf-grid">
                         <div className="nf-field"><label>Kind</label>
                             <select className="in sel" value={f.kind} onChange={(e) => {
                                 const newKind = e.target.value;
@@ -2860,7 +2867,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
                                 {Object.keys(STOCK_STATUS).map((s) => <option key={s} value={s}>{STOCK_STATUS[s].label}</option>)}
                             </select></div>
-                        <div className="nf-field"><label>Weight (optional)</label>
+                        <div className="nf-field amt"><label>Weight (optional)</label>
                             <div className="amt-pair">
                                 <input className="in" type="number" step="any" value={f.amount ?? ''}
                                     onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
@@ -2880,8 +2887,17 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             }}>Delete</button>
                         )}
                     </div>
-                </div>
-            )}
+        </div>
+    );
+
+    return (
+        <>
+            <div className="bar" style={{ marginTop: 4 }}>
+                <div className="eyebrow">Sterile and uninoculated - not yet in the lineage tree</div>
+                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add stock</button>}
+            </div>
+
+            {form === 'new' && formPanel}
 
             {Object.keys(kindGroups).sort().map((k) => {
                 const batches = {};
@@ -2913,7 +2929,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                 const madeInto = madeIntoFor(s);
                                 const done = isDone(s);
                                 return (
-                                    <div key={s.id} className={`equip-row${done ? ' done' : ''}`}>
+                                    <div key={s.id}>
+                                    <div className={`equip-row${done ? ' done' : ''}`}>
                                         <button className="equip-row-main" onClick={() => {
                                             setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
                                                 supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
@@ -2932,6 +2949,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                                 <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
                                             </div>
                                         )}
+                                    </div>
+                                    {form === s.id && formPanel}
                                     </div>
                                 );
                             };
@@ -5479,6 +5498,10 @@ const CSS = `
 .nf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:11px;margin-bottom:14px;align-items:start;}
 .nf-field{display:flex;flex-direction:column;gap:5px;}
 .nf-field.wide{grid-column:1 / -1;}
+/* A field holding two side-by-side inputs (amt-pair) needs more room
+   than nf-grid's normal 150px column minimum to fit both placeholders
+   ("amount" / "g / lb / oz") without looking cramped. */
+.nf-field.amt{min-width:190px;}
 .nf-field label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
 .mono-in{font-family:var(--mono);letter-spacing:.06em;}
 .line-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
