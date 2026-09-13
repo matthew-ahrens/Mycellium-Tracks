@@ -825,6 +825,8 @@ export default function App() {
             made_or_bought_on: fields.made_or_bought_on || null,
             status: fields.status || 'on_hand',
             notes: fields.notes?.trim() || null,
+            amount: fields.amount === '' || fields.amount == null ? null : Number(fields.amount),
+            amount_unit: fields.amount_unit?.trim() || null,
             label: labels[i] || null,
         }));
         const { data, error } = await supabase.from('stock').insert(rows).select('*');
@@ -845,6 +847,8 @@ export default function App() {
             status: fields.status,
             label: fields.label?.trim() || null,
             notes: fields.notes?.trim() || null,
+            amount: fields.amount === '' || fields.amount == null ? null : Number(fields.amount),
+            amount_unit: fields.amount_unit?.trim() || null,
         };
         /* consumed_into_item_id only means anything while status is 'used' -
            if this edit is moving status away from that (undoing an
@@ -2750,7 +2754,8 @@ const STOCK_KIND_RECIPE_CATEGORY = {
 
 function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
-        species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '' };
+        species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
+        amount: '', amount_unit: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
     const recipes = library.filter((e) => e.kind === 'recipe');
@@ -2768,7 +2773,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
             supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
             species_id: s.species_id ?? '', quantity: '1', labels: '',
             label: s.label ?? '',
-            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
+            amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
         setForm(s.id);
     }, [initialOpenId]);
 
@@ -2856,6 +2862,13 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                 <option value="">— none —</option>
                                 {visibleSpeciesFor(species, f.species_id).map((sp) => <option key={sp.id} value={sp.id}>{sp.common_name}</option>)}
                             </select></div>
+                        <div className="nf-field"><label>Weight (optional)</label>
+                            <div className="amt-pair">
+                                <input className="in sm" type="number" step="any" value={f.amount ?? ''}
+                                    onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
+                                <input className="in sm" value={f.amount_unit ?? ''}
+                                    onChange={(e) => setF({ ...f, amount_unit: e.target.value })} placeholder="g / lb / oz" />
+                            </div></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="2" value={f.notes}
                                 onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
@@ -2909,7 +2922,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                                 supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
                                                 species_id: s.species_id ?? '', quantity: '1', labels: '',
                                                 label: s.label ?? '',
-                                                made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '' });
+                                                made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
+                                                amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
                                             setForm(s.id);
                                         }}>
                                             <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
