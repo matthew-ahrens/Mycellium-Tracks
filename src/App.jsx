@@ -2870,9 +2870,9 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             </select></div>
                         <div className="nf-field"><label>Weight (optional)</label>
                             <div className="amt-pair">
-                                <input className="in sm" type="number" step="any" value={f.amount ?? ''}
+                                <input className="in" type="number" step="any" value={f.amount ?? ''}
                                     onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
-                                <input className="in sm" value={f.amount_unit ?? ''}
+                                <input className="in" value={f.amount_unit ?? ''}
                                     onChange={(e) => setF({ ...f, amount_unit: e.target.value })} placeholder="g / lb / oz" />
                             </div></div>
                         <div className="nf-field wide"><label>Notes</label>
