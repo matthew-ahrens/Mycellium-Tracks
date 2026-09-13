@@ -2753,6 +2753,10 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
         amount: '', amount_unit: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
+    /* Kind filter for the list below (agar/grain/etc.) - separate from
+       f.kind, which is just the form's own "what am I adding" field. '' means
+       show every kind, same convention as the empty option in the <select>. */
+    const [kindFilter, setKindFilter] = useState('');
     const recipes = library.filter((e) => e.kind === 'recipe');
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
     const filteredRecipes = recipeCategory ? recipes.filter((r) => r.categories?.includes(recipeCategory)) : recipes;
@@ -2894,12 +2898,18 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
         <>
             <div className="bar" style={{ marginTop: 4 }}>
                 <div className="eyebrow">Sterile and uninoculated - not yet in the lineage tree</div>
-                {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add stock</button>}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select className="in sel" style={{ flex: '0 0 auto', width: 'auto' }} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+                        <option value="">All kinds</option>
+                        {Object.keys(kindGroups).sort().map((k) => <option key={k} value={k}>{STOCK_KIND[k]}</option>)}
+                    </select>
+                    {form === null && <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add stock</button>}
+                </div>
             </div>
 
             {form === 'new' && formPanel}
 
-            {Object.keys(kindGroups).sort().map((k) => {
+            {Object.keys(kindGroups).sort().filter((k) => !kindFilter || k === kindFilter).map((k) => {
                 const batches = {};
                 kindGroups[k].forEach((s) => { (batches[stockBatchKey(s)] ||= []).push(s); });
                 const batchList = Object.values(batches).sort((a, b) =>
@@ -3167,26 +3177,24 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
         categories: [], yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
     const [f, setF] = useState(blank);
     const [openId, setOpenId] = useState(initialOpenId || null);
-    /* Three chip rows, ANDed together - Type narrows to Recipe/Reference/
-       Cheat Sheet (or none picked = everything mixed); Category is a real
-       multi-select over `library.categories` (text[] - an entry can be
-       both Nutrient broth AND Bulk substrate, e.g. Cordyceps Nutrient
-       Broth; a Cheat Sheet card has no categories, so it simply can't
-       match once a category chip is active - expected, not a bug);
-       Species is a real multi-select via the library_species join table,
-       plus an explicit General toggle rather than "no tags" silently
-       meaning general. */
-    const [typeFilter, setTypeFilter] = useState(null);        // null | 'recipe' | 'note' | 'cheat'
-    const [categoryFilter, setCategoryFilter] = useState(new Set());
-    const [speciesFilter, setSpeciesFilter] = useState(new Set());
-    const [generalFilter, setGeneralFilter] = useState(false);
+    /* Three dropdown filters, ANDed together - Type narrows to Recipe/
+       Reference/Cheat Sheet (or "All" = everything mixed); Category picks
+       one value from `library.categories` (text[] - an entry can carry
+       several, e.g. Cordyceps Nutrient Broth is both Nutrient broth AND
+       Bulk substrate, but the filter just needs the entry to include
+       whichever one you pick; a Cheat Sheet card has no categories, so
+       it simply can't match once a category is picked - expected, not
+       a bug); Species picks one species (or "General" for non-species-
+       specific entries) via the library_species join table. These used
+       to be multi-select chip rows - swapped for single-select dropdowns
+       2026-09-13 per Matt (too many chips, too busy) - so stacking two
+       categories or two species in one filter pass isn't possible
+       anymore, but picking one is one click instead of hunting a chip. */
+    const [typeFilter, setTypeFilter] = useState('');          // '' | 'recipe' | 'note' | 'cheat'
+    const [categoryFilter, setCategoryFilter] = useState('');  // '' = all
+    const [speciesFilter, setSpeciesFilter] = useState('');    // '' | 'general' | species id
     const filterableSpecies = species.filter((s) => !s.hidden);
     const categories = [...new Set(library.flatMap((e) => e.categories ?? []))].sort();
-    const toggleCategoryFilter = (c) => setCategoryFilter((prev) => {
-        const next = new Set(prev);
-        if (next.has(c)) next.delete(c); else next.add(c);
-        return next;
-    });
     const speciesIdsFor = (entryId) => librarySpecies.filter((r) => r.library_id === entryId).map((r) => r.species_id);
 
     /* Every ingredient name already used anywhere in the library, so typing
@@ -3213,13 +3221,6 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
         setForm(e.id);
     };
 
-    const toggleSpeciesFilter = (id) => setSpeciesFilter((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id); else next.add(id);
-        return next;
-    });
-    const speciesFilterActive = speciesFilter.size > 0 || generalFilter;
-
     const cheatCards = filterableSpecies.map((s) => ({ cardType: 'cheat', cardId: `sp:${s.id}`, sp: s }));
     const libCards = library.map((e) => ({
         cardType: e.kind === 'recipe' ? 'recipe' : 'note',
@@ -3228,14 +3229,13 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
         speciesIds: speciesIdsFor(e.id),
         general: !!e.general,
     }));
-    const categoryFilterActive = categoryFilter.size > 0;
     const visibleCards = [...cheatCards, ...libCards]
         .filter((c) => !typeFilter || c.cardType === typeFilter)
-        .filter((c) => !categoryFilterActive || c.categories?.some((cat) => categoryFilter.has(cat)))
+        .filter((c) => !categoryFilter || c.categories?.includes(categoryFilter))
         .filter((c) => {
-            if (!speciesFilterActive) return true;
-            if (c.cardType === 'cheat') return speciesFilter.has(c.sp.id);
-            return c.speciesIds.some((id) => speciesFilter.has(id)) || (generalFilter && c.general);
+            if (!speciesFilter) return true;
+            if (c.cardType === 'cheat') return speciesFilter !== 'general' && c.sp.id === speciesFilter;
+            return speciesFilter === 'general' ? c.general : c.speciesIds.includes(speciesFilter);
         })
         .sort((a, b) => (a.cardType === 'cheat' ? a.sp.common_name : a.e.title)
             .localeCompare(b.cardType === 'cheat' ? b.sp.common_name : b.e.title));
@@ -3254,37 +3254,37 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
 
             <div className="sp-chips">
                 <span className="sp-chips-label">Type:</span>
-                <button className={`sp-chip ${!typeFilter ? 'on' : ''}`} onClick={() => setTypeFilter(null)}>All</button>
-                <button className={`sp-chip ${typeFilter === 'recipe' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'recipe' ? null : 'recipe')}>Recipe</button>
-                <button className={`sp-chip ${typeFilter === 'note' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'note' ? null : 'note')}>Reference</button>
-                <button className={`sp-chip ${typeFilter === 'cheat' ? 'on' : ''}`} onClick={() => setTypeFilter(typeFilter === 'cheat' ? null : 'cheat')}>Cheat Sheet</button>
+                <select className="in sel" style={{ flex: '0 0 auto', width: 'auto' }}
+                    value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="recipe">Recipe</option>
+                    <option value="note">Reference</option>
+                    <option value="cheat">Cheat Sheet</option>
+                </select>
+
+                {categories.length > 0 && (
+                    <>
+                        <span className="sp-chips-label">Category:</span>
+                        <select className="in sel" style={{ flex: '0 0 auto', width: 'auto' }}
+                            value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                            <option value="">All</option>
+                            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </>
+                )}
+
+                {filterableSpecies.length > 0 && (
+                    <>
+                        <span className="sp-chips-label">Species:</span>
+                        <select className="in sel" style={{ flex: '0 0 auto', width: 'auto' }}
+                            value={speciesFilter} onChange={(e) => setSpeciesFilter(e.target.value)}>
+                            <option value="">All species</option>
+                            <option value="general">General</option>
+                            {filterableSpecies.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
+                        </select>
+                    </>
+                )}
             </div>
-
-            {categories.length > 0 && (
-                <div className="sp-chips">
-                    <span className="sp-chips-label">Category:</span>
-                    <button className={`sp-chip ${!categoryFilterActive ? 'on' : ''}`} onClick={() => setCategoryFilter(new Set())}>All</button>
-                    {categories.map((c) => (
-                        <button key={c} className={`sp-chip ${categoryFilter.has(c) ? 'on' : ''}`}
-                            onClick={() => toggleCategoryFilter(c)}>{c}</button>
-                    ))}
-                </div>
-            )}
-
-            {filterableSpecies.length > 0 && (
-                <div className="sp-chips">
-                    <span className="sp-chips-label">Species:</span>
-                    <button className={`sp-chip ${!speciesFilterActive ? 'on' : ''}`}
-                        onClick={() => { setSpeciesFilter(new Set()); setGeneralFilter(false); }}>All species</button>
-                    <button className={`sp-chip ${generalFilter ? 'on' : ''}`} onClick={() => setGeneralFilter((v) => !v)}>General</button>
-                    {filterableSpecies.map((s) => (
-                        <button key={s.id} className={`sp-chip ${speciesFilter.has(s.id) ? 'on' : ''}`}
-                            onClick={() => toggleSpeciesFilter(s.id)}>
-                            {s.common_name}
-                        </button>
-                    ))}
-                </div>
-            )}
 
             {form !== null && (
                 <div className="new-form">
