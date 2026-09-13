@@ -106,12 +106,12 @@ function stockLabel(s, library, suppliers) {
 }
 
 /* Groups individual stock units (rows) back into the batch they were
-   logged together as - same recipe/supplier/species, made or bought the
-   same day. There's no stored batch id; this is purely a display
-   grouping, derived from the metadata every unit in one "Add stock"
-   submission already shares. */
+   logged together as - same recipe/supplier, made or bought the same
+   day. There's no stored batch id; this is purely a display grouping,
+   derived from the metadata every unit in one "Add stock" submission
+   already shares. */
 function stockBatchKey(s) {
-    return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || '', s.species_id || '', s.made_or_bought_on || ''].join('|');
+    return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || '', s.made_or_bought_on || ''].join('|');
 }
 const FRUITS = ["bulk", "block"];
 
@@ -818,7 +818,6 @@ export default function App() {
             recipe_id: fields.source === 'made' ? (fields.recipe_id || null) : null,
             supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
             product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
-            species_id: fields.species_id || null,
             quantity: 1,
             made_or_bought_on: fields.made_or_bought_on || null,
             status: fields.status || 'on_hand',
@@ -839,7 +838,6 @@ export default function App() {
             recipe_id: fields.source === 'made' ? (fields.recipe_id || null) : null,
             supplier_id: fields.source === 'bought' ? (fields.supplier_id || null) : null,
             product_name: fields.source === 'bought' ? (fields.product_name?.trim() || null) : null,
-            species_id: fields.species_id || null,
             quantity: 1,
             made_or_bought_on: fields.made_or_bought_on || null,
             status: fields.status,
@@ -2029,12 +2027,11 @@ function Search({ items, genetics, species, lots, lotLinks, library, librarySpec
         if (supHits.length) out.push({ key: 'suppliers', label: 'Supplies — suppliers', hits: supHits });
 
         const stockHits = stock.map((s) => {
-            const sp = species.find((x) => x.id === s.species_id);
             const m = firstMatch([
-                ['Product', s.product_name], ['Kind', s.kind], ['Species', sp?.common_name], ['Notes', s.notes],
+                ['Product', s.product_name], ['Kind', s.kind], ['Notes', s.notes],
             ], nq);
             return m && {
-                id: s.id, title: s.product_name || s.kind, subtitle: sp?.common_name ?? '',
+                id: s.id, title: s.product_name || s.kind, subtitle: '',
                 match: m.label, snippet: m.snippet, onClick: () => onOpenSupplies('stock', s.id),
             };
         }).filter(Boolean);
@@ -2752,7 +2749,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
 
 function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
-        species_id: '', quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
+        quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
         amount: '', amount_unit: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -2777,7 +2774,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
         if (!s) return;
         setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
             supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
-            species_id: s.species_id ?? '', quantity: '1', labels: '',
+            quantity: '1', labels: '',
             label: s.label ?? '',
             made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
             amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
@@ -2863,11 +2860,6 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
                                 {Object.keys(STOCK_STATUS).map((s) => <option key={s} value={s}>{STOCK_STATUS[s].label}</option>)}
                             </select></div>
-                        <div className="nf-field"><label>Species (optional)</label>
-                            <select className="in sel" value={f.species_id} onChange={(e) => setF({ ...f, species_id: e.target.value })}>
-                                <option value="">— none —</option>
-                                {visibleSpeciesFor(species, f.species_id).map((sp) => <option key={sp.id} value={sp.id}>{sp.common_name}</option>)}
-                            </select></div>
                         <div className="nf-field"><label>Weight (optional)</label>
                             <div className="amt-pair">
                                 <input className="in" type="number" step="any" value={f.amount ?? ''}
@@ -2903,7 +2895,6 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                         {batchList.map((units) => {
                             const sorted = [...units].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
                             const first = sorted[0];
-                            const sp = species.find((sx) => sx.id === first.species_id);
                             const onHand = sorted.filter((s) => s.status === 'on_hand');
 
                             /* A unit whose item is done (retired/contaminated/
@@ -2926,7 +2917,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                         <button className="equip-row-main" onClick={() => {
                                             setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
                                                 supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
-                                                species_id: s.species_id ?? '', quantity: '1', labels: '',
+                                                quantity: '1', labels: '',
                                                 label: s.label ?? '',
                                                 made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
                                                 amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
@@ -2951,7 +2942,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                         <div>
                                             <span className="equip-name">{stockLabel(first, library, suppliers)}</span>
                                             <span className="equip-note">
-                                                {first.source === 'made' ? 'made' : 'bought'}{sp ? ` · ${sp.common_name}` : ''}
+                                                {first.source === 'made' ? 'made' : 'bought'}
                                                 {first.made_or_bought_on ? ` · ${fmt(first.made_or_bought_on)}` : ''}
                                                 {' · '}{onHand.length} of {sorted.length} on hand
                                             </span>
