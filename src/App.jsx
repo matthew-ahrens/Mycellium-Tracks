@@ -2760,9 +2760,17 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
     const filteredRecipes = recipeCategory ? recipes.filter((r) => r.categories?.includes(recipeCategory)) : recipes;
     const isNew = form === 'new';
+    const formRef = useRef(null);
 
     const stockRef = useRef(stock);
     useEffect(() => { stockRef.current = stock; });
+    /* The form always renders at the top of this tab's content, no matter
+       which unit (possibly far down a long batch list) was clicked to open
+       it - without this, opening an edit from the bottom of a long "Grain
+       spawn" section leaves the form off-screen above the scroll position. */
+    useEffect(() => {
+        if (form !== null) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [form]);
     useEffect(() => {
         if (!initialOpenId) return;
         const s = stockRef.current.find((x) => x.id === initialOpenId);
@@ -2800,7 +2808,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
             </div>
 
             {form !== null && (
-                <div className="new-form">
+                <div className="new-form" ref={formRef}>
                     <div className="nf-title">{isNew ? 'New' : 'Edit'} stock</div>
                     <div className="nf-grid">
                         <div className="nf-field"><label>Kind</label>
@@ -5464,7 +5472,13 @@ const CSS = `
    this modifier is for exactly that case, e.g. an empty-state message
    rendered directly on .page rather than inside a form. */
 .nf-help.nf-help-page{color:var(--ink-dim);}
-.nf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px;}
+/* auto-fill, not auto-fit: auto-fit stretches whatever lands in a
+   half-empty trailing row to fill the leftover column tracks, so a form
+   whose field count doesn't divide evenly into a row gets one or two
+   fields blown up wide for no reason (surfaced when the Stock form's
+   field count shifted after adding Weight). auto-fill just leaves that
+   space blank instead. */
+.nf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:11px;margin-bottom:14px;}
 .nf-field{display:flex;flex-direction:column;gap:5px;}
 .nf-field.wide{grid-column:1 / -1;}
 .nf-field label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
