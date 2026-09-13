@@ -4327,7 +4327,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                                     <option value="">— not from stock —</option>
                                     {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand')
                                         .map((s) => <option key={s.id} value={s.id}>
-                                            {s.label || 'Unlabeled unit'}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
+                                            {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${s.amount}${s.amount_unit ? ' ' + s.amount_unit : ''}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
                                         </option>)}
                                 </select>
                             </div>
@@ -4701,7 +4701,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand').map((s) => (
                             <button key={s.id} className="chip go" onClick={() => {
                                 addChild(id, pickedType, s.id); setPicking(false); setPickedType(null);
-                            }}>{s.label || stockLabel(s, library, suppliers)}</button>
+                            }}>{s.label || stockLabel(s, library, suppliers)}{s.amount != null ? ` · ${s.amount}${s.amount_unit ? ' ' + s.amount_unit : ''}` : ''}</button>
                         ))}
                         <button className="chip" onClick={() => { addChild(id, pickedType); setPicking(false); setPickedType(null); }}>Not from stock</button>
                         <button className="chip" onClick={() => setPickedType(null)}>Back</button>
