@@ -5593,9 +5593,19 @@ const CSS = `
 .head-read{flex:1;}
 .head-edit{flex:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
 .head-edit .in{flex:1 1 150px;font-family:var(--mono);}
-/* Amount + unit read as one field, so they stay adjacent and don't get
-   split across a wrap boundary by .head-edit's flex-wrap. */
-.amt-pair{display:flex;gap:6px;flex:1 1 150px;}
+/* Bare .amt-pair has no flex-basis of its own on purpose: flex-basis is
+   an axis-relative property, and amt-pair gets reused inside two flex
+   containers running opposite directions - .head-edit (row) and
+   .nf-field (column, in the Stock form). "150px" meant width in the
+   row context this was written for, but the same number silently
+   became a HEIGHT once reused inside a column container, forcing the
+   Stock form's Weight field to be at least 150px tall for no reason.
+   Scoped to .head-edit below, where a width preference actually makes
+   sense (so amount+unit stay adjacent instead of splitting across a
+   wrap boundary); inside .nf-field it just sizes to its content and
+   fills the column's width via that container's normal stretch. */
+.amt-pair{display:flex;gap:6px;}
+.head-edit .amt-pair{flex:1 1 150px;}
 /* input.in, not just .in - both amount-pair inputs also carry the .sm
    modifier (for its compact padding/font), and .in.sm{flex:0 0 auto}
    is defined later in this sheet at equal specificity, so plain ".in"
