@@ -2857,7 +2857,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                     onChange={(e) => setF({ ...f, label: e.target.value })} /></div>
                         )}
                         <div className="nf-field"><label>Date made / bought</label>
-                            <input className="in sm" type="date" value={f.made_or_bought_on}
+                            <input className="in" type="date" value={f.made_or_bought_on}
                                 onChange={(e) => setF({ ...f, made_or_bought_on: e.target.value })} /></div>
                         <div className="nf-field"><label>Status</label>
                             <select className="in sel" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
@@ -5605,7 +5605,14 @@ const CSS = `
 /* Amount + unit read as one field, so they stay adjacent and don't get
    split across a wrap boundary by .head-edit's flex-wrap. */
 .amt-pair{display:flex;gap:6px;flex:1 1 150px;}
-.amt-pair .in{flex:1 1 60px;min-width:0;}
+/* input.in, not just .in - both amount-pair inputs also carry the .sm
+   modifier (for its compact padding/font), and .in.sm{flex:0 0 auto}
+   is defined later in this sheet at equal specificity, so plain ".in"
+   here was losing that fight and letting the inputs render at native
+   browser width instead of splitting the field evenly - that's what
+   was still making the Weight boxes look oversized after the row-
+   height fix. The extra element-selector bumps this above .in.sm. */
+.amt-pair input.in{flex:1 1 60px;min-width:0;}
 /* --amber, not --amber-ink, is for dark panels only. This sits on the
    tan --ground, where #D6934A is near-invisible. */
 .d-sub.method{color:var(--amber-ink);}
