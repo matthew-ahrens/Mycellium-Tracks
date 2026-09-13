@@ -3848,6 +3848,116 @@ function DataTab({ items, genetics, species, suppliers }) {
 
 /* ---------------- SPECIES GRID ---------------- */
 
+/* Quick-add starter data for the "New species" form - picking one just
+   prefills the fields below, nothing is locked in until Save, and every
+   field stays editable afterward. Every number here is sourced from real
+   cultivation guides (North Spore, Field & Forest, GroCycle, Out-Grow,
+   FreshCap, plus one peer-reviewed paper for Turkey Tail) rather than
+   guessed, per the app's standing "don't fabricate species facts" rule -
+   see the Calculators data-leak fix (2026-09-06). Where guides for a
+   species disagreed, the range was picked from whichever source looked
+   most credible/specific, never split the difference blindly.
+   dry_yield_pct is left blank on EVERY template on purpose: this field is
+   dried weight as a % of *fresh harvest* weight (see DryYield calculator -
+   dry = wet * pct/100), which is basically moisture content and only
+   really documented for a couple of species (Blue Oyster's real 8.9% is
+   already in the species table). What's commonly published in grow guides
+   is Biological Efficiency (fresh yield / dry SUBSTRATE weight) - a
+   completely different metric - so plugging those numbers in here would
+   look like real data while actually being wrong. Better to leave it
+   blank and let the calculator's general-average fallback handle it than
+   fabricate-by-mislabeling.
+   One template per commercial species, not per strain (2026-09-13 per
+   Matt) - where a species' own strains genuinely vary, the note below
+   says "typical - adjust to your results" rather than pretending false
+   precision. */
+const SPECIES_TEMPLATES = [
+    {
+        common_name: 'Blue Oyster', latin_name: 'Pleurotus ostreatus',
+        fruiting_temp: '55-75F', humidity: '85-95%', fae: 'High',
+        colonize_temp: '70-75F', colonize_time: '10-14 d', pin_to_harvest: '5-7 d',
+        substrate_note: 'Supp. hardwood or straw', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Out-Grow) - adjust to your results.',
+    },
+    {
+        common_name: 'Pink Oyster', latin_name: 'Pleurotus djamor',
+        fruiting_temp: '70-80F', humidity: '85-95%', fae: 'High',
+        colonize_temp: '75-85F', colonize_time: '7-14 d', pin_to_harvest: '3-5 d',
+        substrate_note: 'Straw or supp. hardwood', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Field & Forest, Out-Grow) - adjust to your results. Won\'t fruit below ~65F; fast fruiting cycle needs daily monitoring.',
+    },
+    {
+        common_name: 'Yellow Oyster', latin_name: 'Pleurotus citrinopileatus',
+        fruiting_temp: '65-80F', humidity: '85-95%', fae: 'High',
+        colonize_temp: '75-82F', colonize_time: '10-14 d', pin_to_harvest: '5-10 d',
+        substrate_note: 'Straw or supp. hardwood', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, GroCycle, Out-Grow) - adjust to your results.',
+    },
+    {
+        common_name: 'King Oyster', latin_name: 'Pleurotus eryngii',
+        fruiting_temp: '50-65F', humidity: '85-95%', fae: 'Low',
+        colonize_temp: '70-75F', colonize_time: '2-3 wk', pin_to_harvest: '5-10 d',
+        substrate_note: 'Supp. hardwood, casing optional', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Field & Forest, GroCycle, FreshCap) - adjust to your results. Deliberately kept lower-FAE than other oysters, to form thick single stems instead of clusters; needs 10+ hr/day light to fruit well.',
+    },
+    {
+        common_name: "Lion's Mane", latin_name: 'Hericium erinaceus',
+        fruiting_temp: '55-65F', humidity: '85-95%', fae: 'High',
+        colonize_temp: '70-75F', colonize_time: '2-3 wk', pin_to_harvest: '5-10 d',
+        substrate_note: 'Supp. hardwood sawdust block', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Out-Grow) - adjust to your results.',
+    },
+    {
+        common_name: 'Chestnut', latin_name: 'Pholiota adiposa',
+        fruiting_temp: '55-65F', humidity: '85-95%', fae: 'Medium',
+        colonize_temp: '70-75F', colonize_time: '2-3 wk', pin_to_harvest: '10-14 d',
+        substrate_note: 'Supp. hardwood sawdust, no casing', dry_yield_pct: '',
+        notes: 'Less documented than most gourmet species - sourced from one commercial grow guide (Out-Grow) plus experienced-grower reports, not extension/university sources. Treat as a rougher starting point and lean on your own results more than usual.',
+    },
+    {
+        common_name: 'Shiitake', latin_name: 'Lentinula edodes',
+        fruiting_temp: '55-70F', humidity: '85-95%', fae: 'Low',
+        colonize_temp: '70-75F', colonize_time: '8-12 wk', pin_to_harvest: '5-10 d',
+        substrate_note: 'Supp. sawdust block', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Field & Forest) - adjust to your results. Notably slower to colonize and more CO2-tolerant than oyster species. Sawdust-block tek, not log-grown.',
+    },
+    {
+        common_name: 'Reishi', latin_name: 'Ganoderma lucidum',
+        fruiting_temp: '70-80F', humidity: '85-95%', fae: 'Low',
+        colonize_temp: '75-81F', colonize_time: '2-4 wk', pin_to_harvest: '',
+        substrate_note: 'Supp. hardwood sawdust block', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, GroCycle, Out-Grow). Doesn\'t flush like gilled species - after pinning it grows into a conk (or antler form, depending on FAE) over roughly 4-8 wk before being cut and dried, so "pin to harvest" is left blank on purpose.',
+    },
+    {
+        common_name: 'Turkey Tail', latin_name: 'Trametes versicolor',
+        fruiting_temp: '65-80F', humidity: '85-95%', fae: 'Medium',
+        colonize_temp: '70-80F', colonize_time: '3-6 wk', pin_to_harvest: '7-14 d',
+        substrate_note: 'Supp. hardwood sawdust', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides and one peer-reviewed cultivation study - adjust to your results. Forms brackets, not classic pins, so pin-to-harvest is approximate.',
+    },
+    {
+        common_name: 'Maitake', latin_name: 'Grifola frondosa',
+        fruiting_temp: '50-60F', humidity: '85-95%', fae: 'Medium',
+        colonize_temp: '70-75F', colonize_time: '6-10 wk', pin_to_harvest: '14-21 d',
+        substrate_note: 'Supp. hardwood sawdust', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, Field & Forest, Out-Grow) - adjust to your results.',
+    },
+    {
+        common_name: 'Cordyceps militaris', latin_name: 'Cordyceps militaris',
+        fruiting_temp: '60-72F', humidity: '80-95%', fae: 'Low',
+        colonize_temp: '65-72F', colonize_time: '2-4 wk', pin_to_harvest: '',
+        substrate_note: 'Grain/rice + nutrient broth', dry_yield_pct: '',
+        notes: 'Typical ranges from North Spore\'s (William Padilla-Brown) method and Out-Grow - adjust to your results. Doesn\'t pin like gilled species - strands emerge gradually across the grain. Rough total timeline: ~2-4 wk colonize, 1-2 wk to visible strands, then 10-20 d fruiting development to harvest (~4-8 wk inoculation to harvest overall) - left pin-to-harvest blank since it doesn\'t map cleanly to one number.',
+    },
+    {
+        common_name: 'Enoki', latin_name: 'Flammulina velutipes',
+        fruiting_temp: '45-60F', humidity: '90-95%', fae: 'Low',
+        colonize_temp: '70-77F', colonize_time: '2-4 wk', pin_to_harvest: '7-10 d',
+        substrate_note: 'Supp. hardwood + rice bran', dry_yield_pct: '',
+        notes: 'Typical ranges from grower guides (North Spore, GroCycle, Out-Grow) - adjust to your results. Low FAE here is deliberate, not a problem: commercial growers restrict fresh air on purpose (high CO2) to force the classic long, thin stems and suppress cap expansion - more air gives you shorter, capped enoki instead.',
+    },
+];
+
 function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }) {
     const live = items.filter((i) => STATUS[i.status].live).length;
     const [adding, setAdding] = useState(false);
@@ -3883,6 +3993,18 @@ function SpeciesGrid({ species, genetics, items, onOpen, onAdd, onToggleHidden }
             {adding && (
                 <div className="new-form">
                     <div className="nf-title">New species</div>
+                    <div className="sp-chips" style={{ marginBottom: 4 }}>
+                        <span className="sp-chips-label">Start from a template:</span>
+                        <select className="in sel" style={{ flex: '0 0 auto', width: 'auto' }} value=""
+                            onChange={(e) => {
+                                const t = SPECIES_TEMPLATES.find((x) => x.common_name === e.target.value);
+                                if (t) setF({ ...t });
+                            }}>
+                            <option value="">— pick a species, or fill in your own —</option>
+                            {SPECIES_TEMPLATES.map((t) => <option key={t.common_name} value={t.common_name}>{t.common_name}</option>)}
+                        </select>
+                        <span className="nf-help" style={{ margin: 0 }}>Prefills every field below - all still editable before you save.</span>
+                    </div>
                     <div className="nf-grid">
                         <div className="nf-field wide">
                             <label>Common name</label>
