@@ -5477,8 +5477,15 @@ const CSS = `
    whose field count doesn't divide evenly into a row gets one or two
    fields blown up wide for no reason (surfaced when the Stock form's
    field count shifted after adding Weight). auto-fill just leaves that
-   space blank instead. */
-.nf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:11px;margin-bottom:14px;}
+   space blank instead.
+   align-items:start, because grid's default (stretch) forces every field
+   in a row to match the tallest one's height - and several field types
+   here (plain text .in, .in.sel selects, the .amt-pair wrapper) have
+   flex:1 on them for unrelated horizontal-fill reasons, so a stretched
+   row makes them balloon vertically to fill it. Only fields like the
+   date input (.in.sm, flex:0 0 auto) happened to opt out, which is why
+   some fields blew up tall and others didn't. */
+.nf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:11px;margin-bottom:14px;align-items:start;}
 .nf-field{display:flex;flex-direction:column;gap:5px;}
 .nf-field.wide{grid-column:1 / -1;}
 .nf-field label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
