@@ -293,7 +293,6 @@ export default function App() {
                 methodNote: r.method_note ?? '',
                 status: r.status,
                 created: r.created_on,
-                where: r.location ?? '',
                 substrate: r.substrate ?? '',
                 notes: r.notes ?? '',
                 dryWeight: r.dry_substrate_g ?? undefined,
@@ -519,7 +518,6 @@ export default function App() {
            stale note can't linger behind a preset value. */
         if ('methodNote' in patch) cols.method_note = patch.methodNote || null;
         if ('method' in patch && patch.method !== 'other') cols.method_note = null;
-        if ('where' in patch) cols.location = patch.where || null;
         if ('substrate' in patch) cols.substrate = patch.substrate || null;
         if ('notes' in patch) cols.notes = patch.notes || null;
         if ('created' in patch) cols.created_on = patch.created || null;
@@ -1947,7 +1945,7 @@ function Search({ items, genetics, species, lots, lotLinks, library, librarySpec
             const sp = species.find((s) => s.id === gen?.species_id);
             const m = firstMatch([
                 ['Label', i.id], ['Species', sp?.common_name], ['Type', TYPES[i.type]],
-                ['Where', i.where], ['Substrate', i.substrate], ['Notes', i.notes],
+                ['Substrate', i.substrate], ['Notes', i.notes],
                 ['Status', STATUS[i.status]?.label ?? i.status],
             ], nq);
             return m && {
@@ -4436,7 +4434,6 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
     const [editing, setEditing] = useState(null);   // event id or lot id
     const [draft, setDraft] = useState({ date: "", body: "", wet: "" });
     const [editHead, setEditHead] = useState(false);
-    const [editFacts, setEditFacts] = useState(false);
     const [editNotes, setEditNotes] = useState(false);
     /* null = closed. Otherwise the in-progress draw. */
     const [drawing, setDrawing] = useState(null);
@@ -4538,6 +4535,10 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             onChange={(supId) => setF({ ...f, supplierId: supId })}
                             onCreate={onGetOrCreateSupplier} />
                         <input className="in sm" type="date" value={f.created ?? ""} onChange={(e) => setF({ ...f, created: e.target.value })} />
+                        <input className="in" value={f.substrate ?? ""} onChange={(e) => setF({ ...f, substrate: e.target.value })}
+                            placeholder="substrate, e.g. Supp. hardwood bag" />
+                        <input className="in sm" inputMode="decimal" value={f.dryWeight ?? ""}
+                            onChange={(e) => setF({ ...f, dryWeight: e.target.value })} placeholder="dry substrate (g)" />
                         <select className="in sel" value={f.parent ?? ""} onChange={(e) => setF({ ...f, parent: e.target.value })}>
                             <option value="">— no parent (start of the line) —</option>
                             {items.filter((c) => c.id !== id && !descendants.includes(c.id))
@@ -4562,6 +4563,12 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             if ((f.methodNote ?? "") !== (it.methodNote ?? "")) patch.methodNote = f.methodNote ?? "";
                             if ((f.supplierId || "") !== (it.supplierId || "")) patch.supplierId = f.supplierId || null;
                             if ((f.created || null) !== it.created) patch.created = f.created || null;
+                            if ((f.substrate ?? "").trim() !== (it.substrate ?? "")) patch.substrate = (f.substrate ?? "").trim();
+                            {
+                                const raw = (f.dryWeight ?? "").toString().trim();
+                                const dw = raw === "" ? null : parseFloat(raw);
+                                if ((raw === "" || !Number.isNaN(dw)) && dw !== (it.dryWeight ?? null)) patch.dryWeight = dw;
+                            }
                             if (Object.keys(patch).length) saveItemFields(id, patch);
                             if ((f.parent || null) !== (it.parent || null)) reparentItem(patch.id ?? id, f.parent || null);
                             setEditHead(false);
@@ -4578,28 +4585,12 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                 ) : (
                     <div className="head-read">
                         <h1 className="d-id">{it.id}</h1>
-                        <div className="d-sub">{TYPES[it.type]}{it.form && FORMS[it.type]?.[it.form] ? ` · ${FORMS[it.type][it.form]}` : ""}{it.amount != null ? ` · ${it.amount}${it.amountUnit ? ' ' + it.amountUnit : ''}` : ""} · started {fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</div>
-                        {(it.method || it.supplierId) && (
-                            <div className="d-sub method">
-                                {it.method && (
-                                    <>
-                                        {it.method === 'other'
-                                            ? (it.methodNote || 'Other')
-                                            : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
-                                        {it.parent ? ` from ${it.parent}` : ""}
-                                    </>
-                                )}
-                                {it.supplierId
-                                    ? ` — ${suppliers.find((s) => s.id === it.supplierId)?.name ?? 'unknown vendor'}`
-                                    : ""}
-                            </div>
-                        )}
                     </div>
                 )}
                 {!editHead && (
                     <>
-                        <button className="edit-btn" title="Edit label, type, form, amount, method, start date"
-                            onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "", supplierId: it.supplierId ?? "" }); setEditHead(true); }}>✎</button>
+                        <button className="edit-btn" title="Edit label, type, form, amount, method, vendor, start date, substrate"
+                            onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "", supplierId: it.supplierId ?? "", substrate: it.substrate ?? "", dryWeight: it.dryWeight ?? "" }); setEditHead(true); }}>✎</button>
                         <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
@@ -4807,41 +4798,31 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         </>
                     )}
 
-                    <Sec title="Details" onEdit={editFacts ? null : () => {
-                        setF({ where: it.where ?? "", substrate: it.substrate ?? "", dryWeight: it.dryWeight ?? "" });
-                        setEditFacts(true);
-                    }} />
-                    {editFacts ? (
-                        <div className="field-form">
-                            <label>Where</label>
-                            <input className="in" value={f.where} onChange={(e) => setF({ ...f, where: e.target.value })} />
-                            <label>Substrate</label>
-                            <input className="in" value={f.substrate} onChange={(e) => setF({ ...f, substrate: e.target.value })} />
-                            <label>Dry substrate (g)</label>
-                            <input className="in" inputMode="decimal" value={f.dryWeight}
-                                onChange={(e) => setF({ ...f, dryWeight: e.target.value })} placeholder="for BE math" />
-                            <div className="edit-row">
-                                <button className="mini" onClick={() => {
-                                    const dw = f.dryWeight === "" ? null : parseFloat(f.dryWeight);
-                                    saveItemFields(id, {
-                                        where: f.where.trim(),
-                                        substrate: f.substrate.trim(),
-                                        dryWeight: Number.isNaN(dw) ? null : dw,
-                                    });
-                                    setEditFacts(false);
-                                }}>Save</button>
-                                <button className="mini ghost" onClick={() => setEditFacts(false)}>Cancel</button>
-                            </div>
-                        </div>
-                    ) : (
+                    <Sec title="Details" />
                     <dl className="facts">
-                        <dt>Where</dt><dd>{it.where || "—"}</dd>
+                        <dt>Type</dt>
+                        <dd>{TYPES[it.type]}{it.form && FORMS[it.type]?.[it.form] ? ` · ${FORMS[it.type][it.form]}` : ""}</dd>
+                        <dt>Amount</dt>
+                        <dd>{it.amount != null ? `${it.amount}${it.amountUnit ? ' ' + it.amountUnit : ''}` : "—"}</dd>
+                        <dt>Started</dt>
+                        <dd>{fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</dd>
+                        <dt>Method</dt>
+                        <dd>{it.method
+                            ? <>
+                                {it.method === 'other'
+                                    ? (it.methodNote || 'Other')
+                                    : (methodsFor(items.find((c) => c.id === it.parent)?.type, it.form)?.[it.method] ?? it.method)}
+                                {it.parent ? ` from ${it.parent}` : ""}
+                            </>
+                            : "—"}</dd>
+                        <dt>Vendor</dt>
+                        <dd>{it.supplierId ? (suppliers.find((s) => s.id === it.supplierId)?.name ?? 'unknown vendor') : "—"}</dd>
                         <dt>Substrate</dt><dd>{it.substrate || "—"}</dd>
+                        <dt>Dry substrate</dt><dd>{it.dryWeight != null ? `${it.dryWeight} g` : "—"}</dd>
                         <dt>Came from</dt><dd>{it.parent ? <button className="lnk" onClick={() => onOpen(it.parent)}>{it.parent}</button> : "origin of this line"}</dd>
                         <dt>Produced</dt>
                         <dd>{kids.length ? kids.map((k) => <button key={k.id} className="lnk" onClick={() => onOpen(k.id)}>{k.id}</button>) : "nothing yet"}</dd>
                     </dl>
-                    )}
 
                     <Sec title="Notes" onEdit={editNotes ? null : () => { setF({ notes: it.notes ?? "" }); setEditNotes(true); }} />
                     {editNotes ? (
