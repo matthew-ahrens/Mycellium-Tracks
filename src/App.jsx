@@ -87,6 +87,13 @@ const DONE_ITEM_STATUSES = ['retired', 'contaminated', 'failed', 'consumed'];
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
 
 const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", cake: "Nutrient cake", aio: "AIO bag", other: "Other" };
+/* Auto-numbered Stock labels use their OWN tag letters per kind - deliberately
+   not the same letters as genetics' CODE (SP/AG/LC/GR/BK/FB/NC), so a label
+   like TUB-MM03 can never be mistaken for a genetics container like BO1-LC3
+   at a glance. Paired with a one-time `label_prefix` set on the recipe
+   (library row) or supplier the first time it's used to log stock - see
+   addStock's auto-numbering block below. */
+const STOCK_KIND_TAG = { agar: "PLT", lc: "JAR", grain: "GRN", bulk: "TUB", block: "BLK", cake: "CAK", aio: "AIO", other: "MSC" };
 const STOCK_STATUS = {
     on_hand: { label: "On hand", tone: "jade" },
     used: { label: "Used", tone: "slate" },
@@ -112,6 +119,33 @@ function stockLabel(s, library, suppliers) {
    already shares. */
 function stockBatchKey(s) {
     return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || '', s.made_or_bought_on || ''].join('|');
+}
+
+/* Auto-numbers a batch of new stock units as {KIND_TAG}-{code}{NN}, e.g.
+   TUB-MM03. Scans existing stock labels sharing the same prefix for the
+   highest number in use, then counts up from there - same self-healing
+   idea as items' addChild (guess, then skip past anything already taken)
+   rather than a stored counter, so a manually-typed or deleted label can
+   never cause a collision. Padded to 2 digits per Matt (MM01...MM99),
+   widening naturally past 99 since padStart never truncates. */
+function nextStockLabels(kindTag, code, count, existingStock) {
+    const prefix = `${kindTag}-${code}`;
+    let n = 0;
+    existingStock.forEach((s) => {
+        if (!s.label || !s.label.startsWith(prefix)) return;
+        const suffix = s.label.slice(prefix.length);
+        if (/^\d+$/.test(suffix)) n = Math.max(n, Number(suffix));
+    });
+    const taken = new Set(existingStock.map((s) => s.label).filter(Boolean));
+    const labels = [];
+    for (let k = 0; k < count; k += 1) {
+        n += 1;
+        let label = `${prefix}${String(n).padStart(2, '0')}`;
+        while (taken.has(label)) { n += 1; label = `${prefix}${String(n).padStart(2, '0')}`; }
+        taken.add(label);
+        labels.push(label);
+    }
+    return labels;
 }
 const FRUITS = ["bulk", "block"];
 
@@ -811,7 +845,36 @@ export default function App() {
        not by a stored batch id. */
     const addStock = async (fields) => {
         const count = Math.max(1, fields.quantity === '' || fields.quantity == null ? 1 : Number(fields.quantity));
-        const labels = (fields.labels ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+        let labels = (fields.labels ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+
+        /* Auto-numbering: only kicks in when the Labels field was left
+           blank (a manual entry there always wins, same as before). Needs
+           a code to build on - the recipe's (made) or supplier's (bought)
+           `label_prefix`. First time either one is used to log stock,
+           the form collects fields.new_code and this persists it so it
+           sticks for every future batch, exactly like genetics' code. */
+        if (labels.length === 0) {
+            let code = null;
+            if (fields.source === 'made' && fields.recipe_id) {
+                code = library.find((r) => r.id === fields.recipe_id)?.label_prefix || null;
+            } else if (fields.source === 'bought' && fields.supplier_id) {
+                code = suppliers.find((s) => s.id === fields.supplier_id)?.label_prefix || null;
+            }
+            const newCode = fields.new_code?.trim().toUpperCase() || '';
+            if (!code && newCode) {
+                if (fields.source === 'made' && fields.recipe_id) {
+                    const { error } = await supabase.from('library').update({ label_prefix: newCode }).eq('id', fields.recipe_id);
+                    if (error) { console.error(error); alert('Could not save the recipe code - check console'); }
+                    else { setLibrary((p) => p.map((r) => (r.id === fields.recipe_id ? { ...r, label_prefix: newCode } : r))); code = newCode; }
+                } else if (fields.source === 'bought' && fields.supplier_id) {
+                    const { error } = await supabase.from('suppliers').update({ label_prefix: newCode }).eq('id', fields.supplier_id);
+                    if (error) { console.error(error); alert('Could not save the supplier code - check console'); }
+                    else { setSuppliers((p) => p.map((s) => (s.id === fields.supplier_id ? { ...s, label_prefix: newCode } : s))); code = newCode; }
+                }
+            }
+            if (code) labels = nextStockLabels(STOCK_KIND_TAG[fields.kind], code, count, stock);
+        }
+
         const rows = Array.from({ length: count }, (_, i) => ({
             kind: fields.kind,
             source: fields.source,
@@ -2750,7 +2813,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
 function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
-        amount: '', amount_unit: '' };
+        amount: '', amount_unit: '', new_code: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
     /* Kind filter for the list below (agar/grain/etc.) - separate from
@@ -2761,6 +2824,15 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
     const recipeCategory = STOCK_KIND_RECIPE_CATEGORY[f.kind];
     const filteredRecipes = recipeCategory ? recipes.filter((r) => r.categories?.includes(recipeCategory)) : recipes;
     const isNew = form === 'new';
+    /* Whether the currently-picked recipe/supplier already has an
+       auto-numbering code (library/suppliers.label_prefix). When it
+       doesn't, the form below asks for one once - see addStock, which
+       persists it and uses it to generate labels going forward. */
+    const existingCode = f.source === 'made'
+        ? recipes.find((r) => r.id === f.recipe_id)?.label_prefix
+        : suppliers.find((s) => s.id === f.supplier_id)?.label_prefix;
+    const needsCode = isNew && !existingCode
+        && ((f.source === 'made' && f.recipe_id) || (f.source === 'bought' && f.supplier_id));
     /* The edit form renders inline right at the unit being edited (see
        formPanel below), so a normal click never needs to scroll anywhere -
        the panel just opens exactly where you already are. The one case
@@ -2852,11 +2924,25 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                         )}
                         {isNew ? (
                             <>
+                                {needsCode && (
+                                    <div className="nf-field wide">
+                                        <label>Code (for auto-numbering, e.g. MM)</label>
+                                        <input className="in" value={f.new_code} placeholder="e.g. MM"
+                                            onChange={(e) => setF({ ...f, new_code: e.target.value.toUpperCase() })} />
+                                        <span className="nf-help" style={{ margin: 0 }}>
+                                            First time using this {f.source === 'made' ? 'recipe' : 'supplier'} for stock -
+                                            set a short code and it'll auto-number every batch from here on
+                                            (e.g. {STOCK_KIND_TAG[f.kind]}-{(f.new_code || 'MM')}01). Leave blank to skip
+                                            auto-numbering and just type labels below instead.
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="nf-field"><label>How many units</label>
                                     <input className="in" inputMode="numeric" value={f.quantity}
                                         onChange={(e) => setF({ ...f, quantity: e.target.value.replace(/[^\d]/g, '') })} /></div>
                                 <div className="nf-field wide"><label>Labels (optional, comma-separated)</label>
-                                    <input className="in" value={f.labels} placeholder="e.g. LC10, LC11, LC12, LC13"
+                                    <input className="in" value={f.labels}
+                                        placeholder={existingCode ? `leave blank to auto-number (${STOCK_KIND_TAG[f.kind]}-${existingCode}##)` : "e.g. LC10, LC11, LC12, LC13"}
                                         onChange={(e) => setF({ ...f, labels: e.target.value })} /></div>
                             </>
                         ) : (
