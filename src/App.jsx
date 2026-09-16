@@ -3615,8 +3615,9 @@ function RateBarChart({ rows }) {
    as horizontal bar charts, replacing the activity heatmap - see
    sporedesk-beta-launch-plan.md. */
 function DataTab({ items, genetics, species, suppliers }) {
+    const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => {
-        const gen = genetics.find((g) => g.id === item.geneticsId);
+        const gen = geneticsFor(item);
         return gen && species.find((s) => s.id === gen.species_id);
     };
 
@@ -3625,8 +3626,12 @@ function DataTab({ items, genetics, species, suppliers }) {
        disappears from the Data tab instead of just the species list it
        shows up on. An item whose species can't be resolved at all stays
        in rather than getting silently dropped - only an explicit hidden
-       flag excludes it. */
-    const visibleItems = items.filter((i) => !speciesFor(i)?.hidden);
+       flag excludes it. Also excludes items on a hidden GENETICS line even
+       when its species is still visible (2026-09-16 fix) - hiding one
+       strain of an otherwise-visible species used to leave its runs baked
+       into the success rate/colonization speed/everything else here, the
+       same leak the AI-connector hidden-items rule exists to avoid. */
+    const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
 
     // "Resolved" = the run is actually over, good or bad - colonizing is
     // still in flight and shouldn't count against (or for) the rate yet.
