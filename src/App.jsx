@@ -1419,7 +1419,8 @@ export default function App() {
         key = 'reference';
         screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
-            onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} unitsPref={profile?.units_pref ?? 'adaptive'} />;
+            onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} unitsPref={profile?.units_pref ?? 'adaptive'}
+            onEditSpecies={saveSpeciesFields} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -3608,8 +3609,21 @@ const QUICK_FACT_LABELS = [
     ['colonize_time', 'Colonize time'], ['pin_to_harvest', 'Pin to harvest'], ['substrate_note', 'Substrate'],
 ];
 
-function SpeciesFactsCard({ sp, isOpen, onToggle, unitsPref }) {
+function SpeciesFactsCard({ sp, isOpen, onToggle, unitsPref, onEditSpecies }) {
     const facts = QUICK_FACT_LABELS.filter(([key]) => sp[key]);
+    const [editing, setEditing] = useState(false);
+    const [sf, setSf] = useState(null);
+    const startEdit = () => {
+        setSf({
+            common_name: sp.common_name ?? "", latin_name: sp.latin_name ?? "",
+            fruiting_temp: sp.fruiting_temp ?? "", humidity: sp.humidity ?? "",
+            fae: sp.fae ?? "",
+            colonize_temp: sp.colonize_temp ?? "", colonize_time: sp.colonize_time ?? "",
+            pin_to_harvest: sp.pin_to_harvest ?? "", substrate_note: sp.substrate_note ?? "",
+            dry_yield_pct: sp.dry_yield_pct ?? "", notes: sp.notes ?? "",
+        });
+        setEditing(true);
+    };
     return (
         <div className={`lib-card ${isOpen ? 'open' : ''}`}>
             <button className="lib-head" onClick={onToggle}>
@@ -3621,24 +3635,69 @@ function SpeciesFactsCard({ sp, isOpen, onToggle, unitsPref }) {
             </button>
             {isOpen && (
                 <div className="lib-body">
-                    {facts.length > 0 && (
-                        <div className="qf-grid">
-                            {facts.map(([key, label]) => {
-                                const isTemp = key === 'fruiting_temp' || key === 'colonize_temp';
-                                const value = isTemp ? displayTempText(sp[key], unitsPref) : sp[key];
-                                const shownLabel = isTemp && unitsPref === 'metric' ? `${label} (+°C)` : label;
-                                return (
-                                    <div key={key} className="qf-tile">
-                                        <div className="qf-label">{shownLabel}</div>
-                                        <div className="qf-value">{value}</div>
-                                    </div>
-                                );
-                            })}
+                    {editing && (
+                        /* Same field set/order as Tree's "Edit species" form (Cultures side) -
+                           both write through the same saveSpeciesFields function, so editing
+                           from here or from Cultures ends up at the exact same record. */
+                        <div className="new-form">
+                            <div className="nf-title">Edit species</div>
+                            <div className="nf-grid">
+                                <div className="nf-field wide"><label>Common name</label>
+                                    <input className="in" value={sf.common_name} onChange={(e) => setSf({ ...sf, common_name: e.target.value })} /></div>
+                                <div className="nf-field wide"><label>Latin name</label>
+                                    <input className="in" value={sf.latin_name} onChange={(e) => setSf({ ...sf, latin_name: e.target.value })} /></div>
+                                <div className="nf-field"><label>Fruiting temp</label>
+                                    <input className="in" value={sf.fruiting_temp} onChange={(e) => setSf({ ...sf, fruiting_temp: e.target.value })} /></div>
+                                <div className="nf-field"><label>Humidity</label>
+                                    <input className="in" value={sf.humidity} onChange={(e) => setSf({ ...sf, humidity: e.target.value })} /></div>
+                                <div className="nf-field"><label>FAE</label>
+                                    <input className="in" value={sf.fae} onChange={(e) => setSf({ ...sf, fae: e.target.value })} /></div>
+                                <div className="nf-field"><label>Colonize temp</label>
+                                    <input className="in" value={sf.colonize_temp} onChange={(e) => setSf({ ...sf, colonize_temp: e.target.value })} /></div>
+                                <div className="nf-field"><label>Colonize time</label>
+                                    <input className="in" value={sf.colonize_time} onChange={(e) => setSf({ ...sf, colonize_time: e.target.value })} /></div>
+                                <div className="nf-field"><label>Pin to harvest</label>
+                                    <input className="in" value={sf.pin_to_harvest} onChange={(e) => setSf({ ...sf, pin_to_harvest: e.target.value })} /></div>
+                                <div className="nf-field wide"><label>Substrate</label>
+                                    <input className="in" value={sf.substrate_note} onChange={(e) => setSf({ ...sf, substrate_note: e.target.value })} /></div>
+                                <div className="nf-field"><label>Dry yield % (optional)</label>
+                                    <input className="in" inputMode="decimal" value={sf.dry_yield_pct} placeholder="e.g. 8.9"
+                                        onChange={(e) => setSf({ ...sf, dry_yield_pct: e.target.value })} /></div>
+                                <div className="nf-field wide"><label>Notes</label>
+                                    <textarea className="in ta" rows="3" value={sf.notes} onChange={(e) => setSf({ ...sf, notes: e.target.value })} /></div>
+                            </div>
+                            <div className="edit-row">
+                                <button className="mini" onClick={() => {
+                                    if (!sf.common_name.trim()) { alert('Common name is required.'); return; }
+                                    onEditSpecies(sp.id, sf); setEditing(false);
+                                }}>Save</button>
+                                <button className="mini ghost" onClick={() => setEditing(false)}>Cancel</button>
+                            </div>
                         </div>
                     )}
-                    {sp.notes && <p className="qf-note">{sp.notes}</p>}
-                    {facts.length === 0 && !sp.notes && (
-                        <p className="notes empty-note">No cheat-sheet facts saved yet - edit this species from Cultures to add them.</p>
+                    {!editing && (
+                        <>
+                            {facts.length > 0 && (
+                                <div className="qf-grid">
+                                    {facts.map(([key, label]) => {
+                                        const isTemp = key === 'fruiting_temp' || key === 'colonize_temp';
+                                        const value = isTemp ? displayTempText(sp[key], unitsPref) : sp[key];
+                                        const shownLabel = isTemp && unitsPref === 'metric' ? `${label} (+°C)` : label;
+                                        return (
+                                            <div key={key} className="qf-tile">
+                                                <div className="qf-label">{shownLabel}</div>
+                                                <div className="qf-value">{value}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            {sp.notes && <p className="qf-note">{sp.notes}</p>}
+                            {facts.length === 0 && !sp.notes && (
+                                <p className="notes empty-note">No cheat-sheet facts saved yet - edit below to add them.</p>
+                            )}
+                            <button className="mini ghost" onClick={startEdit}>Edit</button>
+                        </>
                     )}
                 </div>
             )}
@@ -3695,7 +3754,7 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
     );
 }
 
-function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist, unitsPref }) {
+function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist, unitsPref, onEditSpecies }) {
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const blank = { title: '', kind: 'recipe', url: '', body: '', speciesIds: [], general: false,
         categories: [], yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
@@ -4007,7 +4066,8 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
             <div className="lib-list">
                 {visibleCards.map((c) => c.cardType === 'cheat' ? (
                     <SpeciesFactsCard key={c.cardId} sp={c.sp} isOpen={openId === c.cardId}
-                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} unitsPref={unitsPref} />
+                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} unitsPref={unitsPref}
+                        onEditSpecies={onEditSpecies} />
                 ) : (
                     <LibCard key={c.cardId} e={c.e} species={species} librarySpecies={librarySpecies}
                         isOpen={openId === c.e.id} onToggle={() => setOpenId(openId === c.e.id ? null : c.e.id)}
