@@ -1452,11 +1452,18 @@ export default function App() {
             onOpen={(id) => go({ level: 'tree', speciesId: id })} />;
     }
 
+    /* Renamed 2026-09-17 per Matt - "Cultures" read as a weird catch-all
+       word, "Inventory" was already flagged (2026-08-31 changelog) as
+       colliding with Stock/Supplies, and Reference's own page has always
+       been titled "Library" - the tab label just never matched it.
+       Internal section keys ('cultures'/'inventory'/'reference') are left
+       untouched (labels only) to avoid touching profiles.default_section,
+       every setSection() call, and the search-destination handlers. */
     const NAV = [
-        ['cultures', 'Cultures', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
-        ['inventory', 'Inventory', 'M3 7h18v12H3zM3 7l2-3h14l2 3'],
+        ['cultures', 'Cultivation', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
+        ['inventory', 'Harvests', 'M5 10h14l-1.4 8.6a2 2 0 0 1-2 1.7H8.4a2 2 0 0 1-2-1.7L5 10zM8 10V7a4 4 0 0 1 8 0v3'],
         ['supplies', 'Supplies', 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8'],
-        ['reference', 'Reference', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
+        ['reference', 'Library', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
         ['data', 'Data', 'M4 19V10M10 19V4M16 19v-7M4 19h16'],
     ];
 
@@ -1680,8 +1687,8 @@ function AccountPanel({ profile, onSave, onBack }) {
 /* ---------------- SETTINGS ---------------- */
 
 const SECTION_LABELS = {
-    cultures: 'Cultures', inventory: 'Inventory', supplies: 'Supplies',
-    reference: 'Reference', data: 'Data',
+    cultures: 'Cultivation', inventory: 'Harvests', supplies: 'Supplies',
+    reference: 'Library', data: 'Data',
 };
 
 function SettingsPanel({ profile, onSave, onBack }) {
@@ -2461,7 +2468,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
                 match: m.label, snippet: m.snippet, onClick: () => onOpenItem(i.id),
             };
         }).filter(Boolean);
-        if (itemHits.length) out.push({ key: 'items', label: 'Cultures — items', hits: itemHits });
+        if (itemHits.length) out.push({ key: 'items', label: 'Cultivation — items', hits: itemHits });
 
         const genHits = genetics.map((g) => {
             const sp = species.find((s) => s.id === g.species_id);
@@ -2473,7 +2480,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
                 match: m.label, snippet: m.snippet, onClick: () => sp && onOpenSpecies(sp.id),
             };
         }).filter(Boolean);
-        if (genHits.length) out.push({ key: 'genetics', label: 'Cultures — genetics lines', hits: genHits });
+        if (genHits.length) out.push({ key: 'genetics', label: 'Cultivation — genetics lines', hits: genHits });
 
         const spHits = species.map((s) => {
             const m = firstMatch([
@@ -2484,7 +2491,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
                 match: m.label, snippet: m.snippet, onClick: () => onOpenSpecies(s.id),
             };
         }).filter(Boolean);
-        if (spHits.length) out.push({ key: 'species', label: 'Cultures — species', hits: spHits });
+        if (spHits.length) out.push({ key: 'species', label: 'Cultivation — species', hits: spHits });
 
         const lotHits = lots.map((l) => {
             const sp = lotSpeciesNames(l.id, lots, lotLinks, items, genetics, species);
@@ -2496,7 +2503,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
                 match: m.label, snippet: m.snippet, onClick: () => onOpenLot(l.id),
             };
         }).filter(Boolean);
-        if (lotHits.length) out.push({ key: 'lots', label: 'Inventory — lots', hits: lotHits });
+        if (lotHits.length) out.push({ key: 'lots', label: 'Harvests — lots', hits: lotHits });
 
         const libHits = library.map((e) => {
             const tagNames = librarySpecies.filter((r) => r.library_id === e.id)
@@ -2512,7 +2519,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
                 match: m.label, snippet: m.snippet, onClick: () => onOpenLibrary(e),
             };
         }).filter(Boolean);
-        if (libHits.length) out.push({ key: 'library', label: 'Reference & recipes', hits: libHits });
+        if (libHits.length) out.push({ key: 'library', label: 'Library — recipes & reference', hits: libHits });
 
         const equipHits = equipment.map((e) => {
             const m = firstMatch([
@@ -2610,7 +2617,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
             <div className="bar">
                 <div>
                     <div className="eyebrow">Everything that's been harvested, and what it became</div>
-                    <h1>Inventory</h1>
+                    <h1>Harvests</h1>
                 </div>
                 {!adding && <button className="sw" onClick={() => { setF(blank); setAdding(true); }}>+ Add lot</button>}
             </div>
