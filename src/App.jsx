@@ -1394,15 +1394,6 @@ export default function App() {
                 subtitle="each QR opens straight to that item."
                 onClose={() => setPrinting(null)} />;
         }
-    } else if (section === 'search') {
-        key = 'search';
-        screen = <Search items={items} genetics={genetics} species={species} lots={lots} lotLinks={lotLinks}
-            library={library} librarySpecies={librarySpecies} equipment={equipment} suppliers={suppliers} stock={stock}
-            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); }}
-            onOpenSpecies={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); }}
-            onOpenLot={(id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); }}
-            onOpenLibrary={(entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); }}
-            onOpenSupplies={(tab, id) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); }} />;
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
@@ -1430,14 +1421,6 @@ export default function App() {
                 onEditLink={editLotLink} onDeleteLink={deleteLotLink} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onOpen={setOpenLot} onAddManual={addManualLot} />;
-    } else if (section === 'gallery') {
-        key = 'gallery';
-        screen = <Gallery photos={photos} items={items} genetics={genetics} species={species} equipment={equipment}
-            photoUrl={photoUrl} onDelete={deletePhoto} onAddPhoto={addPhoto} onEditPhoto={editPhoto}
-            onOpenItem={(label) => { setSection('cultures'); setOpen(label); }} />;
-    } else if (section === 'calculators') {
-        key = 'calculators';
-        screen = <Calculators species={species} />;
     } else if (section === 'data') {
         key = 'data';
         screen = <DataTab items={items} genetics={genetics} species={species} suppliers={suppliers} />;
@@ -1472,20 +1455,31 @@ export default function App() {
     const NAV = [
         ['cultures', 'Cultures', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
         ['inventory', 'Inventory', 'M3 7h18v12H3zM3 7l2-3h14l2 3'],
-        ['gallery', 'Gallery', 'M4 4h16v16H4zM4 15l4-4 3 3 5-5 4 4M9 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
         ['supplies', 'Supplies', 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8'],
         ['reference', 'Reference', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
-        ['search', 'Search', 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM21 21l-5.4-5.4'],
-        ['calculators', 'Calculators', 'M5 3h14v18H5zM8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15h.01'],
         ['data', 'Data', 'M4 19V10M10 19V4M16 19v-7M4 19h16'],
     ];
+
+    /* Search used to be its own nav tab; now it's a persistent dropdown
+       pinned in the sidebar/mobile header (see SearchBox) instead of
+       eating a bottom-tab-bar slot - same destinations as before, just
+       reached from a live dropdown instead of a results page. */
+    const searchProps = {
+        items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
+        onOpenItem: (label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); },
+        onOpenSpecies: (id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); },
+        onOpenLot: (id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); },
+        onOpenLibrary: (entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); },
+        onOpenSupplies: (tab, id) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); },
+    };
 
     return (
         <div className="root">
             <style>{CSS}</style>
             <div className="mobile-brand">
-                <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
-                <div className="mobile-brand-icons">
+                <div className="mobile-brand-top">
+                    <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
+                    <div className="mobile-brand-icons">
                     <button className="mb-icon" aria-label="Account"
                         onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
                         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1499,11 +1493,14 @@ export default function App() {
                             <path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
                         </svg>
                     </button>
+                    </div>
                 </div>
+                <div className="mobile-search"><SearchBox {...searchProps} /></div>
             </div>
             <div className="shell">
                 <nav className="side">
                     <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
+                    <div className="side-search"><SearchBox {...searchProps} /></div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${!accountOpen && !settingsOpen && section === k ? 'on' : ''}`}
                             onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(false); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); }}>
@@ -1683,8 +1680,8 @@ function AccountPanel({ profile, onSave, onBack }) {
 /* ---------------- SETTINGS ---------------- */
 
 const SECTION_LABELS = {
-    cultures: 'Cultures', inventory: 'Inventory', gallery: 'Gallery', supplies: 'Supplies',
-    reference: 'Reference', search: 'Search', calculators: 'Calculators', data: 'Data',
+    cultures: 'Cultures', inventory: 'Inventory', supplies: 'Supplies',
+    reference: 'Reference', data: 'Data',
 };
 
 function SettingsPanel({ profile, onSave, onBack }) {
@@ -2314,7 +2311,18 @@ function GrainVolume() {
     );
 }
 
-function Calculators({ species }) {
+function Calculators({ species, embedded = false }) {
+    const grid = (
+        <div className="calc-grid">
+            <SpawnRatio />
+            <Hydration />
+            <BECalc />
+            <DryYield species={species} />
+            <UnitConverter />
+            <GrainVolume />
+        </div>
+    );
+    if (embedded) return grid;
     return (
         <div className="page">
             <div className="bar">
@@ -2323,14 +2331,7 @@ function Calculators({ species }) {
                     <h1>Calculators</h1>
                 </div>
             </div>
-            <div className="calc-grid">
-                <SpawnRatio />
-                <Hydration />
-                <BECalc />
-                <DryYield species={species} />
-                <UnitConverter />
-                <GrainVolume />
-            </div>
+            {grid}
         </div>
     );
 }
@@ -2404,7 +2405,11 @@ function LotCard({ lot, rem, sp, onOpen }) {
 /* ---------------- SEARCH ---------------- */
 /* Everything lives in state already (loaded whole on login, no pagination -
    see the data-loading effect near the top of App()), so a global search is
-   just a client-side scan across every array, no extra query needed. */
+   just a client-side scan across every array, no extra query needed.
+   Lives as a live dropdown pinned in the sidebar (desktop) / top brand bar
+   (mobile) rather than its own nav tab - see SearchBox below - so it's
+   always reachable without spending a slot in the already-crowded bottom
+   tab bar (2026-09-17, tab rebalance). */
 const SEARCH_MIN = 1;
 
 const norm = (s) => (s ?? '').toString().toLowerCase();
@@ -2426,10 +2431,18 @@ function firstMatch(fields, nq) {
     return null;
 }
 
-function Search({ items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
+function SearchBox({ items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
     onOpenItem, onOpenSpecies, onOpenLot, onOpenLibrary, onOpenSupplies }) {
     const [q, setQ] = useState('');
+    const [open, setOpen] = useState(false);
+    const boxRef = useRef(null);
     const nq = norm(q.trim());
+
+    useEffect(() => {
+        const onDocClick = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, []);
 
     const groups = useMemo(() => {
         if (nq.length < SEARCH_MIN) return [];
@@ -2539,41 +2552,39 @@ function Search({ items, genetics, species, lots, lotLinks, library, librarySpec
 
     const total = groups.reduce((n, g) => n + g.hits.length, 0);
 
+    const pick = (fn) => { fn(); setQ(''); setOpen(false); };
+
     return (
-        <div className="page">
-            <div className="bar">
-                <div>
-                    <div className="eyebrow">Everything, in one box</div>
-                    <h1>Search</h1>
-                </div>
-            </div>
+        <div className="search-box" ref={boxRef}>
+            <input className="in" value={q}
+                placeholder="Search…"
+                onFocus={() => setOpen(true)}
+                onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setQ(''); setOpen(false); e.currentTarget.blur(); }
+                    else if (e.key === 'Enter') { const first = groups[0]?.hits?.[0]; if (first) pick(first.onClick); }
+                }} />
 
-            <input className="in sr-input" autoFocus value={q}
-                placeholder="Search items, lots, recipes, equipment, suppliers…"
-                onChange={(e) => setQ(e.target.value)} />
-
-            {nq.length < SEARCH_MIN && <p className="notes empty-note">Start typing to search everything at once.</p>}
-            {nq.length >= SEARCH_MIN && total === 0 && <p className="notes empty-note">No matches for "{q.trim()}".</p>}
-
-            {groups.map((g) => (
-                <div key={g.key} className="sr-group">
-                    <div className="sr-group-label">{g.label} · {g.hits.length}</div>
-                    {g.hits.map((h) => (
-                        <div key={h.id} className="lib-card">
-                            <button className="lib-head" onClick={h.onClick}>
-                                <div>
+            {open && nq.length >= SEARCH_MIN && (
+                <div className="search-dropdown">
+                    {total === 0 && <p className="notes empty-note">No matches for "{q.trim()}".</p>}
+                    {groups.map((g) => (
+                        <div key={g.key} className="sr-group">
+                            <div className="sr-group-label">{g.label} · {g.hits.length}</div>
+                            {g.hits.map((h) => (
+                                <button key={h.id} className="sr-hit" onClick={() => pick(h.onClick)}>
                                     <div className="lib-title">{h.title}</div>
                                     <div className="lib-meta">
                                         {h.subtitle && <span className="lib-sp">{h.subtitle}</span>}
                                         <span className="lib-kind">matched: {h.match}</span>
                                     </div>
                                     {h.snippet && <div className="sr-snippet">{h.snippet}</div>}
-                                </div>
-                            </button>
+                                </button>
+                            ))}
                         </div>
                     ))}
                 </div>
-            ))}
+            )}
         </div>
     );
 }
@@ -3776,6 +3787,11 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
     const [typeFilter, setTypeFilter] = useState('');          // '' | 'recipe' | 'note' | 'cheat'
     const [categoryFilter, setCategoryFilter] = useState('');  // '' = all
     const [speciesFilter, setSpeciesFilter] = useState('');    // '' | 'general' | species id
+    /* Calculators used to be its own nav tab; folded in here 2026-09-17
+       (tab rebalance) since it's barely used next to the others and
+       doesn't need a dedicated bottom-bar slot - a segmented toggle
+       swaps between the library view above and the calculator grid. */
+    const [viewMode, setViewMode] = useState('library');       // 'library' | 'calculators'
     const filterableSpecies = species.filter((s) => !s.hidden);
     const categories = [...new Set(library.flatMap((e) => e.categories ?? []))].sort();
     const speciesIdsFor = (entryId) => librarySpecies.filter((r) => r.library_id === entryId).map((r) => r.species_id);
@@ -3830,10 +3846,19 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
                     <div className="eyebrow">Recipes, reference & the species cheat sheet - filter by any combination</div>
                     <h1>Library</h1>
                 </div>
-                {form === null && (
+                {viewMode === 'library' && form === null && (
                     <button className="sw" onClick={() => { setF(blank); setForm('new'); }}>+ Add</button>
                 )}
             </div>
+
+            <div className="seg">
+                <button className={viewMode === 'library' ? 'on' : ''} onClick={() => setViewMode('library')}>Library</button>
+                <button className={viewMode === 'calculators' ? 'on' : ''} onClick={() => setViewMode('calculators')}>Calculators</button>
+            </div>
+
+            {viewMode === 'calculators' && <Calculators species={species} embedded />}
+
+            {viewMode === 'library' && (<>
 
             <div className="sp-chips">
                 <span className="sp-chips-label">Type:</span>
@@ -4075,6 +4100,8 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
                         onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} unitsPref={unitsPref} />
                 ))}
             </div>
+
+            </>)}
         </div>
     );
 }
@@ -5914,67 +5941,6 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, la
     );
 }
 
-/* ---------------- GALLERY ---------------- */
-
-function Gallery({ photos, items, genetics, species, equipment, photoUrl, onDelete, onOpenItem, onAddPhoto, onEditPhoto }) {
-    const [speciesFilter, setSpeciesFilter] = useState('all');
-    const [lightbox, setLightbox] = useState(null);
-
-    const withMeta = photos.map((p) => {
-        const item = items.find((i) => i.uid === p.item_id);
-        const gen = genetics.find((g) => g.id === item?.geneticsId);
-        const sp = species.find((s) => s.id === gen?.species_id);
-        const eq = equipment.find((e) => e.id === p.equipment_id);
-        return { photo: p, item, sp, eq };
-    });
-
-    const visible = withMeta
-        .filter((x) => speciesFilter === 'all' || x.sp?.id === speciesFilter)
-        .sort((a, b) => (b.photo.taken_on ?? '').localeCompare(a.photo.taken_on ?? ''));
-
-    return (
-        <div className="page">
-            <div className="bar">
-                <div>
-                    <div className="eyebrow">Every photo, across every culture</div>
-                    <h1>Gallery</h1>
-                </div>
-                <select className="in sel" style={{ width: 'auto' }} value={speciesFilter} onChange={(e) => setSpeciesFilter(e.target.value)}>
-                    <option value="all">All species</option>
-                    {species.map((s) => <option key={s.id} value={s.id}>{s.common_name}</option>)}
-                </select>
-            </div>
-
-            <PhotoStrip attach={{}} photos={[]} photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDelete} onEdit={onEditPhoto}
-                label="Add a photo not tied to anything in particular" />
-
-            {visible.length === 0 && (
-                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>
-                    No photos yet - add one from any item's page, from equipment, or right above, and it shows up here too.
-                </p>
-            )}
-
-            <div className="gallery-grid">
-                {visible.map(({ photo, item, sp, eq }) => (
-                    <button key={photo.id} className="gallery-tile" onClick={() => setLightbox({ photo, item, eq })}>
-                        <img src={photoUrl(photo.storage_path)} alt={photo.caption ?? ''} />
-                        <div className="gallery-meta">
-                            <span>{item?.id ?? eq?.name ?? 'General'}</span>
-                            <span className="gallery-sp">{sp?.common_name ?? ''}</span>
-                        </div>
-                    </button>
-                ))}
-            </div>
-
-            {lightbox && (
-                <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo.storage_path)}
-                    onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEditPhoto}
-                    extra={lightbox.item && <button className="mini ghost" onClick={() => onOpenItem(lightbox.item.id)}>Open {lightbox.item.id}</button>} />
-            )}
-        </div>
-    );
-}
-
 /* ================= STYLE ================= */
 
 const CSS = `
@@ -6041,6 +6007,15 @@ const CSS = `
 .app-version-mark{width:110px;height:auto;}
 .app-version span{font-size:11px;color:var(--dim);}
 .mobile-brand{display:none;}
+.mobile-search{display:none;}
+.side-search{padding:0 10px 14px;position:relative;}
+.search-box{position:relative;}
+.search-box .in{width:100%;box-sizing:border-box;}
+.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);}
+.search-dropdown .sr-group{margin-bottom:14px;}
+.search-dropdown .sr-group:last-child{margin-bottom:0;}
+.sr-hit{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 6px;border-radius:8px;cursor:pointer;color:inherit;font-family:var(--sans);}
+.sr-hit:hover{background:var(--panel2);}
 /* Below 760px the side rail stops being a sidebar and becomes a fixed
    bottom tab bar - the standard native mobile-app nav pattern (thumb
    reach, no horizontal scrolling to find a tab), so this shell already
@@ -6059,13 +6034,16 @@ const CSS = `
     padding:4px 4px calc(4px + env(safe-area-inset-bottom));
   }
   .brand{display:none;}
+  .side-search{display:none;}
   .mobile-brand{
-    display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
-    padding:calc(14px + env(safe-area-inset-top)) 16px 6px;
+    display:flex;flex-direction:column;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
+    padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
   }
+  .mobile-brand-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
   .mobile-brand-icons{display:flex;gap:4px;}
   .mb-icon{background:none;border:none;color:var(--ink-dim);padding:6px;border-radius:8px;display:flex;cursor:pointer;}
   .mb-icon:active{background:rgba(43,32,19,.08);}
+  .mobile-search{display:block;}
   .side-bottom{display:none;}
   .nav-item{flex:1 1 0;flex-direction:column;gap:3px;padding:7px 4px;border-radius:11px;}
   .nav-item span{display:block;font-size:9.5px;}
@@ -6502,12 +6480,6 @@ const CSS = `
 .lb-bar.editing{flex-wrap:wrap;}
 .lb-bar.editing .in{flex:1 1 140px;}
 
-.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:18px;}
-.gallery-tile{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);padding:0;cursor:pointer;background:var(--panel);}
-.gallery-tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
-.gallery-tile:hover img{transform:scale(1.04);}
-.gallery-meta{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;background:linear-gradient(transparent,rgba(0,0,0,.75));display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--bone);}
-.gallery-sp{color:var(--amber);}
 
 @media(prefers-reduced-motion:reduce){.node,.stage,.page{transition:none!important;animation:none!important}.pulse{animation:none!important;opacity:.18}.screen-in,.screen-back{animation:none!important}.tile{transition:none!important}}
 
