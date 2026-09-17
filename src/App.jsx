@@ -1400,7 +1400,14 @@ export default function App() {
             items={items} initialTab={suppliesTab} initialOpenId={suppliesOpenId}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock}
             onPrintStock={(ids) => setPrinting({ kind: 'stock', ids })}
-            onOpenItem={(label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setSection('cultures'); setOpen(label); setOpenLot(null); setDir('fwd'); }}
+            onOpenItem={(label) => {
+                const it = items.find((i) => i.id === label);
+                const gen = genetics.find((g) => g.id === it?.geneticsId);
+                setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+                setSection('cultures'); setOpenLot(null);
+                if (gen) go({ level: 'tree', speciesId: gen.species_id }); else setDir('fwd');
+                setOpen(label);
+            }}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onBumpEquipQty={bumpEquipmentQty}
