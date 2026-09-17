@@ -1471,13 +1471,30 @@ export default function App() {
        pinned in the sidebar/mobile header (see SearchBox) instead of
        eating a bottom-tab-bar slot - same destinations as before, just
        reached from a live dropdown instead of a results page. */
+    /* Every destination below closes Account/Settings first - those are
+       overlays checked ahead of `section` in the render switch (see
+       above), so without this a search click while either was open
+       looked like it did nothing. onOpenItem also has to point `nav` at
+       the item's own species, not just set `open` - Detail is rendered
+       with `items={mine}`, which is filtered by nav.speciesId, so
+       leaving nav on whatever species (or none) was showing before
+       produced a detail page with no matching item in its list, which
+       blew up white (2026-09-17, search-dropdown fixes). */
     const searchProps = {
         items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
-        onOpenItem: (label) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(label); setSection('cultures'); setOpenLot(null); setDir('fwd'); },
-        onOpenSpecies: (id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); },
-        onOpenLot: (id) => { setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); },
-        onOpenLibrary: (entry) => { setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); },
-        onOpenSupplies: (tab, id) => { setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); },
+        onOpenItem: (label) => {
+            const it = items.find((i) => i.id === label);
+            const gen = genetics.find((g) => g.id === it?.geneticsId);
+            setAccountOpen(false); setSettingsOpen(false);
+            setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+            setSection('cultures'); setOpenLot(null);
+            if (gen) go({ level: 'tree', speciesId: gen.species_id }); else setDir('fwd');
+            setOpen(label);
+        },
+        onOpenSpecies: (id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); },
+        onOpenLot: (id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); },
+        onOpenLibrary: (entry) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); },
+        onOpenSupplies: (tab, id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); },
     };
 
     return (
@@ -6018,7 +6035,7 @@ const CSS = `
 .side-search{padding:0 10px 14px;position:relative;}
 .search-box{position:relative;}
 .search-box .in{width:100%;box-sizing:border-box;}
-.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);}
+.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;overflow-x:hidden;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);}
 .search-dropdown .sr-group{margin-bottom:14px;}
 .search-dropdown .sr-group:last-child{margin-bottom:0;}
 .sr-hit{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 6px;border-radius:8px;cursor:pointer;color:inherit;font-family:var(--sans);}

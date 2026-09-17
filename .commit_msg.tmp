@@ -1,0 +1,39 @@
+Fix search dropdown width, unreadable title text, and broken result clicks
+
+Widen the search dropdown past the sidebar (Option A from discussion):
+it was pinned at left:0;right:0 inside the 186px sidebar, so every
+result row got squeezed into ~166px and wrapped illegibly with a
+stray horizontal scrollbar. Now it's a fixed 380px flyout (capped at
+viewport width minus margin on narrow windows) that floats out over
+the main content instead of being boxed in by its parent.
+
+Fix unreadable result titles: .lib-title has no explicit color and
+relies on inheriting one from its ancestors - fine on the Library
+page where .lib-card sets color:var(--bone), but .search-dropdown
+never set a color of its own, so it fell through to the page's
+default (light-background) text color rendered on the dropdown's
+dark panel background. Added color:var(--bone) directly to
+.search-dropdown so everything inside it (title, hit buttons)
+inherits the right color for a dark background.
+
+Fix two navigation bugs in the five search destination handlers
+(searchProps in App()):
+- None of them closed Account/Settings before navigating. Those are
+  checked ahead of `section` in the render switch, so clicking a
+  result while either panel was open just looked like nothing
+  happened. All five now call setAccountOpen(false)/setSettingsOpen(false)
+  first.
+- onOpenItem only set `open` and `section`, never touched `nav`. But
+  Detail renders with items={mine}, which is filtered by
+  nav.speciesId - so a stale or null nav.speciesId (e.g. landing from
+  the species grid) meant Detail got an items list that didn't
+  contain the item it was told to open, which crashed the render and
+  produced the blank white screen Matt hit. onOpenItem now looks up
+  the item's species via its genetics line and calls go() to point
+  nav at the right tree before setting `open`.
+
+Build and lint clean - same pre-existing 3 unused-var errors and 1
+exhaustive-deps warning, nothing new.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RAMBaFtFtYyCymLrFwh7fh
