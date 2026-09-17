@@ -1778,7 +1778,10 @@ function SettingsPanel({ profile, onSave, onBack }) {
                 </button>
             </div>
 
-            <div className="app-version">SporeDesk v{APP_VERSION}</div>
+            <div className="app-version">
+                <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="app-version-mark" />
+                <span>v{APP_VERSION}</span>
+            </div>
         </div>
     );
 }
@@ -5845,7 +5848,9 @@ const CSS = `
 .btn-primary:disabled{opacity:.6;cursor:default;}
 .btn-danger{margin-top:10px;background:none;border:1px solid #6B2717;color:#D4886B;border-radius:9px;padding:9px 16px;font-size:13px;cursor:pointer;}
 .btn-danger:disabled{opacity:.4;cursor:default;}
-.app-version{text-align:center;font-size:11px;color:var(--dim);margin-top:24px;}
+.app-version{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:24px;opacity:.7;}
+.app-version-mark{width:110px;height:auto;}
+.app-version span{font-size:11px;color:var(--dim);}
 .mobile-brand{display:none;}
 /* Below 760px the side rail stops being a sidebar and becomes a fixed
    bottom tab bar - the standard native mobile-app nav pattern (thumb
