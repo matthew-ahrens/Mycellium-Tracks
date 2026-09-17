@@ -11,6 +11,8 @@ const todayISO = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const APP_VERSION = '0.1.0';
+
 const TYPES = { spores: "Spores", agar: "Agar", lc: "Liquid culture", grain: "Grain", bulk: "Monotub", block: "Fruiting block", cake: "Nutrient cake" };
 const CODE = { spores: "SP", agar: "AG", lc: "LC", grain: "GR", bulk: "BK", block: "FB", cake: "NC" };
 
@@ -267,7 +269,22 @@ export default function App() {
     const [suppliesOpenId, setSuppliesOpenId] = useState(null);
     const [referenceTab, setReferenceTab] = useState(null);
 
+    // Account (profile) + Settings screens - overlays like Detail/PrintLabels,
+    // not part of the `section` nav. profile mirrors the one `profiles` row
+    // RLS scopes to the signed-in user; null until loaded.
+    const [profile, setProfile] = useState(null);
+    const [accountOpen, setAccountOpen] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
     const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
+
+    const saveProfile = async (fields) => {
+        const { data, error } = await supabase.from('profiles')
+            .update({ ...fields, updated_at: new Date().toISOString() })
+            .eq('id', profile.id).select('*').single();
+        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        setProfile(data);
+    };
 
     useEffect(() => {
         async function load() {
@@ -294,6 +311,7 @@ export default function App() {
             const { data: allLots } = await supabase.from('lots').select('*').order('harvested_on', { nullsFirst: false });
             const { data: links } = await supabase.from('lot_links').select('*');
             const { data: pics } = await supabase.from('photos').select('*').order('created_at');
+            const { data: prof } = await supabase.from('profiles').select('*').maybeSingle();
 
             if (pics?.length) {
                 const { data: signed } = await supabase.storage.from('photos')
@@ -313,6 +331,8 @@ export default function App() {
             setLots(allLots ?? []);
             setLotLinks(links ?? []);
             setPhotos(pics ?? []);
+            setProfile(prof ?? null);
+            if (prof?.default_section) setSection(prof.default_section);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -1343,7 +1363,13 @@ export default function App() {
     const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
 
     let screen, key;
-    if (printing) {
+    if (accountOpen) {
+        key = 'account';
+        screen = <AccountPanel profile={profile} onSave={saveProfile} onBack={() => setAccountOpen(false)} />;
+    } else if (settingsOpen) {
+        key = 'settings';
+        screen = <SettingsPanel profile={profile} onSave={saveProfile} onBack={() => setSettingsOpen(false)} />;
+    } else if (printing) {
         key = 'print';
         if (printing.kind === 'stock') {
             const candidates = printing.ids
@@ -1456,23 +1482,303 @@ export default function App() {
     return (
         <div className="root">
             <style>{CSS}</style>
-            <div className="mobile-brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
+            <div className="mobile-brand">
+                <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
+                <div className="mobile-brand-icons">
+                    <button className="mb-icon" aria-label="Account"
+                        onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
+                        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                        </svg>
+                    </button>
+                    <button className="mb-icon" aria-label="Settings"
+                        onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }}>
+                        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
             <div className="shell">
                 <nav className="side">
                     <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     {NAV.map(([k, label, d]) => (
-                        <button key={k} className={`nav-item ${section === k ? 'on' : ''}`}
-                            onClick={() => { setPrinting(null); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); }}>
+                        <button key={k} className={`nav-item ${!accountOpen && !settingsOpen && section === k ? 'on' : ''}`}
+                            onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(false); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); }}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
                         </button>
                     ))}
+                    <div className="side-bottom">
+                        <button className={`nav-item ${accountOpen ? 'on' : ''}`}
+                            onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                            </svg>
+                            <span>Account</span>
+                        </button>
+                        <button className={`nav-item ${settingsOpen ? 'on' : ''}`}
+                            onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }}>
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                            </svg>
+                            <span>Settings</span>
+                        </button>
+                    </div>
                 </nav>
                 <main className="main">
                     <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
                 </main>
             </div>
+        </div>
+    );
+}
+
+/* ---------------- ACCOUNT ---------------- */
+
+/* Simple procedural mushroom glyphs, distinguished by cap/stem color only -
+   not real illustrated art. Matt's logo redesign is already its own
+   separate future thread; treat these the same way if/when real avatar
+   art gets commissioned. */
+const AVATAR_PRESETS = [
+    { id: 'amanita', cap: '#D6934A', stem: '#EDE3D0' },
+    { id: 'oyster', cap: '#7FA66A', stem: '#EDE3D0' },
+    { id: 'lions-mane', cap: '#EDE3D0', stem: '#D6934A' },
+    { id: 'shiitake', cap: '#8C3B26', stem: '#5E4C36' },
+    { id: 'reishi', cap: '#6B2717', stem: '#A6927A' },
+    { id: 'morel', cap: '#7A6552', stem: '#4A3826' },
+];
+
+function AvatarIcon({ preset, size = 22 }) {
+    const p = AVATAR_PRESETS.find((a) => a.id === preset) ?? AVATAR_PRESETS[0];
+    return (
+        <svg viewBox="0 0 24 24" width={size} height={size}>
+            <path d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8c0 1.1-3.6 2-8 2s-8-.9-8-2z" fill={p.cap} />
+            <rect x="10" y="12" width="4" height="9" rx="2" fill={p.stem} />
+        </svg>
+    );
+}
+
+function AccountPanel({ profile, onSave, onBack }) {
+    const [name, setName] = useState(profile?.display_name ?? '');
+    const [avatarPreset, setAvatarPreset] = useState(profile?.avatar_preset ?? AVATAR_PRESETS[0].id);
+    const [visibility, setVisibility] = useState(profile?.visibility ?? 'private');
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState('');
+
+    const [pw1, setPw1] = useState('');
+    const [pw2, setPw2] = useState('');
+    const [pwMsg, setPwMsg] = useState('');
+
+    const [deleteText, setDeleteText] = useState('');
+
+    if (!profile) return <div className="page"><div className="page-head"><button className="back-link" onClick={onBack}>&larr; Back</button><h1>Account</h1></div></div>;
+
+    const saveBasics = async () => {
+        setBusy(true); setMsg('');
+        await onSave({ display_name: name.trim() || null, avatar_preset: avatarPreset, avatar_url: null, visibility });
+        setBusy(false); setMsg('Saved.');
+        setTimeout(() => setMsg(''), 2000);
+    };
+
+    const changePassword = async () => {
+        setPwMsg('');
+        if (pw1.length < 6) { setPwMsg("Password needs to be at least 6 characters."); return; }
+        if (pw1 !== pw2) { setPwMsg("Passwords don't match."); return; }
+        const { error } = await supabase.auth.updateUser({ password: pw1 });
+        if (error) { setPwMsg(error.message); return; }
+        setPw1(''); setPw2(''); setPwMsg('Password updated.');
+        setTimeout(() => setPwMsg(''), 2500);
+    };
+
+    const uploadPhoto = async (file) => {
+        setBusy(true); setMsg('');
+        const path = `avatars/${profile.id}-${Date.now()}-${file.name}`;
+        const { error: upErr } = await supabase.storage.from('photos').upload(path, file, { upsert: true });
+        if (upErr) { console.error(upErr); setMsg('Could not upload - check console'); setBusy(false); return; }
+        await onSave({ avatar_url: path, avatar_preset: null });
+        setBusy(false); setMsg('Saved.');
+        setTimeout(() => setMsg(''), 2000);
+    };
+
+    return (
+        <div className="page">
+            <div className="page-head">
+                <button className="back-link" onClick={onBack}>&larr; Back</button>
+                <h1>Account</h1>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Profile</div>
+                <label>Display name</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="What should SporeDesk call you?" />
+
+                <label>Avatar</label>
+                <div className="avatar-row">
+                    {AVATAR_PRESETS.map((p) => (
+                        <button key={p.id} className={`avatar-pick ${avatarPreset === p.id && !profile.avatar_url ? 'on' : ''}`}
+                            onClick={() => setAvatarPreset(p.id)}>
+                            <AvatarIcon preset={p.id} size={28} />
+                        </button>
+                    ))}
+                    <label className="avatar-upload">
+                        Upload photo
+                        <input type="file" accept="image/*" style={{ display: 'none' }}
+                            onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0])} />
+                    </label>
+                </div>
+
+                <label>Visibility (placeholder)</label>
+                <div className="seg">
+                    <button className={visibility === 'private' ? 'on' : ''} onClick={() => setVisibility('private')}>Private</button>
+                    <button className={visibility === 'shared' ? 'on' : ''} onClick={() => setVisibility('shared')}>Shared</button>
+                </div>
+                <div className="acct-hint">Doesn't gate anything yet - there's no shared-reference system built to control. Wires up once multi-user accounts exist.</div>
+
+                <button className="btn-primary" disabled={busy} onClick={saveBasics}>{busy ? 'Saving…' : 'Save'}</button>
+                {msg && <div className="acct-msg">{msg}</div>}
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Password</div>
+                <label>New password</label>
+                <input type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} minLength={6} />
+                <label>Confirm new password</label>
+                <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} minLength={6} />
+                <button className="btn-primary" onClick={changePassword}>Update password</button>
+                {pwMsg && <div className="acct-msg">{pwMsg}</div>}
+            </div>
+
+            <div className="acct-card acct-danger">
+                <div className="acct-section-title">Delete account</div>
+                <div className="acct-hint">
+                    Not wired up yet, on purpose - there's only one account in the whole app right now and no
+                    self-serve sign-up, so actually deleting it would lock you out with no way back in. Gets real
+                    functionality once the multi-tenant account system is built. Type DELETE below to confirm you
+                    understand this is currently a placeholder.
+                </div>
+                <input value={deleteText} onChange={(e) => setDeleteText(e.target.value)} placeholder="Type DELETE" />
+                <button className="btn-danger" disabled={deleteText !== 'DELETE'}
+                    onClick={() => alert("Account deletion isn't wired up yet - see the note above.")}>
+                    Delete account
+                </button>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Legal</div>
+                <div className="acct-hint">Terms of Service and Privacy Policy - placeholder until the real documents exist.</div>
+                <a className="acct-link" href="#" onClick={(e) => e.preventDefault()}>Terms of Service (coming soon)</a>
+                <a className="acct-link" href="#" onClick={(e) => e.preventDefault()}>Privacy Policy (coming soon)</a>
+            </div>
+        </div>
+    );
+}
+
+/* ---------------- SETTINGS ---------------- */
+
+const SECTION_LABELS = {
+    cultures: 'Cultures', inventory: 'Inventory', gallery: 'Gallery', supplies: 'Supplies',
+    reference: 'Reference', search: 'Search', calculators: 'Calculators', data: 'Data',
+};
+
+function SettingsPanel({ profile, onSave, onBack }) {
+    const [defaultSection, setDefaultSection] = useState(profile?.default_section ?? 'cultures');
+    const [unitsPref, setUnitsPref] = useState(profile?.units_pref ?? 'adaptive');
+    const [dateFormat, setDateFormat] = useState(profile?.date_format ?? 'MDY');
+    const [msg, setMsg] = useState('');
+    const [eraseText, setEraseText] = useState('');
+
+    if (!profile) return <div className="page"><div className="page-head"><button className="back-link" onClick={onBack}>&larr; Back</button><h1>Settings</h1></div></div>;
+
+    const save = async (fields) => {
+        setMsg('');
+        await onSave(fields);
+        setMsg('Saved.');
+        setTimeout(() => setMsg(''), 2000);
+    };
+
+    return (
+        <div className="page">
+            <div className="page-head">
+                <button className="back-link" onClick={onBack}>&larr; Back</button>
+                <h1>Settings</h1>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Default landing tab</div>
+                <div className="acct-hint">Which screen SporeDesk opens to.</div>
+                <select value={defaultSection}
+                    onChange={(e) => { setDefaultSection(e.target.value); save({ default_section: e.target.value }); }}>
+                    {Object.entries(SECTION_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                </select>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Units</div>
+                <div className="acct-hint">
+                    Metric or Imperial forces every weight, volume, and temperature field to that system. Adaptive
+                    remembers whatever unit you last used in each spot independently (Stock can stay lbs while
+                    Recipes stay grams). <strong>Saved here, but not applied anywhere yet</strong> - that's a bigger
+                    follow-up pass through every Stock/Items/Recipe/cheat-sheet field, not part of this build.
+                    Inventory (harvest weights) is intentionally left out - grams-only there, no unit field exists.
+                </div>
+                <select value={unitsPref}
+                    onChange={(e) => { setUnitsPref(e.target.value); save({ units_pref: e.target.value }); }}>
+                    <option value="adaptive">Adaptive</option>
+                    <option value="metric">Metric</option>
+                    <option value="imperial">Imperial</option>
+                </select>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Date format</div>
+                <div className="acct-hint"><strong>Saved here, not applied anywhere yet</strong> - same follow-up pass as Units above.</div>
+                <select value={dateFormat}
+                    onChange={(e) => { setDateFormat(e.target.value); save({ date_format: e.target.value }); }}>
+                    <option value="MDY">MM/DD/YYYY</option>
+                    <option value="DMY">DD/MM/YYYY</option>
+                    <option value="YMD">YYYY-MM-DD</option>
+                </select>
+            </div>
+
+            {msg && <div className="acct-msg">{msg}</div>}
+
+            <div className="acct-card">
+                <div className="acct-section-title">Shared references</div>
+                <div className="acct-hint">Placeholder - visibility controls for shared/default library entries once the multi-tenant account system and shared-reference tiers exist.</div>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">AI connector</div>
+                <div className="acct-hint">Placeholder - settings for the read-and-summarize assistant connector once it's built.</div>
+            </div>
+
+            <div className="acct-card">
+                <div className="acct-section-title">Notifications</div>
+                <div className="acct-hint">Placeholder - no notification system exists yet.</div>
+            </div>
+
+            <div className="acct-card acct-danger">
+                <div className="acct-section-title">Erase all content</div>
+                <div className="acct-hint">
+                    Wipes every grow, culture, stock unit, recipe, and photo - keeps your login. <strong>Not wired
+                    up yet</strong> - this would delete real data across ten tables and deserves its own careful,
+                    tested pass rather than being rushed in alongside everything else. Type ERASE below to confirm
+                    you understand this is currently a placeholder.
+                </div>
+                <input value={eraseText} onChange={(e) => setEraseText(e.target.value)} placeholder="Type ERASE" />
+                <button className="btn-danger" disabled={eraseText !== 'ERASE'}
+                    onClick={() => alert("Erase-all-content isn't wired up yet - see the note above.")}>
+                    Erase all content
+                </button>
+            </div>
+
+            <div className="app-version">SporeDesk v{APP_VERSION}</div>
         </div>
     );
 }
@@ -5512,7 +5818,34 @@ const CSS = `
 .nav-item{display:flex;align-items:center;gap:10px;background:none;border:none;border-radius:9px;padding:9px 10px;color:var(--dim);font-size:13px;cursor:pointer;font-family:var(--sans);text-align:left;transition:background .15s,color .15s;}
 .nav-item:hover{background:var(--panel2);color:var(--bone);}
 .nav-item.on{background:var(--panel2);color:var(--amber);}
+.side-bottom{margin-top:auto;display:flex;flex-direction:column;gap:3px;padding-top:10px;border-top:1px solid var(--line);}
 .main{flex:1;min-width:0;}
+.acct-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;max-width:480px;}
+.acct-card label{display:block;font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:12px 0 5px;}
+.acct-card label:first-of-type{margin-top:0;}
+.acct-card input,.acct-card select{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;color:var(--bone);font-size:13.5px;}
+.acct-card input:focus,.acct-card select:focus{outline:none;border-color:var(--amber);}
+.acct-section-title{font-family:var(--serif);font-size:15px;color:var(--bone);margin-bottom:4px;}
+.acct-hint{font-size:12px;line-height:1.55;color:var(--dim);margin:4px 0 10px;}
+.acct-msg{font-size:12px;color:var(--amber);margin-top:8px;}
+.acct-danger{border-color:#6B2717;}
+.acct-danger .acct-hint{color:#D4886B;}
+.acct-link{display:block;font-size:13px;color:var(--amber);text-decoration:none;margin-top:4px;opacity:.75;cursor:default;}
+.page-head{display:flex;align-items:baseline;gap:14px;margin-bottom:16px;}
+.page-head h1{font-family:var(--serif);font-size:22px;color:var(--ink);margin:0;}
+.back-link{background:none;border:none;color:var(--amber-ink);font-size:13px;cursor:pointer;padding:4px 0;}
+.avatar-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;}
+.avatar-pick{width:44px;height:44px;border-radius:50%;background:var(--panel2);border:2px solid transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.avatar-pick.on{border-color:var(--amber);}
+.avatar-upload{font-size:12px;color:var(--amber);border:1px dashed var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;margin-left:4px;}
+.seg{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:fit-content;margin-top:6px;}
+.seg button{background:var(--panel2);border:none;color:var(--dim);font-size:12.5px;padding:8px 16px;cursor:pointer;}
+.seg button.on{background:var(--amber);color:var(--panel);}
+.btn-primary{margin-top:14px;background:var(--amber);color:var(--panel);border:none;border-radius:9px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-primary:disabled{opacity:.6;cursor:default;}
+.btn-danger{margin-top:10px;background:none;border:1px solid #6B2717;color:#D4886B;border-radius:9px;padding:9px 16px;font-size:13px;cursor:pointer;}
+.btn-danger:disabled{opacity:.4;cursor:default;}
+.app-version{text-align:center;font-size:11px;color:var(--dim);margin-top:24px;}
 .mobile-brand{display:none;}
 /* Below 760px the side rail stops being a sidebar and becomes a fixed
    bottom tab bar - the standard native mobile-app nav pattern (thumb
@@ -5533,9 +5866,13 @@ const CSS = `
   }
   .brand{display:none;}
   .mobile-brand{
-    display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
+    display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
     padding:calc(14px + env(safe-area-inset-top)) 16px 6px;
   }
+  .mobile-brand-icons{display:flex;gap:4px;}
+  .mb-icon{background:none;border:none;color:var(--ink-dim);padding:6px;border-radius:8px;display:flex;cursor:pointer;}
+  .mb-icon:active{background:rgba(43,32,19,.08);}
+  .side-bottom{display:none;}
   .nav-item{flex:1 1 0;flex-direction:column;gap:3px;padding:7px 4px;border-radius:11px;}
   .nav-item span{display:block;font-size:9.5px;}
   .nav-item svg{width:20px;height:20px;}
