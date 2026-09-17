@@ -1721,12 +1721,14 @@ function SettingsPanel({ profile, onSave, onBack }) {
             <div className="acct-card">
                 <div className="acct-section-title">Units</div>
                 <div className="acct-hint">
-                    Applies to weight/volume amounts in Items, Stock, and Recipe ingredients. Metric shows those in
-                    g/mL, Imperial in oz/fl oz - new entries there now pick from a unit dropdown instead of free
-                    text, and old values convert on display. Adaptive shows everything exactly as it was recorded,
-                    no conversion. Species cheat-sheet fields (temp, humidity, FAE, etc.) are free-text notes and
-                    aren't touched by this - they always display as written. Inventory (harvest weights) is also
-                    left out - grams-only there, no unit field exists.
+                    Applies to weight/volume amounts in Items, Stock, and Recipe ingredients (including a recipe's
+                    batch-size field). Metric shows those in g/mL, Imperial in oz/fl oz - new entries there now
+                    pick from a unit dropdown instead of free text, and old values convert on display. Adaptive
+                    shows everything exactly as it was recorded, no conversion. Species cheat-sheet temperature
+                    fields are free-text notes, not structured data, so under Metric they're left exactly as
+                    written with a (°C) equivalent appended after each °F reading instead of being rewritten -
+                    everything else on the cheat sheet (humidity, FAE, timing, substrate) is untouched. Inventory
+                    (harvest weights) is also left out - grams-only there, no unit field exists.
                 </div>
                 <select value={unitsPref}
                     onChange={(e) => { setUnitsPref(e.target.value); save({ units_pref: e.target.value }); }}>
@@ -1967,9 +1969,17 @@ function DryYield({ species }) {
    defaulting to the recipe's stored batch size - scales every ingredient
    live as you type or tap a multiplier, no separate calculator needed. */
 function RecipeIngredients({ recipe, unitsPref }) {
-    const [target, setTarget] = useState(recipe.yield_amount != null ? String(recipe.yield_amount) : '');
+    /* recipe.yield_amount/yield_unit are the recipe's own native unit -
+       dispYield is that same batch size shown in whatever unit the Units
+       setting picks. The user types/taps into dispYield's unit, and we
+       convert back to native before computing the scale factor, so the
+       actual ingredient math always happens in the recipe's own unit
+       regardless of display setting. */
+    const dispYield = displayAmount(recipe.yield_amount, recipe.yield_unit, unitsPref);
+    const [target, setTarget] = useState(dispYield.amount != null ? String(dispYield.amount) : '');
     const t = n(target);
-    const factor = recipe.yield_amount && t ? t / recipe.yield_amount : null;
+    const nativeTarget = t != null ? convertUnits(t, dispYield.unit, recipe.yield_unit) : null;
+    const factor = recipe.yield_amount && nativeTarget ? nativeTarget / recipe.yield_amount : null;
 
     return (
         <div className="recipe-scale">
@@ -1978,11 +1988,11 @@ function RecipeIngredients({ recipe, unitsPref }) {
                     <span className="rs-label">Batch size</span>
                     <input className="in sm" inputMode="decimal" value={target}
                         onChange={(e) => setTarget(e.target.value)} />
-                    <span className="rs-unit">{recipe.yield_unit}</span>
+                    <span className="rs-unit">{dispYield.unit}</span>
                     <div className="chips">
                         {[0.5, 2, 3, 5].map((m) => (
                             <button key={m} className="chip"
-                                onClick={() => setTarget(String(recipe.yield_amount * m))}>×{m}</button>
+                                onClick={() => setTarget(String(round2(dispYield.amount * m)))}>×{m}</button>
                         ))}
                     </div>
                 </div>
@@ -2099,6 +2109,20 @@ function unitTableFor(unit) {
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
+/* Direct unit-to-unit conversion (not tied to the Metric/Imperial setting) -
+   used where a user-typed number needs converting back to whatever unit the
+   underlying data is actually stored/calculated in. Same graceful fallback
+   as everywhere else: unrecognized or cross-system (mass vs volume) pairs
+   just return the amount unconverted rather than guessing. */
+function convertUnits(amount, fromUnit, toUnit) {
+    if (amount == null || !fromUnit || !toUnit || fromUnit === toUnit) return amount;
+    const fu = normalizeUnit(fromUnit), tu = normalizeUnit(toUnit);
+    if (!fu || !tu) return amount;
+    const table = unitTableFor(fu);
+    if (!table || !(tu in table)) return amount;
+    return (amount * table[fu]) / table[tu];
+}
+
 /* Converts amount+unit for display per the Metric/Imperial/Adaptive setting.
    Adaptive means "show it the way it was recorded" - no conversion at all.
    Anything we can't confidently recognize is also shown unconverted, same
@@ -2121,6 +2145,27 @@ function fmtAmount(amount, rawUnit, unitsPref) {
     if (amount == null) return '';
     const { amount: a, unit: u } = displayAmount(amount, rawUnit, unitsPref);
     return `${a}${u ? ' ' + u : ''}`;
+}
+
+const fToC = (f) => Math.round(((f - 32) * 5) / 9);
+
+/* Species cheat-sheet temp fields (fruiting_temp/colonize_temp) are free-text
+   prose, not structured data - checked against every real row before writing
+   this (see backlog). Rather than rewriting that prose, this ANNOTATES it:
+   finds the dominant "NN-NNF" / "NN°F" shapes and appends a (°C) equivalent
+   right after each one, leaving the original text completely untouched.
+   Anything that doesn't match plainly (a bare "68-75" with no F, an odd
+   phrasing) is left exactly as written - same fallback principle as the
+   rest of the units work, never guess-convert real data. Only runs under
+   Metric; Imperial and Adaptive show the text exactly as recorded. */
+const TEMP_RE = /(-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)\s*°?F\b|(-?\d+(?:\.\d+)?)\s*°?F\b/gi;
+function displayTempText(text, unitsPref) {
+    if (!text) return text ?? '';
+    if (unitsPref !== 'metric') return text;
+    return text.replace(TEMP_RE, (m, lo, hi, single) => {
+        if (lo != null && hi != null) return `${m} (${fToC(Number(lo))}–${fToC(Number(hi))}°C)`;
+        return `${m} (${fToC(Number(single))}°C)`;
+    });
 }
 
 /* Dropdown replacement for what used to be a free-text unit field, so new
@@ -3563,7 +3608,7 @@ const QUICK_FACT_LABELS = [
     ['colonize_time', 'Colonize time'], ['pin_to_harvest', 'Pin to harvest'], ['substrate_note', 'Substrate'],
 ];
 
-function SpeciesFactsCard({ sp, isOpen, onToggle }) {
+function SpeciesFactsCard({ sp, isOpen, onToggle, unitsPref }) {
     const facts = QUICK_FACT_LABELS.filter(([key]) => sp[key]);
     return (
         <div className={`lib-card ${isOpen ? 'open' : ''}`}>
@@ -3578,12 +3623,17 @@ function SpeciesFactsCard({ sp, isOpen, onToggle }) {
                 <div className="lib-body">
                     {facts.length > 0 && (
                         <div className="qf-grid">
-                            {facts.map(([key, label]) => (
-                                <div key={key} className="qf-tile">
-                                    <div className="qf-label">{label}</div>
-                                    <div className="qf-value">{sp[key]}</div>
-                                </div>
-                            ))}
+                            {facts.map(([key, label]) => {
+                                const isTemp = key === 'fruiting_temp' || key === 'colonize_temp';
+                                const value = isTemp ? displayTempText(sp[key], unitsPref) : sp[key];
+                                const shownLabel = isTemp && unitsPref === 'metric' ? `${label} (+°C)` : label;
+                                return (
+                                    <div key={key} className="qf-tile">
+                                        <div className="qf-label">{shownLabel}</div>
+                                        <div className="qf-value">{value}</div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                     {sp.notes && <p className="qf-note">{sp.notes}</p>}
@@ -3957,7 +4007,7 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
             <div className="lib-list">
                 {visibleCards.map((c) => c.cardType === 'cheat' ? (
                     <SpeciesFactsCard key={c.cardId} sp={c.sp} isOpen={openId === c.cardId}
-                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} />
+                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} unitsPref={unitsPref} />
                 ) : (
                     <LibCard key={c.cardId} e={c.e} species={species} librarySpecies={librarySpecies}
                         isOpen={openId === c.e.id} onToggle={() => setOpenId(openId === c.e.id ? null : c.e.id)}
