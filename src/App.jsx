@@ -6068,7 +6068,7 @@ const CSS = `
 .side-search{padding:0 10px 14px;position:relative;}
 .search-box{position:relative;}
 .search-box .in{width:100%;box-sizing:border-box;}
-.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;overflow-x:hidden;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);scrollbar-width:thin;scrollbar-color:var(--line) var(--panel);}
+.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;max-height:70dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);scrollbar-width:thin;scrollbar-color:var(--line) var(--panel);}
 .search-dropdown::-webkit-scrollbar{width:8px;}
 .search-dropdown::-webkit-scrollbar-track{background:var(--panel);}
 .search-dropdown::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;}
