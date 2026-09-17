@@ -25,3 +25,6 @@ dist-ssr
 .vs/
 release
 build/*.tmp
+
+# scratch commit-message file used for the git commit -F trick
+.commit_msg.tmp
