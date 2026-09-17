@@ -1419,7 +1419,7 @@ export default function App() {
         key = 'reference';
         screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
-            onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} />;
+            onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} unitsPref={profile?.units_pref ?? 'adaptive'} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
@@ -1450,7 +1450,7 @@ export default function App() {
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
             onGetOrCreateSupplier={getOrCreateSupplier}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} editPhoto={editPhoto}
-            onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} />;
+            onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} unitsPref={profile?.units_pref ?? 'adaptive'} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={setOpen} photos={photos} stock={stock}
@@ -1460,7 +1460,7 @@ export default function App() {
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onDeleteLine={deleteGenetics} onToggleLineHidden={toggleGeneticsHidden}
             onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden} onDeleteSpecies={deleteSpecies}
-            onBack={() => go({ level: 'species', speciesId: null }, 'back')} />;
+            onBack={() => go({ level: 'species', speciesId: null }, 'back')} unitsPref={profile?.units_pref ?? 'adaptive'} />;
     } else {
         key = 'species';
         screen = <SpeciesGrid species={species} genetics={genetics} items={items}
@@ -1721,11 +1721,12 @@ function SettingsPanel({ profile, onSave, onBack }) {
             <div className="acct-card">
                 <div className="acct-section-title">Units</div>
                 <div className="acct-hint">
-                    Metric or Imperial forces every weight, volume, and temperature field to that system. Adaptive
-                    remembers whatever unit you last used in each spot independently (Stock can stay lbs while
-                    Recipes stay grams). <strong>Saved here, but not applied anywhere yet</strong> - that's a bigger
-                    follow-up pass through every Stock/Items/Recipe/cheat-sheet field, not part of this build.
-                    Inventory (harvest weights) is intentionally left out - grams-only there, no unit field exists.
+                    Applies to weight/volume amounts in Items, Stock, and Recipe ingredients. Metric shows those in
+                    g/mL, Imperial in oz/fl oz - new entries there now pick from a unit dropdown instead of free
+                    text, and old values convert on display. Adaptive shows everything exactly as it was recorded,
+                    no conversion. Species cheat-sheet fields (temp, humidity, FAE, etc.) are free-text notes and
+                    aren't touched by this - they always display as written. Inventory (harvest weights) is also
+                    left out - grams-only there, no unit field exists.
                 </div>
                 <select value={unitsPref}
                     onChange={(e) => { setUnitsPref(e.target.value); save({ units_pref: e.target.value }); }}>
@@ -1965,7 +1966,7 @@ function DryYield({ species }) {
 /* Lives inside an expanded recipe card. Owns its own target-amount state,
    defaulting to the recipe's stored batch size - scales every ingredient
    live as you type or tap a multiplier, no separate calculator needed. */
-function RecipeIngredients({ recipe }) {
+function RecipeIngredients({ recipe, unitsPref }) {
     const [target, setTarget] = useState(recipe.yield_amount != null ? String(recipe.yield_amount) : '');
     const t = n(target);
     const factor = recipe.yield_amount && t ? t / recipe.yield_amount : null;
@@ -1991,10 +1992,11 @@ function RecipeIngredients({ recipe }) {
                     {recipe.ingredients.map((row, i) => {
                         const amt = n(row.amount);
                         const scaled = amt != null && factor ? amt * factor : amt;
+                        const conv = displayAmount(scaled, row.unit, unitsPref);
                         return (
                             <tr key={i}>
                                 <td className="ing-amt">
-                                    {scaled != null ? (scaled % 1 === 0 ? scaled : scaled.toFixed(2)) : row.amount}{row.unit}
+                                    {conv.amount != null ? (conv.amount % 1 === 0 ? conv.amount : conv.amount.toFixed(2)) : row.amount}{conv.unit}
                                 </td>
                                 <td>{row.name}</td>
                             </tr>
@@ -2062,7 +2064,84 @@ function CapsuleBlendCard({ recipe, species }) {
    unit - it's mass divided by an approximate density, so it's kept separate
    and clearly labeled as approximate rather than folded into the same table. */
 const MASS = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
-const VOLUME = { mL: 1, L: 1000, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, 'fl oz': 29.5735 };
+const VOLUME = { mL: 1, L: 1000, tsp: 4.92892, tbsp: 14.7868, cup: 236.588, 'fl oz': 29.5735, qt: 946.353 };
+
+/* Historic amount_unit/amountUnit values were free-typed, so real data has
+   casing/pluralization/typo drift (LBS, Lb, cc, ;bs, ...). This maps whatever
+   we find to a canonical MASS/VOLUME key; anything unrecognized returns null
+   and the caller falls back to showing the value unconverted rather than
+   guessing. cc is treated as an exact alias for mL (both are 1cm^3). */
+const UNIT_ALIASES = {
+    g: 'g', gram: 'g', grams: 'g',
+    kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+    oz: 'oz', ounce: 'oz', ounces: 'oz',
+    lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+    ml: 'mL', milliliter: 'mL', milliliters: 'mL', cc: 'mL',
+    l: 'L', liter: 'L', liters: 'L',
+    tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
+    tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+    cup: 'cup', cups: 'cup',
+    'fl oz': 'fl oz', floz: 'fl oz', 'fl. oz': 'fl oz',
+    qt: 'qt', quart: 'qt', quarts: 'qt',
+};
+
+function normalizeUnit(raw) {
+    if (!raw) return null;
+    const key = String(raw).trim().toLowerCase().replace(/\.$/, '');
+    return UNIT_ALIASES[key] ?? null;
+}
+
+function unitTableFor(unit) {
+    if (unit in MASS) return MASS;
+    if (unit in VOLUME) return VOLUME;
+    return null;
+}
+
+const round2 = (x) => Math.round(x * 100) / 100;
+
+/* Converts amount+unit for display per the Metric/Imperial/Adaptive setting.
+   Adaptive means "show it the way it was recorded" - no conversion at all.
+   Anything we can't confidently recognize is also shown unconverted, same
+   as the cheat-sheet/reference free text - never guess-convert real data. */
+function displayAmount(amount, rawUnit, unitsPref) {
+    const fallback = { amount, unit: rawUnit || '' };
+    if (amount == null || !unitsPref || unitsPref === 'adaptive') return fallback;
+    const unit = normalizeUnit(rawUnit);
+    if (!unit) return fallback;
+    const table = unitTableFor(unit);
+    if (!table) return fallback;
+    const target = unitsPref === 'metric'
+        ? (table === MASS ? 'g' : 'mL')
+        : (table === MASS ? 'oz' : 'fl oz');
+    if (unit === target) return { amount, unit };
+    return { amount: round2((amount * table[unit]) / table[target]), unit: target };
+}
+
+function fmtAmount(amount, rawUnit, unitsPref) {
+    if (amount == null) return '';
+    const { amount: a, unit: u } = displayAmount(amount, rawUnit, unitsPref);
+    return `${a}${u ? ' ' + u : ''}`;
+}
+
+/* Dropdown replacement for what used to be a free-text unit field, so new
+   data comes in clean. Shows whatever raw value is already stored (even if
+   it's an old messy one) as a plain option so it doesn't look blank/wrong
+   until the user actually changes it. */
+function UnitSelect({ value, onChange, className }) {
+    const known = normalizeUnit(value);
+    return (
+        <select className={className ?? "in sel"} value={known ?? value ?? ''} onChange={(e) => onChange(e.target.value)}>
+            <option value="">unit…</option>
+            {!known && value && <option value={value}>{value}</option>}
+            <optgroup label="Mass">
+                {Object.keys(MASS).map((u) => <option key={u} value={u}>{u}</option>)}
+            </optgroup>
+            <optgroup label="Volume">
+                {Object.keys(VOLUME).map((u) => <option key={u} value={u}>{u}</option>)}
+            </optgroup>
+        </select>
+    );
+}
 const GRAIN_DENSITY = {
     'Rye berries (dry)': 0.78, 'Millet (dry)': 0.72, 'Wild bird seed / milo (dry)': 0.75,
     'Popcorn (dry)': 0.72, 'Brown rice (dry)': 0.80,
@@ -3270,8 +3349,8 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                             <div className="amt-pair">
                                 <input className="in" type="number" step="any" value={f.amount ?? ''}
                                     onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
-                                <input className="in" value={f.amount_unit ?? ''}
-                                    onChange={(e) => setF({ ...f, amount_unit: e.target.value })} placeholder="g / lb / oz" />
+                                <UnitSelect value={f.amount_unit ?? ''}
+                                    onChange={(v) => setF({ ...f, amount_unit: v })} />
                             </div></div>
                         <div className="nf-field wide"><label>Notes</label>
                             <textarea className="in ta" rows="2" value={f.notes}
@@ -3523,7 +3602,7 @@ function SpeciesFactsCard({ sp, isOpen, onToggle }) {
    `recipes` used to come from which tab you were on - now each card
    decides its own layout purely from e.kind, and shows every species it's
    tagged to (not just one) plus a General badge when that flag is set. */
-function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggleChecklistStep, onResetChecklist }) {
+function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggleChecklistStep, onResetChecklist, unitsPref }) {
     const isRecipe = e.kind === 'recipe';
     const tagIds = new Set(librarySpecies.filter((r) => r.library_id === e.id).map((r) => r.species_id));
     const tags = species.filter((s) => tagIds.has(s.id));
@@ -3550,7 +3629,7 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
                     {isRecipe && e.categories?.includes('Capsule blend') && e.ingredients?.length > 0 && (
                         <CapsuleBlendCard recipe={e} species={species} />
                     )}
-                    {isRecipe && !e.categories?.includes('Capsule blend') && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} />}
+                    {isRecipe && !e.categories?.includes('Capsule blend') && e.ingredients?.length > 0 && <RecipeIngredients recipe={e} unitsPref={unitsPref} />}
                     {e.steps?.length > 0 && <StepChecklist steps={e.steps} checked={e.checklist_checked}
                         onToggle={(i) => onToggleChecklistStep(e.id, i)} onReset={() => onResetChecklist(e.id)} />}
                     {e.body && (
@@ -3566,7 +3645,7 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
     );
 }
 
-function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist }) {
+function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist, unitsPref }) {
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const blank = { title: '', kind: 'recipe', url: '', body: '', speciesIds: [], general: false,
         categories: [], yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
@@ -3883,7 +3962,7 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
                     <LibCard key={c.cardId} e={c.e} species={species} librarySpecies={librarySpecies}
                         isOpen={openId === c.e.id} onToggle={() => setOpenId(openId === c.e.id ? null : c.e.id)}
                         onEdit={() => startEdit(c.e)}
-                        onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} />
+                        onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} unitsPref={unitsPref} />
                 ))}
             </div>
         </div>
@@ -4522,7 +4601,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier }) {
+function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier, unitsPref }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -4865,7 +4944,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                                     <option value="">— not from stock —</option>
                                     {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand')
                                         .map((s) => <option key={s.id} value={s.id}>
-                                            {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${s.amount}${s.amount_unit ? ' ' + s.amount_unit : ''}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
+                                            {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
                                         </option>)}
                                 </select>
                             </div>
@@ -4965,7 +5044,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel, unitsPref }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -5050,8 +5129,8 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         <div className="amt-pair">
                             <input className="in sm" type="number" step="any" value={f.amount ?? ""}
                                 onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="amount" />
-                            <input className="in sm" value={f.amountUnit ?? ""}
-                                onChange={(e) => setF({ ...f, amountUnit: e.target.value })} placeholder="mL / cc" />
+                            <UnitSelect className="in sel sm" value={f.amountUnit ?? ""}
+                                onChange={(v) => setF({ ...f, amountUnit: v })} />
                         </div>
                         {/* Options depend on what the PARENT is, so changing the
                             parent above changes what's on offer here. */}
@@ -5154,7 +5233,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                     into further syringes. Form may be unset on older rows,
                     so anything that isn't explicitly a syringe counts. */}
                 {it.type === 'lc' && it.form !== 'syringe' && !picking && !drawing && (
-                    <button className="cta ghost" onClick={() => setDrawing({ count: 1, amount: "", unit: "cc", assign: {} })}>
+                    <button className="cta ghost" onClick={() => setDrawing({ count: 1, amount: "", unit: "mL", assign: {} })}>
                         Draw syringes
                     </button>
                 )}
@@ -5168,8 +5247,8 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             <label>Each</label>
                             <input className="in sm" type="number" step="any" placeholder="10" value={drawing.amount}
                                 onChange={(e) => setDrawing({ ...drawing, amount: e.target.value })} />
-                            <input className="in sm" value={drawing.unit}
-                                onChange={(e) => setDrawing({ ...drawing, unit: e.target.value })} />
+                            <UnitSelect className="in sel sm" value={drawing.unit}
+                                onChange={(v) => setDrawing({ ...drawing, unit: v })} />
                         </div>
                         {kids.filter((k) => k.form !== 'syringe').length > 0 && (
                             <div className="draw-assign">
@@ -5232,7 +5311,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand').map((s) => (
                             <button key={s.id} className="chip go" onClick={() => {
                                 addChild(id, pickedType, s.id); setPicking(false); setPickedType(null);
-                            }}>{s.label || stockLabel(s, library, suppliers)}{s.amount != null ? ` · ${s.amount}${s.amount_unit ? ' ' + s.amount_unit : ''}` : ''}</button>
+                            }}>{s.label || stockLabel(s, library, suppliers)}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}</button>
                         ))}
                         <button className="chip" onClick={() => { addChild(id, pickedType); setPicking(false); setPickedType(null); }}>Not from stock</button>
                         <button className="chip" onClick={() => setPickedType(null)}>Back</button>
@@ -5343,7 +5422,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         <dt>Type</dt>
                         <dd>{TYPES[it.type]}{it.form && FORMS[it.type]?.[it.form] ? ` · ${FORMS[it.type][it.form]}` : ""}</dd>
                         <dt>Amount</dt>
-                        <dd>{it.amount != null ? `${it.amount}${it.amountUnit ? ' ' + it.amountUnit : ''}` : "—"}</dd>
+                        <dd>{it.amount != null ? fmtAmount(it.amount, it.amountUnit, unitsPref) : "—"}</dd>
                         <dt>Started</dt>
                         <dd>{fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</dd>
                         <dt>Method</dt>
