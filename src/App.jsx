@@ -2462,12 +2462,28 @@ function firstMatch(fields, nq) {
     return null;
 }
 
+/* Groups over this many hits get truncated in the dropdown, with a
+   "show N more" button to expand - a phone hunting for one Library
+   recipe shouldn't have to scroll past a wall of Cultivation items
+   first just because the species name also matched (2026-09-17). */
+const SEARCH_GROUP_CAP = 5;
+
 function SearchBox({ items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
     onOpenItem, onOpenSpecies, onOpenLot, onOpenLibrary, onOpenSupplies }) {
     const [q, setQ] = useState('');
     const [open, setOpen] = useState(false);
+    const [expanded, setExpanded] = useState({});
+    const [expandedForQuery, setExpandedForQuery] = useState('');
     const boxRef = useRef(null);
     const nq = norm(q.trim());
+
+    // A fresh query starts every group collapsed again. Reset during render
+    // (React's documented way to adjust state when a value changes) rather
+    // than in an effect, which would fire a redundant extra render.
+    if (nq !== expandedForQuery) {
+        setExpandedForQuery(nq);
+        setExpanded({});
+    }
 
     useEffect(() => {
         const onDocClick = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
@@ -2599,21 +2615,31 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
             {open && nq.length >= SEARCH_MIN && (
                 <div className="search-dropdown">
                     {total === 0 && <p className="notes empty-note">No matches for "{q.trim()}".</p>}
-                    {groups.map((g) => (
-                        <div key={g.key} className="sr-group">
-                            <div className="sr-group-label">{g.label} · {g.hits.length}</div>
-                            {g.hits.map((h) => (
-                                <button key={h.id} className="sr-hit" onClick={() => pick(h.onClick)}>
-                                    <div className="lib-title">{h.title}</div>
-                                    <div className="lib-meta">
-                                        {h.subtitle && <span className="lib-sp">{h.subtitle}</span>}
-                                        <span className="lib-kind">matched: {h.match}</span>
-                                    </div>
-                                    {h.snippet && <div className="sr-snippet">{h.snippet}</div>}
-                                </button>
-                            ))}
-                        </div>
-                    ))}
+                    {groups.map((g) => {
+                        const isExpanded = !!expanded[g.key];
+                        const shown = isExpanded ? g.hits : g.hits.slice(0, SEARCH_GROUP_CAP);
+                        const remainingCount = g.hits.length - shown.length;
+                        return (
+                            <div key={g.key} className="sr-group">
+                                <div className="sr-group-label">{g.label} · {g.hits.length}</div>
+                                {shown.map((h) => (
+                                    <button key={h.id} className="sr-hit" onClick={() => pick(h.onClick)}>
+                                        <div className="lib-title">{h.title}</div>
+                                        <div className="lib-meta">
+                                            {h.subtitle && <span className="lib-sp">{h.subtitle}</span>}
+                                            <span className="lib-kind">matched: {h.match}</span>
+                                        </div>
+                                        {h.snippet && <div className="sr-snippet">{h.snippet}</div>}
+                                    </button>
+                                ))}
+                                {remainingCount > 0 && (
+                                    <button className="sr-more" onClick={() => setExpanded((p) => ({ ...p, [g.key]: true }))}>
+                                        Show {remainingCount} more
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -6042,11 +6068,17 @@ const CSS = `
 .side-search{padding:0 10px 14px;position:relative;}
 .search-box{position:relative;}
 .search-box .in{width:100%;box-sizing:border-box;}
-.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;overflow-x:hidden;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);}
+.search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;overflow-y:auto;overflow-x:hidden;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);scrollbar-width:thin;scrollbar-color:var(--line) var(--panel);}
+.search-dropdown::-webkit-scrollbar{width:8px;}
+.search-dropdown::-webkit-scrollbar-track{background:var(--panel);}
+.search-dropdown::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;}
+.search-dropdown::-webkit-scrollbar-thumb:hover{background:var(--dim);}
 .search-dropdown .sr-group{margin-bottom:14px;}
 .search-dropdown .sr-group:last-child{margin-bottom:0;}
 .sr-hit{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 6px;border-radius:8px;cursor:pointer;color:inherit;font-family:var(--sans);}
 .sr-hit:hover{background:var(--panel2);}
+.sr-more{display:block;width:100%;text-align:center;background:none;border:none;padding:7px 6px;border-radius:8px;cursor:pointer;color:var(--amber);font-family:var(--sans);font-size:12px;margin-top:2px;}
+.sr-more:hover{background:var(--panel2);}
 /* Below 760px the side rail stops being a sidebar and becomes a fixed
    bottom tab bar - the standard native mobile-app nav pattern (thumb
    reach, no horizontal scrolling to find a tab), so this shell already
