@@ -5,7 +5,18 @@
     <link rel="icon" type="image/png" href="%BASE_URL%sporedesk-favicon.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%sporedesk-badge.png" />
     <link rel="manifest" href="%BASE_URL%manifest.json" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- maximum-scale=1/user-scalable=no stop native pinch-to-zoom on the
+         whole page. Without this, a two-finger pinch on the genetics tree
+         canvas (which implements its own pinch-zoom via touch-action:none +
+         pointer events) can still get read as the OS/browser's native page
+         zoom instead - touch-action:none isn't reliably honored for the
+         pinch gesture specifically on every mobile browser. Once native
+         zoom kicks in, it reveals area outside .root's own painted
+         background (html/body have none set, so it's the browser's plain
+         white default) - worse the further out you zoom. Disabling native
+         zoom site-wide is safe here since the one view that needs zoom
+         (the tree) already has its own in-app implementation. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#241811" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

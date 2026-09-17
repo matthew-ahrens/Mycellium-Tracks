@@ -1,3 +1,9 @@
-body {
+html, body {
     margin: 0;
+    /* Matches .root's --ground token in App.jsx. Belt-and-suspenders for
+       the viewport-zoom fix in index.html - if any area outside .root's
+       own painted box is ever visible (native zoom edge case, a future
+       layout bug, etc.), it reads as this warm tan rather than a jarring
+       flash of the browser's plain white default. */
+    background: #B3966B;
 }
