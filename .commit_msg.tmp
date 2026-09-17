@@ -1,8 +1,0 @@
-Stop tracking the scratch commit-message file
-
-The last commit's `git add -A` swept up .commit_msg.tmp itself before
-it got deleted. Removes it from the repo and gitignores the pattern
-so the commit-message trick can't do that again.
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01RAMBaFtFtYyCymLrFwh7fh
