@@ -3997,9 +3997,14 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
 
-    // Cultivation: what's actually alive right now.
-    const activeCount = visibleItems.filter((i) => STATUS[i.status]?.live).length;
+    // Cultivation: what's actually alive right now, broken down by stage -
+    // a single "44 active" reads as an empty number on a wide desktop hero
+    // card, so the breakdown is what actually fills that space with real
+    // content instead of padding it out cosmetically.
+    const colonizingCount = visibleItems.filter((i) => i.status === 'colonizing').length;
+    const colonizedCount = visibleItems.filter((i) => i.status === 'colonized').length;
     const fruitingCount = visibleItems.filter((i) => i.status === 'fruiting').length;
+    const activeCount = visibleItems.filter((i) => STATUS[i.status]?.live).length;
 
     // Harvests: most recent lot + this calendar month's total (gross
     // harvested, not remaining-on-hand - "how much did I actually pull
@@ -4037,19 +4042,22 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
     /* Most-visited: frequency within the capped, most-recent-400-event
        window already fetched in App() - that cap makes the count itself
        recency-biased without needing separate time-decay math. Ties
-       broken by most recent occurrence. Records and sections share one
-       ranked list. Capped at 5 and styled as the primary in-page nav
-       for Home now that the sidebar is hidden here (2026-09-18). */
+       broken by most recent occurrence. section_open events are dropped
+       entirely here - all 5 sections already have their own card up top
+       (hero + secondary), so repeating them as tiles here was pure
+       duplication (Matt: "I dont really want the tab duplicated from the
+       top to the most visited space"). This is specific records only -
+       a species, a recipe, a lot - capped at 5. */
     const visitCounts = new Map();
     (usageEvents || []).forEach((ev) => {
-        const isSection = ev.event_type === 'section_open';
-        const k = isSection ? `section:${ev.section}` : `${ev.entity_type}:${ev.entity_id}`;
+        if (ev.event_type === 'section_open') return;
+        const k = `${ev.entity_type}:${ev.entity_id}`;
         const existing = visitCounts.get(k);
         if (existing) existing.count += 1;
         else visitCounts.set(k, {
-            count: 1, lastAt: ev.created_at, isSection, section: ev.section,
+            count: 1, lastAt: ev.created_at, section: ev.section,
             entityType: ev.entity_type, entityId: ev.entity_id,
-            label: isSection ? (SECTION_LABELS[ev.section] ?? ev.section) : (ev.entity_label || ev.entity_id),
+            label: ev.entity_label || ev.entity_id,
         });
     });
     const mostVisited = [...visitCounts.values()]
@@ -4057,7 +4065,6 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
         .slice(0, 5);
 
     const openVisit = (v) => {
-        if (v.isSection) { onGoSection(v.section); return; }
         if (v.entityType === 'item') onOpenItem(v.entityId);
         else if (v.entityType === 'lot') onOpenLot(v.entityId);
         else if (v.entityType === 'species') onOpenSpecies(v.entityId);
@@ -4081,6 +4088,14 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
 
     return (
         <div className="page">
+            {/* Sidebar (with its .brand logo) is hidden on Home - see
+                shell-home in App.jsx - so this is the only branding left on
+                a desktop-width screen. Mobile already has its own logo in
+                .mobile-brand up top, so this is CSS-hidden there. */}
+            <div className="home-logo">
+                <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
+            </div>
+
             <div className="bar">
                 <div>
                     <div className="eyebrow">Everything, at a glance</div>
@@ -4093,7 +4108,15 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 <div className="home-hero-body">
                     <div className="home-card-title">Cultivation</div>
                     <div className="home-hero-stat">{activeCount}<span className="home-hero-stat-unit">active</span></div>
-                    {fruitingCount > 0 && <div className="home-hero-badge">{fruitingCount} fruiting</div>}
+                </div>
+                {/* Breaks the headline number down by stage - on a wide
+                    desktop card, "44 active" alone left most of the box
+                    empty; this is what actually fills that space with real
+                    content instead of padding. */}
+                <div className="home-hero-breakdown">
+                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizingCount}</span><span className="home-hero-bd-label">Colonizing</span></div>
+                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizedCount}</span><span className="home-hero-bd-label">Colonized</span></div>
+                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{fruitingCount}</span><span className="home-hero-bd-label">Fruiting</span></div>
                 </div>
             </button>
 
@@ -4114,13 +4137,13 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     <div className="home-mv-title">Most visited</div>
                     <div className="home-mv-list">
                         {mostVisited.map((v) => (
-                            <button key={`${v.isSection ? 'section' : v.entityType}:${v.entityId ?? v.section}`}
+                            <button key={`${v.entityType}:${v.entityId}`}
                                 className="home-mv-item" onClick={() => openVisit(v)}
                                 style={{ '--accent': SECTION_ACCENTS[v.section] ?? 'var(--slate)' }}>
                                 <span className="home-mv-icon"><HomeIcon path={SECTION_ICONS[v.section] ?? SECTION_ICONS.data} size={14} /></span>
                                 <span className="home-mv-text">
                                     <span className="home-mv-label">{v.label}</span>
-                                    {!v.isSection && <span className="home-mv-meta">{SECTION_LABELS[v.section] ?? v.section}</span>}
+                                    <span className="home-mv-meta">{SECTION_LABELS[v.section] ?? v.section}</span>
                                 </span>
                             </button>
                         ))}
@@ -6412,6 +6435,10 @@ const CSS = `
   }
   .brand{display:none;}
   .side-search{display:none;}
+  /* Mobile already shows the logo in .mobile-brand above the page - this
+     is the desktop-only stand-in for the sidebar's .brand, so it'd be a
+     second logo here otherwise. */
+  .home-logo{display:none;}
   .mobile-brand{
     display:flex;flex-direction:column;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
     padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
@@ -6625,6 +6652,8 @@ const CSS = `
 /* --accent is set inline per card/tile (SECTION_ACCENTS, or the computed
    dataAccent for Data) - every rule below just reads var(--accent),
    never hardcodes a tone, so one map in App.jsx controls all of it. */
+.home-logo{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:16px;color:var(--ink);margin-bottom:18px;}
+.home-logo .brand-icon{width:20px;height:20px;flex:0 0 auto;}
 .home-hero{display:flex;align-items:center;gap:22px;width:100%;background:var(--panel);color:var(--bone);
   border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 28px;
   margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
@@ -6634,8 +6663,12 @@ const CSS = `
 .home-hero-body{min-width:0;}
 .home-hero-stat{font-family:var(--serif);font-size:46px;line-height:1;color:var(--bone);margin-top:6px;}
 .home-hero-stat-unit{font-family:var(--sans);font-size:14px;font-weight:400;color:var(--dim);margin-left:8px;}
-.home-hero-badge{display:inline-block;margin-top:10px;background:color-mix(in srgb, var(--accent) 22%, transparent);
-  color:var(--accent);font-size:11.5px;font-family:var(--sans);padding:3px 11px;border-radius:20px;}
+/* Breakdown fills the rest of the hero's width with real per-stage
+   counts instead of leaving it as dead space next to one big number. */
+.home-hero-breakdown{display:flex;gap:32px;margin-left:auto;padding-left:24px;flex:0 0 auto;}
+.home-hero-bd-item{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;}
+.home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
+.home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
 
 .home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px;}
 .home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
@@ -6665,11 +6698,13 @@ const CSS = `
 @media(max-width:600px){
   /* Keep the hero horizontal (icon beside text, not stacked) with tighter
      padding and a smaller icon - stacked+spacious read as a mostly-empty
-     bar on a narrow screen even though it's the same content. */
-  .home-hero{padding:16px 18px;gap:14px;}
+     bar on a narrow screen even though it's the same content. The
+     breakdown row wraps onto its own full-width line under that, spread
+     evenly, instead of trying to squeeze in beside the headline number. */
+  .home-hero{padding:16px 18px;gap:14px;flex-wrap:wrap;}
   .home-hero-icon{width:44px;height:44px;border-radius:12px;}
   .home-hero-stat{font-size:32px;}
-  .home-hero-badge{margin-top:6px;}
+  .home-hero-breakdown{width:100%;margin:12px 0 0;padding-left:0;justify-content:space-around;gap:0;}
   .home-mv-item{padding:9px 14px 9px 10px;}
   .home-mv-label{max-width:160px;}
 }
