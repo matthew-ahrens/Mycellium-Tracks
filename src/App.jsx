@@ -1639,7 +1639,8 @@ export default function App() {
                 </div>
                 <div className="mobile-search"><SearchBox {...searchProps} /></div>
             </div>
-            <div className="shell">
+            <div className={key === 'home' ? 'shell shell-home' : 'shell'}>
+                {key !== 'home' && (
                 <nav className="side">
                     <div className="brand" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     <div className="side-search"><SearchBox {...searchProps} /></div>
@@ -1671,6 +1672,7 @@ export default function App() {
                         </button>
                     </div>
                 </nav>
+                )}
                 <main className="main">
                     <div key={key} className={dir === 'fwd' ? 'screen-in' : 'screen-back'}>{screen}</div>
                 </main>
@@ -4036,7 +4038,8 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
        window already fetched in App() - that cap makes the count itself
        recency-biased without needing separate time-decay math. Ties
        broken by most recent occurrence. Records and sections share one
-       ranked list per Matt's "Both" answer. */
+       ranked list. Capped at 5 and styled as the primary in-page nav
+       for Home now that the sidebar is hidden here (2026-09-18). */
     const visitCounts = new Map();
     (usageEvents || []).forEach((ev) => {
         const isSection = ev.event_type === 'section_open';
@@ -4051,7 +4054,7 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
     });
     const mostVisited = [...visitCounts.values()]
         .sort((a, b) => b.count - a.count || (b.lastAt ?? '').localeCompare(a.lastAt ?? ''))
-        .slice(0, 8);
+        .slice(0, 5);
 
     const openVisit = (v) => {
         if (v.isSection) { onGoSection(v.section); return; }
@@ -6423,6 +6426,9 @@ const CSS = `
   .nav-item span{display:block;font-size:9.5px;}
   .nav-item svg{width:20px;height:20px;}
   .main{order:1;padding-bottom:calc(72px + env(safe-area-inset-bottom));}
+  /* Home hides .side entirely (see shell-home in App.jsx), so it doesn't
+     need the space normally reserved for the fixed bottom tab bar. */
+  .shell-home .main{padding-bottom:env(safe-area-inset-bottom);}
   .page{padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right));}
   /* Label printing needs exact physical page control that mobile
      browsers don't reliably give a webpage (iOS Safari especially) -
@@ -6643,18 +6649,29 @@ const CSS = `
 
 .home-mv{margin-top:8px;}
 .home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
-.home-mv-list{display:flex;flex-wrap:wrap;gap:8px;}
-.home-mv-item{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
-  padding:8px 14px 8px 10px;cursor:pointer;color:inherit;font-family:var(--sans);text-align:left;transition:border-color .15s;}
-.home-mv-item:hover{border-color:var(--accent);}
-.home-mv-icon{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
-  background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
+/* Restyled to read as the row of tabs that used to live in the sidebar -
+   heavier pill (filled panel2, not just an outline), bigger touch target,
+   accent fill on hover/press - since this is Home's primary way to jump
+   around once .side is hidden here, not a minor utility list anymore. */
+.home-mv-list{display:flex;flex-wrap:wrap;gap:10px;}
+.home-mv-item{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:13px;
+  padding:11px 18px 11px 12px;cursor:pointer;color:inherit;font-family:var(--sans);text-align:left;transition:border-color .15s,background .15s,transform .15s;}
+.home-mv-item:hover{border-color:var(--accent);background:var(--panel);transform:translateY(-1px);}
+.home-mv-icon{flex:0 0 auto;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 20%, transparent);color:var(--accent);}
 .home-mv-text{display:flex;flex-direction:column;gap:1px;min-width:0;}
-.home-mv-label{font-size:13px;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
+.home-mv-label{font-size:13.5px;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
 .home-mv-meta{font-size:10.5px;color:var(--dim);}
 @media(max-width:600px){
-  .home-hero{flex-direction:column;align-items:flex-start;gap:14px;}
-  .home-hero-stat{font-size:38px;}
+  /* Keep the hero horizontal (icon beside text, not stacked) with tighter
+     padding and a smaller icon - stacked+spacious read as a mostly-empty
+     bar on a narrow screen even though it's the same content. */
+  .home-hero{padding:16px 18px;gap:14px;}
+  .home-hero-icon{width:44px;height:44px;border-radius:12px;}
+  .home-hero-stat{font-size:32px;}
+  .home-hero-badge{margin-top:6px;}
+  .home-mv-item{padding:9px 14px 9px 10px;}
+  .home-mv-label{max-width:160px;}
 }
 
 .canvas{position:relative;height:min(70vh,600px);background:radial-gradient(circle at 50% 8%,#2A1D14 0%,#1A120C 66%);
