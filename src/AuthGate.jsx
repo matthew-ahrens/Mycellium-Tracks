@@ -1,6 +1,48 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 
+/* Password rules for sign-up (2026-09-18): 8+ chars, at least one digit,
+   at least one special character. Checked client-side before signUp() is
+   ever called - Supabase Auth's own password policy isn't configured to
+   enforce this, so this is the actual enforcement, not just UX polish. */
+function passwordMeetsRequirements(pw) {
+  return pw.length >= 8 && /\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)
+}
+
+/* Lightweight in-house strength score (0-5), no external library - this
+   is a beta-gated app, not a bank, a rough visual nudge is enough. */
+function passwordStrengthScore(pw) {
+  let score = 0
+  if (pw.length >= 8) score++
+  if (pw.length >= 12) score++
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++
+  if (/\d/.test(pw)) score++
+  if (/[^A-Za-z0-9]/.test(pw)) score++
+  return score
+}
+
+const STRENGTH_LEVELS = [
+  { label: 'Too weak', color: '#D4886B' },
+  { label: 'Too weak', color: '#D4886B' },
+  { label: 'Fair', color: '#D6934A' },
+  { label: 'Good', color: '#C9C25A' },
+  { label: 'Strong', color: '#9AD488' },
+  { label: 'Strong', color: '#9AD488' },
+]
+
+function PasswordStrengthMeter({ password }) {
+  const score = passwordStrengthScore(password)
+  const { label, color } = STRENGTH_LEVELS[score]
+  return (
+    <div className="pw-strength">
+      <div className="pw-strength-track">
+        <div className="pw-strength-fill" style={{ width: `${(score / 5) * 100}%`, background: color }} />
+      </div>
+      <span className="pw-strength-label" style={{ color }}>{label}</span>
+    </div>
+  )
+}
+
 /* Wraps the whole app. Nothing renders (no data loads, no queries fire)
    until there's a real Supabase session. Session persists in the browser,
    so this is a one-time thing per device, not a repeated login.
@@ -22,6 +64,7 @@ export default function AuthGate({ children }) {
   const [mode, setMode] = useState('signin') // 'signin' | 'signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [betaCode, setBetaCode] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -74,6 +117,17 @@ export default function AuthGate({ children }) {
         return
       }
 
+      // Sign up: validate the password locally first - no reason to hit
+      // the network at all if it's already going to fail.
+      if (!passwordMeetsRequirements(password)) {
+        setError('Password must be at least 8 characters and include a number and a special character.')
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.')
+        return
+      }
+
       // Sign up: check the beta code first for a clean error message,
       // before touching auth.users at all.
       const { data: codeOk, error: codeErr } = await withTimeout(
@@ -100,6 +154,7 @@ export default function AuthGate({ children }) {
       setNotice('Account created - you can sign in now.')
       setMode('signin')
       setPassword('')
+      setConfirmPassword('')
     } catch (ex) {
       setError(ex.message || 'Something went wrong - check the browser console.')
       console.error(ex)
@@ -130,10 +185,14 @@ export default function AuthGate({ children }) {
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
 
           <label>Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 6} />
+          {mode === 'signup' && password && <PasswordStrengthMeter password={password} />}
 
           {mode === 'signup' && (
             <>
+              <label>Confirm password</label>
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} />
+
               <label>Beta code</label>
               <input type="text" value={betaCode} onChange={(e) => setBetaCode(e.target.value)} required />
             </>
@@ -180,5 +239,9 @@ const AUTH_CSS = `
 .auth-error{background:#2E1710;border:1px solid #6B2717;color:#D4886B;font-size:12px;padding:8px 10px;border-radius:8px;}
 .auth-notice{background:#1E2E17;border:1px solid #3A6B27;color:#9AD488;font-size:12px;padding:8px 10px;border-radius:8px;}
 .auth-switch{background:none;border:none;color:#A6927A;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px 0;margin-top:2px;}
+.pw-strength{display:flex;align-items:center;gap:8px;margin-top:5px;}
+.pw-strength-track{flex:1;height:5px;background:#2F2216;border-radius:3px;overflow:hidden;}
+.pw-strength-fill{height:100%;border-radius:3px;transition:width .15s ease,background .15s ease;}
+.pw-strength-label{font-size:10px;font-family:ui-monospace,monospace;letter-spacing:.05em;white-space:nowrap;}
 body{background:#B3966B;margin:0;}
 `
