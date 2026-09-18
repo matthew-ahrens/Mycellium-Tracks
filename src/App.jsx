@@ -1924,6 +1924,19 @@ function AccountPanel({ profile, avatarUrl, onSave, onBack }) {
                 {pwMsg && <div className="acct-msg">{pwMsg}</div>}
             </div>
 
+            <div className="acct-card">
+                {/* Was missing entirely until 2026-09-18 - Matt only noticed
+                    because he'd been testing sign-up in an incognito window
+                    (the one place you don't need to sign out of anything).
+                    AuthGate's onAuthStateChange listener already reacts to
+                    the session going null, so signOut() alone is enough -
+                    it swaps straight back to the sign-in screen with no
+                    extra state to manage here. */}
+                <div className="acct-section-title">Sign out</div>
+                <div className="acct-hint">Signs you out of SporeDesk on this device. You'll need your email and password to sign back in.</div>
+                <button className="btn-primary" onClick={() => supabase.auth.signOut()}>Sign out</button>
+            </div>
+
             <div className="acct-card acct-danger">
                 <div className="acct-section-title">Delete account</div>
                 <div className="acct-hint">
