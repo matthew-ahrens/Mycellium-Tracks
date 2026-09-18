@@ -6673,7 +6673,19 @@ const CSS = `
 .home-logo .brand-icon{width:36px;height:36px;flex:0 0 auto;}
 .home-search{width:300px;max-width:100%;position:relative;}
 .home-search .in{width:100%;box-sizing:border-box;}
-.home-hero{display:flex;align-items:center;gap:24px;width:100%;background:var(--panel);color:var(--bone);
+/* Matt's hard limit: no more than ~0.5in (48px) of visible dead space
+   inside a box. Every previous pass kept the hero at width:100% and
+   tried to fan sparse content out to fill that width - that's what kept
+   producing wide gaps (between the breakdown items, in the middle of
+   the card, wherever). Dropping width:100% is the actual fix: the card
+   now sizes to its own content (icon + stat + breakdown, each gap
+   capped well under 48px) and stops there, instead of stretching to the
+   page width and leaving whatever's left over as dead space inside the
+   button. What used to be "inside the box" is now just page background
+   to its right, which isn't a box with a number in it. Restored to
+   width:100% only on mobile, where the breakdown is hidden and the
+   compact icon+number needs the full phone width to read right. */
+.home-hero{display:flex;align-items:center;gap:24px;width:fit-content;max-width:100%;background:var(--panel);color:var(--bone);
   border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 32px;
   margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-hero:hover{transform:translateY(-1px);border-left-color:var(--accent);}
@@ -6683,11 +6695,11 @@ const CSS = `
 .home-hero-stat{font-family:var(--serif);font-size:46px;line-height:1;color:var(--bone);margin-top:6px;}
 .home-hero-stat-unit{font-family:var(--sans);font-size:14px;font-weight:400;color:var(--dim);margin-left:8px;}
 .home-hero-divider{flex:0 0 auto;width:1px;align-self:stretch;background:var(--line);}
-/* flex:1 + space-evenly spreads the three counts across whatever room is
-   left in the card, instead of the old margin-left:auto approach, which
-   just shoved them into the far right corner and left a dead gap in the
-   middle of the card on a wide screen - that gap was the actual bug. */
-.home-hero-breakdown{display:flex;flex:1;justify-content:space-evenly;}
+/* Fixed, modest gap between the three counts instead of flex:1 +
+   space-evenly, which fanned them out across however much width the
+   full-bleed card happened to have - that was the actual source of the
+   gap Matt pointed at between "colonizing" and "colonized". */
+.home-hero-breakdown{display:flex;gap:28px;}
 .home-hero-bd-item{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;}
 .home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
 .home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
@@ -6703,16 +6715,25 @@ const CSS = `
    read as the card's headline instead of a small line dropped into a
    comparatively huge card. align-items:start on the grid so a card
    never gets stretched taller by a neighbor. */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:24px;align-items:start;}
+/* justify-items:start is the actual fix for "space to the right of 14
+   on hand" - the grid's auto-fit/minmax columns still collapse to fewer
+   columns on a narrower screen same as before, but each card now sizes
+   to its own icon+text instead of stretching to fill its column, so
+   there's no leftover width inside the button for the short ones
+   (Supplies, Data) to just sit empty in. */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:24px;align-items:start;justify-items:start;}
 .home-card{display:flex;align-items:center;gap:14px;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
   border-radius:12px;padding:16px 18px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-card:hover{transform:translateY(-1px);}
 .home-card-icon{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);}
-.home-card-body{min-width:0;flex:1;}
+.home-card-body{min-width:0;}
 .home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
 .home-card-stat{font-family:var(--serif);font-size:30px;line-height:1.15;margin:1px 0;color:var(--bone);}
-.home-card-sub{font-size:12px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Capped instead of unbounded now that the card isn't stretched to fill
+   its column - without a max-width here, Library's long "latest: ..."
+   line would size the whole card to match it instead of ellipsizing. */
+.home-card-sub{font-size:12px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;}
 
 .home-mv{margin-top:8px;}
 .home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
@@ -6739,7 +6760,7 @@ const CSS = `
      again) competing for the same small space, so it's dropped rather
      than squeezed in. Untested on a real phone yet - flag anything that
      still looks off. */
-  .home-hero{padding:16px 18px;gap:14px;}
+  .home-hero{width:100%;padding:16px 18px;gap:14px;}
   .home-hero-icon{width:44px;height:44px;border-radius:12px;}
   .home-hero-stat{font-size:32px;}
   .home-hero-divider{display:none;}
