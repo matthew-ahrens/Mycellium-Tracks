@@ -6279,6 +6279,13 @@ function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
                     <span className="nf-help">Set to the standard Avery 5160-style spec (0.5"/0.1875"/0.125"/0") - nudge these if your test print is off.</span>
                 </div>
 
+                {candidates.length > 0 && (
+                    <div className="pl-field-row">
+                        <button type="button" className="sw" onClick={() => setChecked(new Set(candidates.map((c) => c.id)))}>Select all</button>
+                        <button type="button" className="sw" onClick={() => setChecked(new Set())}>Deselect all</button>
+                        <span className="nf-help">{selected.length} of {candidates.length} selected</span>
+                    </div>
+                )}
                 <div className="pl-list">
                     {candidates.length === 0 && <p className="nf-help">Nothing to print here.</p>}
                     {candidates.map((c) => (
