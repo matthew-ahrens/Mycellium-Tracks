@@ -69,6 +69,7 @@ export default function AuthGate({ children }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
 
   useEffect(() => {
     /* If this hangs or fails - flaky connection, stale token, Supabase
@@ -136,11 +137,19 @@ export default function AuthGate({ children }) {
       if (codeErr) { setError(codeErr.message); return }
       if (!codeOk) { setError('That beta code is not valid - double check it and try again.'); return }
 
-      const { error: err } = await withTimeout(
+      const { data: signUpData, error: err } = await withTimeout(
         supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { beta_code: betaCode.trim() } },
+          options: {
+            data: { beta_code: betaCode.trim() },
+            // Explicit rather than relying on the dashboard's Site URL -
+            // this is where the confirmation-email link sends them back
+            // to. Must be present in Supabase's Redirect URLs allow list
+            // (Auth > URL Configuration) or Supabase silently falls back
+            // to the Site URL instead of honoring this.
+            emailRedirectTo: window.location.origin,
+          },
         })
       )
       if (err) {
@@ -151,8 +160,19 @@ export default function AuthGate({ children }) {
         setError(err.message)
         return
       }
-      setNotice('Account created - you can sign in now.')
-      setMode('signin')
+      if (signUpData.session) {
+        // Email confirmation is off (or this project auto-confirms) -
+        // already signed in. onAuthStateChange picks this up and swaps
+        // straight to the app; nothing else to do here.
+        return
+      }
+      // Confirmation required (the actual default for this project, even
+      // though nothing here used to say so) - don't claim they can sign in
+      // yet, that fails with "Email not confirmed" until the link's clicked.
+      // Clicking it redirects back here with the session already attached
+      // (supabase-js auto-detects it from the URL), so there's no separate
+      // manual sign-in step after confirming.
+      setAwaitingConfirmation(true)
       setPassword('')
       setConfirmPassword('')
     } catch (ex) {
@@ -168,6 +188,32 @@ export default function AuthGate({ children }) {
       <div className="auth-loading">
         <style>{AUTH_CSS}</style>
         <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="auth-loading-mark" />
+      </div>
+    )
+  }
+
+  if (!session && awaitingConfirmation) {
+    return (
+      <div>
+        <style>{AUTH_CSS}</style>
+        <div className="auth-card">
+          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <div className="auth-brand">SporeDesk</div>
+          <div className="auth-sub">Confirm your email</div>
+          <p className="auth-confirm-text">
+            We sent a confirmation link to <strong>{email.trim()}</strong>. Click it to activate your
+            account - this tab will sign you in automatically once you do, no need to come back and
+            sign in by hand.
+          </p>
+          <button type="button" className="auth-switch" onClick={() => {
+            setAwaitingConfirmation(false)
+            setMode('signup')
+            setError('')
+            setNotice('')
+          }}>
+            Wrong email? Start over
+          </button>
+        </div>
       </div>
     )
   }
@@ -231,6 +277,7 @@ const AUTH_CSS = `
 .auth-loading-mark{width:220px;max-width:60vw;animation:auth-pulse 1.8s ease-in-out infinite;}
 @keyframes auth-pulse{0%,100%{opacity:.55;transform:scale(.97);}50%{opacity:1;transform:scale(1);}}
 .auth-sub{font-size:12.5px;color:#A6927A;margin-bottom:10px;}
+.auth-confirm-text{font-size:13px;line-height:1.55;color:#D8CDB8;margin:4px 0 6px;}
 .auth-card label{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#A6927A;margin-top:6px;}
 .auth-card input{background:#2F2216;border:1px solid #4A3826;border-radius:8px;padding:10px 12px;color:#EDE3D0;font-size:13.5px;}
 .auth-card input:focus{outline:none;border-color:#D6934A;}
