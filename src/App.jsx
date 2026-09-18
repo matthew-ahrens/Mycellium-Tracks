@@ -250,6 +250,11 @@ export default function App() {
     const [openLot, setOpenLot] = useState(null);
     const [photos, setPhotos] = useState([]);
     const [photoUrls, setPhotoUrls] = useState({});
+    /* Most-recent slice of usage_events (see load() below), newest first -
+       powers Home's "most visited" quick-nav and, later, the admin-facing
+       usage analytics scoped in the beta launch plan. Not called `events`
+       to avoid colliding with the existing item_events concept. */
+    const [usageEvents, setUsageEvents] = useState([]);
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
@@ -312,6 +317,11 @@ export default function App() {
             const { data: links } = await supabase.from('lot_links').select('*');
             const { data: pics } = await supabase.from('photos').select('*').order('created_at');
             const { data: prof } = await supabase.from('profiles').select('*').maybeSingle();
+            /* Capped, most-recent-first - recent usage is what "most
+               visited" should weight toward, and there's no need to drag
+               someone's entire history in on every load. */
+            const { data: usage } = await supabase.from('usage_events').select('*')
+                .order('created_at', { ascending: false }).limit(400);
 
             if (pics?.length) {
                 const { data: signed } = await supabase.storage.from('photos')
@@ -332,6 +342,7 @@ export default function App() {
             setLotLinks(links ?? []);
             setPhotos(pics ?? []);
             setProfile(prof ?? null);
+            setUsageEvents(usage ?? []);
             if (prof?.default_section) setSection(prof.default_section);
 
             setItems(data.map((r) => ({
@@ -1355,6 +1366,91 @@ export default function App() {
         ]);
     };
 
+    /* Fire-and-forget usage logging - powers Home's "most visited" and,
+       later, the admin analytics scoped in the beta launch plan. Never
+       blocks or breaks navigation on failure (no RLS/network hiccup
+       should ever stop someone from opening an item), and updates local
+       state optimistically so Home reflects a just-taken action without
+       waiting on a refetch - same pattern the rest of the app already
+       uses for its own optimistic updates. */
+    const logUsage = (event_type, section_, entity_type, entity_id, entity_label) => {
+        const row = { event_type, section: section_, entity_type: entity_type ?? null, entity_id: entity_id ?? null, entity_label: entity_label ?? null };
+        setUsageEvents((p) => [{ ...row, id: `optimistic-${Date.now()}-${Math.random()}`, created_at: new Date().toISOString() }, ...p].slice(0, 400));
+        supabase.from('usage_events').insert(row).then(({ error }) => { if (error) console.error(error); });
+    };
+    /* Every item-open entry point in the app - Tree canvas clicks, Detail's
+       own parent/child/breadcrumb links, search results, Supplies' item
+       shortcut - funnels through here instead of the raw setOpen setter,
+       so "most visited" sees all of them, not just one path in. */
+    const openItemById = (id) => { logUsage('record_open', 'cultures', 'item', id, id); setOpen(id); };
+    /* Same idea for lots: Inventory's list, LotDetail's own lineage links,
+       and search results all funnel through this instead of raw setOpenLot. */
+    const openLotById = (id) => {
+        const lot = lots.find((l) => l.id === id);
+        logUsage('record_open', 'inventory', 'lot', id, lot?.label || 'Unlabeled lot');
+        setOpenLot(id);
+    };
+
+    /* The logo always goes Home regardless of the viewer's default_section
+       setting (Matt, 2026-09-17: "the logo should always go to the home
+       page") - clears every overlay/open-record state the same way the
+       sidebar NAV buttons do, so Home never renders underneath a stale
+       Detail/LotDetail/Account/Settings screen. */
+    const goHome = () => {
+        setPrinting(null); setAccountOpen(false); setSettingsOpen(false);
+        setSection('home'); setOpen(null); setOpenLot(null); setDir('fwd');
+        setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+    };
+
+    /* Shared by the sidebar NAV buttons and Home's own section cards, so
+       "click Cultivation" behaves identically whether it's clicked from
+       the sidebar or from a Home card - one place to keep the overlay
+       resets right instead of two copies drifting apart. */
+    const goSection = (k) => {
+        setPrinting(null); setAccountOpen(false); setSettingsOpen(false); setSection(k); setOpen(null); setOpenLot(null);
+        setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); logUsage('section_open', k);
+    };
+
+    /* "Jump to X from anywhere" handlers - full overlay reset + navigate +
+       log, regardless of whatever screen is currently showing. Originally
+       written inline inside searchProps (search dropdown results); pulled
+       out to standalone functions (2026-09-17) so Home's most-visited/
+       section cards can call the exact same navigation searchProps uses,
+       and so both can be defined before the render switch below needs
+       them - searchProps itself is only built right before the return,
+       too late for the switch to reference it directly. */
+    const jumpToItem = (label) => {
+        const it = items.find((i) => i.id === label);
+        const gen = genetics.find((g) => g.id === it?.geneticsId);
+        setAccountOpen(false); setSettingsOpen(false);
+        setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+        setSection('cultures'); setOpenLot(null);
+        if (gen) go({ level: 'tree', speciesId: gen.species_id }); else setDir('fwd');
+        openItemById(label);
+    };
+    const jumpToSpecies = (id) => {
+        setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+        setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id });
+        logUsage('record_open', 'cultures', 'species', id, species.find((s) => s.id === id)?.common_name || id);
+    };
+    const jumpToLot = (id) => {
+        setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
+        setOpen(null); setSection('inventory'); openLotById(id); setDir('fwd');
+    };
+    const jumpToLibrary = (entry) => {
+        setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null);
+        setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd');
+        logUsage('record_open', 'reference', 'library', entry.id, entry.title);
+    };
+    const jumpToSupplies = (tab, id) => {
+        setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null);
+        setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd');
+        if (id) {
+            const s = stock.find((r) => r.id === id);
+            logUsage('record_open', 'supplies', 'supply', id, s?.label || s?.product_name || 'Supply item');
+        }
+    };
+
     const sp = species.find((s) => s.id === nav.speciesId);
     const lines = genetics.filter((g) => g.species_id === nav.speciesId);
     const lineIds = lines.map((g) => g.id);
@@ -1394,6 +1490,13 @@ export default function App() {
                 subtitle="each QR opens straight to that item."
                 onClose={() => setPrinting(null)} />;
         }
+    } else if (section === 'home') {
+        key = 'home';
+        screen = <HomeTab items={items} genetics={genetics} species={species} lots={lots} library={library} stock={stock}
+            usageEvents={usageEvents}
+            onGoSection={goSection}
+            onOpenItem={jumpToItem} onOpenLot={jumpToLot}
+            onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary} />;
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
@@ -1406,7 +1509,7 @@ export default function App() {
                 setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
                 setSection('cultures'); setOpenLot(null);
                 if (gen) go({ level: 'tree', speciesId: gen.species_id }); else setDir('fwd');
-                setOpen(label);
+                openItemById(label);
             }}
             onAddEquip={addEquipment} onEditEquip={editEquipment} onDeleteEquip={deleteEquipment}
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
@@ -1418,16 +1521,17 @@ export default function App() {
         screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
             onAdd={addLibrary} onEdit={editLibrary} onDelete={deleteLibrary}
             onToggleChecklistStep={toggleChecklistStep} onResetChecklist={resetChecklist} unitsPref={profile?.units_pref ?? 'adaptive'}
-            onEditSpecies={saveSpeciesFields} />;
+            onEditSpecies={saveSpeciesFields}
+            onLogOpen={(id, label) => logUsage('record_open', 'reference', 'library', id, label)} />;
     } else if (section === 'inventory') {
         key = openLot ? 'lot-' + openLot : 'inventory';
         screen = openLot
             ? <LotDetail lots={lots} lotLinks={lotLinks} lotId={openLot} items={items} genetics={genetics} species={species}
-                remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={setOpenLot}
+                remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={openLotById}
                 onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot}
                 onEditLink={editLotLink} onDeleteLink={deleteLotLink} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
-                remaining={lotRemaining} onOpen={setOpenLot} onAddManual={addManualLot} />;
+                remaining={lotRemaining} onOpen={openLotById} onAddManual={addManualLot} />;
     } else if (section === 'data') {
         key = 'data';
         screen = <DataTab items={items} genetics={genetics} species={species} suppliers={suppliers} />;
@@ -1435,7 +1539,7 @@ export default function App() {
         key = 'detail-' + open;
         screen = <Detail items={mine} id={open} culture={openCulture}
             onBack={() => { setDir('back'); setOpen(null); }}
-            onOpen={setOpen} addChild={addChild} drawSyringes={drawSyringes} saveStatus={saveStatus}
+            onOpen={openItemById} addChild={addChild} drawSyringes={drawSyringes} saveStatus={saveStatus}
             saveNote={saveNote} saveHarvest={saveHarvest} deleteEvent={deleteEvent} deleteHarvest={deleteHarvest}
             editEvent={editEvent} editHarvest={editHarvest} saveItemFields={saveItemFields}
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
@@ -1444,7 +1548,7 @@ export default function App() {
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} unitsPref={profile?.units_pref ?? 'adaptive'} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
-        screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={setOpen} photos={photos} stock={stock}
+        screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={openItemById} photos={photos} stock={stock}
             suppliers={suppliers} onGetOrCreateSupplier={getOrCreateSupplier}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
@@ -1489,28 +1593,17 @@ export default function App() {
        blew up white (2026-09-17, search-dropdown fixes). */
     const searchProps = {
         items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
-        onOpenItem: (label) => {
-            const it = items.find((i) => i.id === label);
-            const gen = genetics.find((g) => g.id === it?.geneticsId);
-            setAccountOpen(false); setSettingsOpen(false);
-            setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null);
-            setSection('cultures'); setOpenLot(null);
-            if (gen) go({ level: 'tree', speciesId: gen.species_id }); else setDir('fwd');
-            setOpen(label);
-        },
-        onOpenSpecies: (id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setOpenLot(null); setSection('cultures'); go({ level: 'tree', speciesId: id }); },
-        onOpenLot: (id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); setOpen(null); setSection('inventory'); setOpenLot(id); setDir('fwd'); },
-        onOpenLibrary: (entry) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(entry.id); setSection('reference'); setDir('fwd'); },
-        onOpenSupplies: (tab, id) => { setAccountOpen(false); setSettingsOpen(false); setPrinting(null); setOpen(null); setOpenLot(null); setReferenceTab(null); setSuppliesTab(tab); setSuppliesOpenId(id ?? null); setSection('supplies'); setDir('fwd'); },
+        onOpenItem: jumpToItem, onOpenSpecies: jumpToSpecies, onOpenLot: jumpToLot,
+        onOpenLibrary: jumpToLibrary, onOpenSupplies: jumpToSupplies,
     };
 
     return (
         <div className="root">
             <style>{CSS}</style>
             <div className="mobile-brand">
-                <div className="mobile-brand-top">
+                <div className="mobile-brand-top" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
                     <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
-                    <div className="mobile-brand-icons">
+                    <div className="mobile-brand-icons" onClick={(e) => e.stopPropagation()}>
                     <button className="mb-icon" aria-label="Account"
                         onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
                         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1530,11 +1623,11 @@ export default function App() {
             </div>
             <div className="shell">
                 <nav className="side">
-                    <div className="brand"><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
+                    <div className="brand" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
                     <div className="side-search"><SearchBox {...searchProps} /></div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${!accountOpen && !settingsOpen && section === k ? 'on' : ''}`}
-                            onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(false); setSection(k); setOpen(null); setOpenLot(null); setDir('fwd'); setSuppliesTab(null); setSuppliesOpenId(null); setReferenceTab(null); }}>
+                            onClick={() => goSection(k)}>
                             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
                             <span>{label}</span>
@@ -1711,7 +1804,7 @@ function AccountPanel({ profile, onSave, onBack }) {
 /* ---------------- SETTINGS ---------------- */
 
 const SECTION_LABELS = {
-    cultures: 'Cultivation', inventory: 'Harvests', supplies: 'Supplies',
+    home: 'Home', cultures: 'Cultivation', inventory: 'Harvests', supplies: 'Supplies',
     reference: 'Library', data: 'Data',
 };
 
@@ -3822,7 +3915,145 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
     );
 }
 
-function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist, unitsPref, onEditSpecies }) {
+/* ---------------- HOME ---------------- */
+/* The real default landing screen (2026-09-17, "a true Home Screen, not
+   just a half landing page" per Matt) - five cards giving a genuine
+   at-a-glance read on each section, plus a "most visited" quick-nav
+   blending record opens and section opens (Matt: "a section that is
+   most visited links to speed up navigation"; AskUserQuestion answer:
+   "Both", synced across devices). Every card doubles as a link into its
+   own section - Matt's explicit build requirement. Reuses SUCCESS_STATUSES/
+   FAIL_STATUSES from DataTab (hoisted to module scope) so the Data card's
+   rate can never drift from the real Data tab's. */
+function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary }) {
+    const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
+    const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
+    const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
+
+    // Cultivation: what's actually alive right now.
+    const activeCount = visibleItems.filter((i) => STATUS[i.status]?.live).length;
+    const fruitingCount = visibleItems.filter((i) => i.status === 'fruiting').length;
+
+    // Harvests: most recent lot + this calendar month's total (gross
+    // harvested, not remaining-on-hand - "how much did I actually pull
+    // this month" is the at-a-glance question here).
+    const sortedLots = [...lots].sort((a, b) => (b.harvested_on ?? '').localeCompare(a.harvested_on ?? ''));
+    const latestLot = sortedLots[0];
+    const thisMonth = todayISO().slice(0, 7);
+    const monthTotalG = lots.filter((l) => (l.harvested_on ?? '').startsWith(thisMonth))
+        .reduce((s, l) => s + Number(l.amount_g || 0), 0);
+
+    /* Supplies: no reorder-threshold field exists in the schema yet, so
+       "low stock" isn't answerable - this just flags the one boundary
+       condition that IS answerable (nothing on hand at all). A real
+       low-stock threshold would need a schema change; worth revisiting
+       if Matt wants per-item reorder points later. */
+    const onHandStock = stock.filter((s) => s.status === 'on_hand');
+    const onHandCount = onHandStock.reduce((s, r) => s + (Number(r.quantity) || 1), 0);
+
+    // Library: how much is in there + the newest addition.
+    const sortedLibrary = [...library].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+    const latestEntry = sortedLibrary[0];
+
+    // Data: identical resolved-runs-only success rate as the real Data tab.
+    const successCount = visibleItems.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+    const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
+    const resolvedCount = successCount + failCount;
+    const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
+
+    /* Most-visited: frequency within the capped, most-recent-400-event
+       window already fetched in App() - that cap makes the count itself
+       recency-biased without needing separate time-decay math. Ties
+       broken by most recent occurrence. Records and sections share one
+       ranked list per Matt's "Both" answer. */
+    const visitCounts = new Map();
+    (usageEvents || []).forEach((ev) => {
+        const isSection = ev.event_type === 'section_open';
+        const k = isSection ? `section:${ev.section}` : `${ev.entity_type}:${ev.entity_id}`;
+        const existing = visitCounts.get(k);
+        if (existing) existing.count += 1;
+        else visitCounts.set(k, {
+            count: 1, lastAt: ev.created_at, isSection, section: ev.section,
+            entityType: ev.entity_type, entityId: ev.entity_id,
+            label: isSection ? (SECTION_LABELS[ev.section] ?? ev.section) : (ev.entity_label || ev.entity_id),
+        });
+    });
+    const mostVisited = [...visitCounts.values()]
+        .sort((a, b) => b.count - a.count || (b.lastAt ?? '').localeCompare(a.lastAt ?? ''))
+        .slice(0, 8);
+
+    const openVisit = (v) => {
+        if (v.isSection) { onGoSection(v.section); return; }
+        if (v.entityType === 'item') onOpenItem(v.entityId);
+        else if (v.entityType === 'lot') onOpenLot(v.entityId);
+        else if (v.entityType === 'species') onOpenSpecies(v.entityId);
+        else if (v.entityType === 'library') onOpenLibrary({ id: v.entityId, title: v.label });
+        // Supply entries and anything else without a full jump-back path
+        // yet just land on their section - still faster than hunting
+        // through the sidebar.
+        else onGoSection(v.section);
+    };
+
+    return (
+        <div className="page">
+            <div className="bar">
+                <div>
+                    <div className="eyebrow">Everything, at a glance</div>
+                    <h1>Home</h1>
+                </div>
+            </div>
+
+            <div className="home-grid">
+                <button className="home-card" onClick={() => onGoSection('cultures')}>
+                    <div className="home-card-title">Cultivation</div>
+                    <div className="home-card-stat">{activeCount}</div>
+                    <div className="home-card-sub">active{fruitingCount > 0 ? ` · ${fruitingCount} fruiting` : ''}</div>
+                </button>
+
+                <button className="home-card" onClick={() => onGoSection('inventory')}>
+                    <div className="home-card-title">Harvests</div>
+                    <div className="home-card-stat">{monthTotalG ? `${monthTotalG}g` : '—'}</div>
+                    <div className="home-card-sub">this month{latestLot ? ` · latest: ${latestLot.label}` : ''}</div>
+                </button>
+
+                <button className="home-card" onClick={() => onGoSection('supplies')}>
+                    <div className="home-card-title">Supplies</div>
+                    <div className="home-card-stat">{onHandCount}</div>
+                    <div className="home-card-sub">on hand{onHandCount === 0 ? ' · nothing in stock' : ''}</div>
+                </button>
+
+                <button className="home-card" onClick={() => onGoSection('reference')}>
+                    <div className="home-card-title">Library</div>
+                    <div className="home-card-stat">{library.length}</div>
+                    <div className="home-card-sub">entries{latestEntry ? ` · latest: ${latestEntry.title}` : ''}</div>
+                </button>
+
+                <button className="home-card" onClick={() => onGoSection('data')}>
+                    <div className="home-card-title">Data</div>
+                    <div className="home-card-stat">{successRate == null ? '—' : `${successRate}%`}</div>
+                    <div className="home-card-sub">success rate</div>
+                </button>
+            </div>
+
+            {mostVisited.length > 0 && (
+                <div className="home-mv">
+                    <div className="home-mv-title">Most visited</div>
+                    <div className="home-mv-list">
+                        {mostVisited.map((v) => (
+                            <button key={`${v.isSection ? 'section' : v.entityType}:${v.entityId ?? v.section}`}
+                                className="home-mv-item" onClick={() => openVisit(v)}>
+                                <span className="home-mv-label">{v.label}</span>
+                                {!v.isSection && <span className="home-mv-meta">{SECTION_LABELS[v.section] ?? v.section}</span>}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ReferenceSection({ library, librarySpecies, species, initialOpenId, onAdd, onEdit, onDelete, onToggleChecklistStep, onResetChecklist, unitsPref, onEditSpecies, onLogOpen }) {
     const [form, setForm] = useState(null);   // null | 'new' | entry id
     const blank = { title: '', kind: 'recipe', url: '', body: '', speciesIds: [], general: false,
         categories: [], yield_amount: '', yield_unit: 'mL', ingredients: [], buffer_pct: '', steps: [] };
@@ -4148,11 +4379,11 @@ function ReferenceSection({ library, librarySpecies, species, initialOpenId, onA
             <div className="lib-list">
                 {visibleCards.map((c) => c.cardType === 'cheat' ? (
                     <SpeciesFactsCard key={c.cardId} sp={c.sp} isOpen={openId === c.cardId}
-                        onToggle={() => setOpenId(openId === c.cardId ? null : c.cardId)} unitsPref={unitsPref}
+                        onToggle={() => { const next = openId === c.cardId ? null : c.cardId; setOpenId(next); if (next) onLogOpen(next, c.sp?.name || 'Species facts'); }} unitsPref={unitsPref}
                         onEditSpecies={onEditSpecies} />
                 ) : (
                     <LibCard key={c.cardId} e={c.e} species={species} librarySpecies={librarySpecies}
-                        isOpen={openId === c.e.id} onToggle={() => setOpenId(openId === c.e.id ? null : c.e.id)}
+                        isOpen={openId === c.e.id} onToggle={() => { const next = openId === c.e.id ? null : c.e.id; setOpenId(next); if (next) onLogOpen(next, c.e.title); }}
                         onEdit={() => startEdit(c.e)}
                         onToggleChecklistStep={onToggleChecklistStep} onResetChecklist={onResetChecklist} unitsPref={unitsPref} />
                 ))}
@@ -4196,6 +4427,15 @@ function RateBarChart({ rows }) {
    colonization speed. Stage 3 (2026-09-11): success rate by species/vendor
    as horizontal bar charts, replacing the activity heatmap - see
    sporedesk-beta-launch-plan.md. */
+// "Resolved" = the run is actually over, good or bad - colonizing is
+// still in flight and shouldn't count against (or for) the rate yet.
+// Hoisted to module scope (2026-09-17) so HomeTab's Data card can share
+// the exact same success-rate computation as the real Data tab without
+// drift risk - two independently-maintained copies of this list is how
+// they quietly go out of sync.
+const SUCCESS_STATUSES = ['colonized', 'fruiting', 'consumed', 'retired'];
+const FAIL_STATUSES = ['contaminated', 'failed'];
+
 function DataTab({ items, genetics, species, suppliers }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => {
@@ -4215,10 +4455,6 @@ function DataTab({ items, genetics, species, suppliers }) {
        same leak the AI-connector hidden-items rule exists to avoid. */
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
 
-    // "Resolved" = the run is actually over, good or bad - colonizing is
-    // still in flight and shouldn't count against (or for) the rate yet.
-    const SUCCESS_STATUSES = ['colonized', 'fruiting', 'consumed', 'retired'];
-    const FAIL_STATUSES = ['contaminated', 'failed'];
     const successCount = visibleItems.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
     const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
     const resolvedCount = successCount + failCount;
@@ -6303,6 +6539,21 @@ const CSS = `
 .sw:hover{border-color:var(--amber);}
 .sw.danger{border-color:var(--rust);color:var(--rust);}
 .sw.danger:hover{background:var(--rust);color:var(--bone);}
+
+/* ---------------- HOME ---------------- */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px;}
+.home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:18px 20px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+.home-card:hover{border-color:var(--amber);transform:translateY(-1px);}
+.home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+.home-card-stat{font-family:var(--serif);font-size:34px;margin:8px 0 4px;color:var(--bone);}
+.home-card-sub{font-size:12.5px;color:var(--dim);line-height:1.4;}
+.home-mv{margin-top:8px;}
+.home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
+.home-mv-list{display:flex;flex-wrap:wrap;gap:8px;}
+.home-mv-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;cursor:pointer;color:inherit;font-family:var(--sans);text-align:left;transition:border-color .15s;}
+.home-mv-item:hover{border-color:var(--amber);}
+.home-mv-label{font-size:13px;color:var(--bone);}
+.home-mv-meta{font-size:10.5px;color:var(--dim);}
 
 .canvas{position:relative;height:min(70vh,600px);background:radial-gradient(circle at 50% 8%,#2A1D14 0%,#1A120C 66%);
   border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none;cursor:grab;}
