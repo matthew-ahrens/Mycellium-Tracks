@@ -419,6 +419,24 @@ export default function App() {
                 }
             }
 
+            /* Strip ?item=/?stock= once they've been used, or refreshing
+               the page (or just leaving the tab open - Matt's actual
+               report, 2026-09-17: "lately it's taking me to a turkey
+               tail item randomly") replays the same deep link forever,
+               since nothing else ever clears it from the URL. This
+               effect only runs once on mount (empty dep array below), so
+               there's no risk of stripping a param a later run still
+               needs. replaceState (not pushState) so this doesn't add a
+               junk back-button entry - the params never should have been
+               "navigable" history to begin with, just a one-shot landing
+               instruction. */
+            if (wantedItem || wantedStock) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('item');
+                url.searchParams.delete('stock');
+                window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            }
+
             setLoading(false);
         }
         load();
