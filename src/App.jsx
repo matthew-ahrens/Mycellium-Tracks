@@ -6690,15 +6690,20 @@ const CSS = `
 .home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
 .home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
 
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px;}
+/* Shrunk to fit their actual content (a number + one line) instead of
+   sitting in the same big-box padding as the hero - that gap between
+   what's on the card and how much black box surrounds it was the dead
+   space Matt kept pointing at. align-items:start so a card never
+   stretches to match a taller neighbor either. */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px;align-items:start;}
 .home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
-  border-radius:14px;padding:18px 20px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+  border-radius:12px;padding:14px 16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-card:hover{transform:translateY(-1px);}
-.home-card-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-  background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);margin-bottom:12px;}
+.home-card-icon{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);margin-bottom:8px;}
 .home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
-.home-card-stat{font-family:var(--serif);font-size:32px;margin:6px 0 4px;color:var(--bone);}
-.home-card-sub{font-size:12.5px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.home-card-stat{font-family:var(--serif);font-size:26px;margin:4px 0 2px;color:var(--bone);}
+.home-card-sub{font-size:12px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 .home-mv{margin-top:8px;}
 .home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
