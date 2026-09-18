@@ -4135,10 +4135,12 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 {secondary.map((c) => (
                     <button key={c.key} className="home-card" onClick={() => onGoSection(c.key)}
                         style={{ '--accent': c.accent ?? SECTION_ACCENTS[c.key] }}>
-                        <div className="home-card-icon"><HomeIcon path={SECTION_ICONS[c.key]} /></div>
-                        <div className="home-card-title">{c.title}</div>
-                        <div className="home-card-stat" style={c.accent ? { color: c.accent } : undefined}>{c.stat}</div>
-                        <div className="home-card-sub">{c.sub}</div>
+                        <div className="home-card-icon"><HomeIcon path={SECTION_ICONS[c.key]} size={20} /></div>
+                        <div className="home-card-body">
+                            <div className="home-card-title">{c.title}</div>
+                            <div className="home-card-stat" style={c.accent ? { color: c.accent } : undefined}>{c.stat}</div>
+                            <div className="home-card-sub">{c.sub}</div>
+                        </div>
                     </button>
                 ))}
             </div>
@@ -6690,19 +6692,26 @@ const CSS = `
 .home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
 .home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
 
-/* Shrunk to fit their actual content (a number + one line) instead of
-   sitting in the same big-box padding as the hero - that gap between
-   what's on the card and how much black box surrounds it was the dead
-   space Matt kept pointing at. align-items:start so a card never
-   stretches to match a taller neighbor either. */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px;align-items:start;}
-.home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
-  border-radius:12px;padding:14px 16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+/* Tightening padding alone (previous pass) didn't fix the dead-space
+   complaint because it shrank the box and the content together, keeping
+   the same ink-to-box ratio. Measured the actual live cards to find the
+   real cause: the icon sat alone on its own row, using ~26px of a
+   ~220px-wide inner row and leaving the rest of that row's width blank
+   above the text. Horizontal layout (icon left, text right, like the
+   hero) puts the icon inside the same row the text occupies instead of
+   wasting a row on it, and the stat number is bumped up to actually
+   read as the card's headline instead of a small line dropped into a
+   comparatively huge card. align-items:start on the grid so a card
+   never gets stretched taller by a neighbor. */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:24px;align-items:start;}
+.home-card{display:flex;align-items:center;gap:14px;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:12px;padding:16px 18px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-card:hover{transform:translateY(-1px);}
-.home-card-icon{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
-  background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);margin-bottom:8px;}
+.home-card-icon{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);}
+.home-card-body{min-width:0;flex:1;}
 .home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
-.home-card-stat{font-family:var(--serif);font-size:26px;margin:4px 0 2px;color:var(--bone);}
+.home-card-stat{font-family:var(--serif);font-size:30px;line-height:1.15;margin:1px 0;color:var(--bone);}
 .home-card-sub{font-size:12px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 .home-mv{margin-top:8px;}
