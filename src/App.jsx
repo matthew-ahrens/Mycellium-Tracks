@@ -1589,11 +1589,11 @@ export default function App() {
        untouched (labels only) to avoid touching profiles.default_section,
        every setSection() call, and the search-destination handlers. */
     const NAV = [
-        ['cultures', 'Cultivation', 'M4 14c3-6 6-8 8-8s5 2 8 8'],
-        ['inventory', 'Harvests', 'M5 10h14l-1.4 8.6a2 2 0 0 1-2 1.7H8.4a2 2 0 0 1-2-1.7L5 10zM8 10V7a4 4 0 0 1 8 0v3'],
-        ['supplies', 'Supplies', 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8'],
-        ['reference', 'Library', 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z'],
-        ['data', 'Data', 'M4 19V10M10 19V4M16 19v-7M4 19h16'],
+        ['cultures', 'Cultivation', SECTION_ICONS.cultures],
+        ['inventory', 'Harvests', SECTION_ICONS.inventory],
+        ['supplies', 'Supplies', SECTION_ICONS.supplies],
+        ['reference', 'Library', SECTION_ICONS.reference],
+        ['data', 'Data', SECTION_ICONS.data],
     ];
 
     /* Search used to be its own nav tab; now it's a persistent dropdown
@@ -1824,6 +1824,33 @@ function AccountPanel({ profile, onSave, onBack }) {
 const SECTION_LABELS = {
     home: 'Home', cultures: 'Cultivation', inventory: 'Harvests', supplies: 'Supplies',
     reference: 'Library', data: 'Data',
+};
+
+/* Same path data the sidebar/mobile-bar NAV icons already use (hoisted
+   here 2026-09-18 so Home's cards can reuse them instead of carrying a
+   second copy that could drift) - Home has no icon of its own since it
+   isn't a NAV entry. */
+const SECTION_ICONS = {
+    cultures: 'M4 14c3-6 6-8 8-8s5 2 8 8',
+    inventory: 'M5 10h14l-1.4 8.6a2 2 0 0 1-2 1.7H8.4a2 2 0 0 1-2-1.7L5 10zM8 10V7a4 4 0 0 1 8 0v3',
+    supplies: 'M4 8l8-4 8 4-8 4-8-4zM4 8v8l8 4 8-4V8M12 12v8',
+    reference: 'M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z',
+    data: 'M4 19V10M10 19V4M16 19v-7M4 19h16',
+};
+
+/* Home-only accent tones, deliberately restrained: reuses the same
+   jade/amber/rust/clay/slate vocabulary STATUS already uses for live/
+   success/fail/neutral elsewhere in the app, rather than inventing five
+   arbitrary colors just for variety. Cultivation is jade (growth/live,
+   same tone STATUS gives colonizing/colonized/fruiting); Harvests is
+   amber (the actual payoff - also the app's general accent color);
+   Supplies is slate (logistics, neutral); Library is amber-ink (a
+   muted/quieter amber - reference material, calm rather than a second
+   bright accent). Data has no fixed entry here - its color is computed
+   from the success rate itself (jade/amber/rust) so it actually reports
+   something instead of just decorating. */
+const SECTION_ACCENTS = {
+    cultures: 'var(--jade)', inventory: 'var(--amber)', supplies: 'var(--slate)', reference: 'var(--amber-ink)',
 };
 
 function SettingsPanel({ profile, onSave, onBack }) {
@@ -3933,6 +3960,16 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
     );
 }
 
+/* Tiny inline icon, shared by the hero/secondary cards and the
+   most-visited tiles - same stroke style as the sidebar NAV icons
+   (SECTION_ICONS), just resizable per call site. */
+function HomeIcon({ path, size = 18 }) {
+    return (
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg>
+    );
+}
+
 /* ---------------- HOME ---------------- */
 /* The real default landing screen (2026-09-17, "a true Home Screen, not
    just a half landing page" per Matt) - five cards giving a genuine
@@ -3942,7 +3979,17 @@ function LibCard({ e, species, librarySpecies, isOpen, onToggle, onEdit, onToggl
    "Both", synced across devices). Every card doubles as a link into its
    own section - Matt's explicit build requirement. Reuses SUCCESS_STATUSES/
    FAIL_STATUSES from DataTab (hoisted to module scope) so the Data card's
-   rate can never drift from the real Data tab's. */
+   rate can never drift from the real Data tab's.
+
+   Redesigned 2026-09-18 - Matt's first-launch reaction was "it's kinda
+   dull": five identical dark boxes, no icons, no color, huge dead
+   whitespace, and none of the app's own visual language (the sidebar's
+   own icons, the jade/amber/rust status-tone vocabulary already used
+   everywhere else). This pass gives Cultivation a featured hero card
+   (it's the "what's alive right now" headline stat), reuses SECTION_ICONS/
+   SECTION_ACCENTS on every card and on Most Visited's tiles, colors the
+   Data card by the success rate itself instead of a fixed tone, and
+   clamps subtitle text to one line so card heights stop being ragged. */
 function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
@@ -3978,6 +4025,12 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
     const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
     const resolvedCount = successCount + failCount;
     const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
+    // Colored by the number itself, not a fixed tone - this is the one
+    // card where color can actually report something rather than just
+    // decorate. Thresholds are deliberately generous (a home cultivation
+    // hobby isn't a lab) - just enough to separate "going well" from
+    // "worth a look" from "rough patch."
+    const dataAccent = successRate == null ? 'var(--slate)' : successRate >= 70 ? 'var(--jade)' : successRate >= 40 ? 'var(--amber)' : 'var(--rust)';
 
     /* Most-visited: frequency within the capped, most-recent-400-event
        window already fetched in App() - that cap makes the count itself
@@ -4012,6 +4065,17 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
         else onGoSection(v.section);
     };
 
+    const secondary = [
+        { key: 'inventory', title: 'Harvests', stat: monthTotalG ? `${monthTotalG}g` : '—',
+            sub: `this month${latestLot ? ` · latest: ${latestLot.label}` : ''}` },
+        { key: 'supplies', title: 'Supplies', stat: onHandCount,
+            sub: onHandCount === 0 ? 'nothing in stock' : 'on hand' },
+        { key: 'reference', title: 'Library', stat: library.length,
+            sub: `entries${latestEntry ? ` · latest: ${latestEntry.title}` : ''}` },
+        { key: 'data', title: 'Data', stat: successRate == null ? '—' : `${successRate}%`,
+            sub: 'success rate', accent: dataAccent },
+    ];
+
     return (
         <div className="page">
             <div className="bar">
@@ -4021,36 +4085,25 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 </div>
             </div>
 
-            <div className="home-grid">
-                <button className="home-card" onClick={() => onGoSection('cultures')}>
+            <button className="home-hero" onClick={() => onGoSection('cultures')} style={{ '--accent': SECTION_ACCENTS.cultures }}>
+                <div className="home-hero-icon"><HomeIcon path={SECTION_ICONS.cultures} size={28} /></div>
+                <div className="home-hero-body">
                     <div className="home-card-title">Cultivation</div>
-                    <div className="home-card-stat">{activeCount}</div>
-                    <div className="home-card-sub">active{fruitingCount > 0 ? ` · ${fruitingCount} fruiting` : ''}</div>
-                </button>
+                    <div className="home-hero-stat">{activeCount}<span className="home-hero-stat-unit">active</span></div>
+                    {fruitingCount > 0 && <div className="home-hero-badge">{fruitingCount} fruiting</div>}
+                </div>
+            </button>
 
-                <button className="home-card" onClick={() => onGoSection('inventory')}>
-                    <div className="home-card-title">Harvests</div>
-                    <div className="home-card-stat">{monthTotalG ? `${monthTotalG}g` : '—'}</div>
-                    <div className="home-card-sub">this month{latestLot ? ` · latest: ${latestLot.label}` : ''}</div>
-                </button>
-
-                <button className="home-card" onClick={() => onGoSection('supplies')}>
-                    <div className="home-card-title">Supplies</div>
-                    <div className="home-card-stat">{onHandCount}</div>
-                    <div className="home-card-sub">on hand{onHandCount === 0 ? ' · nothing in stock' : ''}</div>
-                </button>
-
-                <button className="home-card" onClick={() => onGoSection('reference')}>
-                    <div className="home-card-title">Library</div>
-                    <div className="home-card-stat">{library.length}</div>
-                    <div className="home-card-sub">entries{latestEntry ? ` · latest: ${latestEntry.title}` : ''}</div>
-                </button>
-
-                <button className="home-card" onClick={() => onGoSection('data')}>
-                    <div className="home-card-title">Data</div>
-                    <div className="home-card-stat">{successRate == null ? '—' : `${successRate}%`}</div>
-                    <div className="home-card-sub">success rate</div>
-                </button>
+            <div className="home-grid">
+                {secondary.map((c) => (
+                    <button key={c.key} className="home-card" onClick={() => onGoSection(c.key)}
+                        style={{ '--accent': c.accent ?? SECTION_ACCENTS[c.key] }}>
+                        <div className="home-card-icon"><HomeIcon path={SECTION_ICONS[c.key]} /></div>
+                        <div className="home-card-title">{c.title}</div>
+                        <div className="home-card-stat" style={c.accent ? { color: c.accent } : undefined}>{c.stat}</div>
+                        <div className="home-card-sub">{c.sub}</div>
+                    </button>
+                ))}
             </div>
 
             {mostVisited.length > 0 && (
@@ -4059,9 +4112,13 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     <div className="home-mv-list">
                         {mostVisited.map((v) => (
                             <button key={`${v.isSection ? 'section' : v.entityType}:${v.entityId ?? v.section}`}
-                                className="home-mv-item" onClick={() => openVisit(v)}>
-                                <span className="home-mv-label">{v.label}</span>
-                                {!v.isSection && <span className="home-mv-meta">{SECTION_LABELS[v.section] ?? v.section}</span>}
+                                className="home-mv-item" onClick={() => openVisit(v)}
+                                style={{ '--accent': SECTION_ACCENTS[v.section] ?? 'var(--slate)' }}>
+                                <span className="home-mv-icon"><HomeIcon path={SECTION_ICONS[v.section] ?? SECTION_ICONS.data} size={14} /></span>
+                                <span className="home-mv-text">
+                                    <span className="home-mv-label">{v.label}</span>
+                                    {!v.isSection && <span className="home-mv-meta">{SECTION_LABELS[v.section] ?? v.section}</span>}
+                                </span>
                             </button>
                         ))}
                     </div>
@@ -6559,19 +6616,46 @@ const CSS = `
 .sw.danger:hover{background:var(--rust);color:var(--bone);}
 
 /* ---------------- HOME ---------------- */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px;}
-.home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:14px;padding:18px 20px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
-.home-card:hover{border-color:var(--amber);transform:translateY(-1px);}
+/* --accent is set inline per card/tile (SECTION_ACCENTS, or the computed
+   dataAccent for Data) - every rule below just reads var(--accent),
+   never hardcodes a tone, so one map in App.jsx controls all of it. */
+.home-hero{display:flex;align-items:center;gap:22px;width:100%;background:var(--panel);color:var(--bone);
+  border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 28px;
+  margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+.home-hero:hover{transform:translateY(-1px);border-left-color:var(--accent);}
+.home-hero-icon{flex:0 0 auto;width:60px;height:60px;border-radius:16px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
+.home-hero-body{min-width:0;}
+.home-hero-stat{font-family:var(--serif);font-size:46px;line-height:1;color:var(--bone);margin-top:6px;}
+.home-hero-stat-unit{font-family:var(--sans);font-size:14px;font-weight:400;color:var(--dim);margin-left:8px;}
+.home-hero-badge{display:inline-block;margin-top:10px;background:color-mix(in srgb, var(--accent) 22%, transparent);
+  color:var(--accent);font-size:11.5px;font-family:var(--sans);padding:3px 11px;border-radius:20px;}
+
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px;}
+.home-card{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:14px;padding:18px 20px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+.home-card:hover{transform:translateY(-1px);}
+.home-card-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);margin-bottom:12px;}
 .home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
-.home-card-stat{font-family:var(--serif);font-size:34px;margin:8px 0 4px;color:var(--bone);}
-.home-card-sub{font-size:12.5px;color:var(--dim);line-height:1.4;}
+.home-card-stat{font-family:var(--serif);font-size:32px;margin:6px 0 4px;color:var(--bone);}
+.home-card-sub{font-size:12.5px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
 .home-mv{margin-top:8px;}
 .home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
 .home-mv-list{display:flex;flex-wrap:wrap;gap:8px;}
-.home-mv-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;cursor:pointer;color:inherit;font-family:var(--sans);text-align:left;transition:border-color .15s;}
-.home-mv-item:hover{border-color:var(--amber);}
-.home-mv-label{font-size:13px;color:var(--bone);}
+.home-mv-item{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:8px 14px 8px 10px;cursor:pointer;color:inherit;font-family:var(--sans);text-align:left;transition:border-color .15s;}
+.home-mv-item:hover{border-color:var(--accent);}
+.home-mv-icon{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
+.home-mv-text{display:flex;flex-direction:column;gap:1px;min-width:0;}
+.home-mv-label{font-size:13px;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
 .home-mv-meta{font-size:10.5px;color:var(--dim);}
+@media(max-width:600px){
+  .home-hero{flex-direction:column;align-items:flex-start;gap:14px;}
+  .home-hero-stat{font-size:38px;}
+}
 
 .canvas{position:relative;height:min(70vh,600px);background:radial-gradient(circle at 50% 8%,#2A1D14 0%,#1A120C 66%);
   border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none;cursor:grab;}
