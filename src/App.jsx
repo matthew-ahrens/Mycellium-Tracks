@@ -1522,10 +1522,12 @@ export default function App() {
     } else if (section === 'home') {
         key = 'home';
         screen = <HomeTab items={items} genetics={genetics} species={species} lots={lots} library={library} stock={stock}
-            usageEvents={usageEvents} searchProps={searchProps}
+            usageEvents={usageEvents} searchProps={searchProps} profile={profile}
             onGoSection={goSection}
             onOpenItem={jumpToItem} onOpenLot={jumpToLot}
-            onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary} />;
+            onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary}
+            onOpenAccount={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}
+            onOpenSettings={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }} />;
     } else if (section === 'supplies') {
         key = 'supplies';
         screen = <Supplies stock={stock} library={library} suppliers={suppliers} species={species} equipment={equipment}
@@ -3998,7 +4000,7 @@ function HomeIcon({ path, size = 18 }) {
    SECTION_ACCENTS on every card and on Most Visited's tiles, colors the
    Data card by the success rate itself instead of a fixed tone, and
    clamps subtitle text to one line so card heights stop being ragged. */
-function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary }) {
+function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, profile, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary, onOpenAccount, onOpenSettings }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
@@ -4113,34 +4115,74 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 <div className="home-search"><SearchBox {...searchProps} /></div>
             </div>
 
-            <button className="home-hero" onClick={() => onGoSection('cultures')} style={{ '--accent': SECTION_ACCENTS.cultures }}>
-                <div className="home-hero-icon"><HomeIcon path={SECTION_ICONS.cultures} size={28} /></div>
-                <div className="home-hero-body">
-                    <div className="home-card-title">Cultivation</div>
-                    <div className="home-hero-stat">{activeCount}<span className="home-hero-stat-unit">active</span></div>
-                </div>
-                {/* Breaks the headline number down by stage - on a wide
-                    desktop card, "44 active" alone left most of the box
-                    empty; this is what actually fills that space with real
-                    content instead of padding. Desktop-only, see CSS. */}
-                <div className="home-hero-divider" />
-                <div className="home-hero-breakdown">
-                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizingCount}</span><span className="home-hero-bd-label">Colonizing</span></div>
-                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizedCount}</span><span className="home-hero-bd-label">Colonized</span></div>
-                    <div className="home-hero-bd-item"><span className="home-hero-bd-num">{fruitingCount}</span><span className="home-hero-bd-label">Fruiting</span></div>
-                </div>
-            </button>
+            <div className="home-top-row">
+                <button className="home-hero" onClick={() => onGoSection('cultures')} style={{ '--accent': SECTION_ACCENTS.cultures }}>
+                    <div className="home-hero-icon"><HomeIcon path={SECTION_ICONS.cultures} size={28} /></div>
+                    <div className="home-hero-body">
+                        <div className="home-card-title">Cultivation</div>
+                        <div className="home-hero-stat">{activeCount}<span className="home-hero-stat-unit">active</span></div>
+                    </div>
+                    {/* Breaks the headline number down by stage - on a wide
+                        desktop card, "44 active" alone left most of the box
+                        empty; this is what actually fills that space with real
+                        content instead of padding. Desktop-only, see CSS. */}
+                    <div className="home-hero-divider" />
+                    <div className="home-hero-breakdown">
+                        <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizingCount}</span><span className="home-hero-bd-label">Colonizing</span></div>
+                        <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizedCount}</span><span className="home-hero-bd-label">Colonized</span></div>
+                        <div className="home-hero-bd-item"><span className="home-hero-bd-num">{fruitingCount}</span><span className="home-hero-bd-label">Fruiting</span></div>
+                    </div>
+                </button>
 
-            <div className="home-grid">
+                {/* Account/Settings used to live only in the sidebar, which
+                    Home hides - these fill the space that used to sit dead
+                    to the hero's right on a wide desktop screen (Matt: "account
+                    and settings need to be to the right of cultivation to fill
+                    that space under the search bar in two separate cards"),
+                    and stack under the hero on mobile instead (see CSS). */}
+                <button className="home-side-card" onClick={onOpenAccount} style={{ '--accent': 'var(--slate)' }}>
+                    <div className="home-side-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div className="home-card-title">Account</div>
+                        <div className="home-side-value">{profile?.display_name || 'View profile'}</div>
+                    </div>
+                </button>
+                <button className="home-side-card" onClick={onOpenSettings} style={{ '--accent': 'var(--slate)' }}>
+                    <div className="home-side-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div className="home-card-title">Settings</div>
+                        <div className="home-side-value">Preferences</div>
+                    </div>
+                </button>
+            </div>
+
+            {/* Secondary sections as a dense list instead of a card grid -
+                a sparse 4-5 metric dashboard is a bad fit for a KPI-grid:
+                Grid's auto-fit columns are always equal-width regardless of
+                content, so content-hugging boxes in those columns produced
+                uneven "welded together / big gap" spacing (Harvests' long
+                line vs. Supplies' short one) no matter how the box itself
+                was padded or sized. A list has no per-item box to leave
+                dead space inside - each row just spans the full list width
+                and sits a fixed 1px rule above the next one. */}
+            <div className="home-list">
                 {secondary.map((c) => (
-                    <button key={c.key} className="home-card" onClick={() => onGoSection(c.key)}
+                    <button key={c.key} className="home-list-row" onClick={() => onGoSection(c.key)}
                         style={{ '--accent': c.accent ?? SECTION_ACCENTS[c.key] }}>
-                        <div className="home-card-icon"><HomeIcon path={SECTION_ICONS[c.key]} size={20} /></div>
-                        <div className="home-card-body">
-                            <div className="home-card-title">{c.title}</div>
-                            <div className="home-card-stat" style={c.accent ? { color: c.accent } : undefined}>{c.stat}</div>
-                            <div className="home-card-sub">{c.sub}</div>
-                        </div>
+                        <div className="home-list-icon"><HomeIcon path={SECTION_ICONS[c.key]} size={18} /></div>
+                        <div className="home-list-title">{c.title}</div>
+                        <div className="home-list-stat" style={c.accent ? { color: c.accent } : undefined}>{c.stat}</div>
+                        <div className="home-list-sub">{c.sub}</div>
+                        <div className="home-list-chev">&rsaquo;</div>
                     </button>
                 ))}
             </div>
@@ -6685,9 +6727,20 @@ const CSS = `
    to its right, which isn't a box with a number in it. Restored to
    width:100% only on mobile, where the breakdown is hidden and the
    compact icon+number needs the full phone width to read right. */
-.home-hero{display:flex;align-items:center;gap:24px;width:fit-content;max-width:100%;background:var(--panel);color:var(--bone);
+.home-top-row{display:flex;align-items:stretch;gap:12px;margin-bottom:24px;}
+.home-hero{display:flex;align-items:center;gap:24px;width:fit-content;max-width:100%;flex:0 0 auto;background:var(--panel);color:var(--bone);
   border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 32px;
-  margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+  cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+/* Account/Settings fill the width .home-top-row's flex leaves next to
+   the hero - flex:1 so the two split whatever's left, same panel/border
+   treatment as the hero so the row reads as one family of cards. */
+.home-side-card{flex:1 1 160px;min-width:160px;display:flex;align-items:center;gap:14px;background:var(--panel);color:var(--bone);
+  border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:16px;padding:20px 22px;
+  cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
+.home-side-card:hover{transform:translateY(-1px);}
+.home-side-icon{flex:0 0 auto;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
+.home-side-value{font-family:var(--serif);font-size:17px;color:var(--bone);margin-top:2px;}
 .home-hero:hover{transform:translateY(-1px);border-left-color:var(--accent);}
 .home-hero-icon{flex:0 0 auto;width:60px;height:60px;border-radius:16px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
@@ -6704,36 +6757,27 @@ const CSS = `
 .home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
 .home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
 
-/* Tightening padding alone (previous pass) didn't fix the dead-space
-   complaint because it shrank the box and the content together, keeping
-   the same ink-to-box ratio. Measured the actual live cards to find the
-   real cause: the icon sat alone on its own row, using ~26px of a
-   ~220px-wide inner row and leaving the rest of that row's width blank
-   above the text. Horizontal layout (icon left, text right, like the
-   hero) puts the icon inside the same row the text occupies instead of
-   wasting a row on it, and the stat number is bumped up to actually
-   read as the card's headline instead of a small line dropped into a
-   comparatively huge card. align-items:start on the grid so a card
-   never gets stretched taller by a neighbor. */
-/* justify-items:start is the actual fix for "space to the right of 14
-   on hand" - the grid's auto-fit/minmax columns still collapse to fewer
-   columns on a narrower screen same as before, but each card now sizes
-   to its own icon+text instead of stretching to fill its column, so
-   there's no leftover width inside the button for the short ones
-   (Supplies, Data) to just sit empty in. */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:24px;align-items:start;justify-items:start;}
-.home-card{display:flex;align-items:center;gap:14px;background:var(--panel);color:var(--bone);border:1px solid var(--line);border-left:3px solid var(--accent);
-  border-radius:12px;padding:16px 18px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
-.home-card:hover{transform:translateY(-1px);}
-.home-card-icon{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+/* Secondary sections as a list, not a card grid - CSS Grid's auto-fit
+   columns are always equal-width regardless of content (Harvests' long
+   line vs. Supplies' short one), so content-hugging boxes in those
+   columns produced uneven, "welded together / big gap" spacing no
+   matter how the box itself was sized or padded (several rounds of
+   that here - see git history). A list has no per-item box to leave
+   space empty inside: each row just spans the full list width and sits
+   a fixed 1px rule above the next one. */
+.home-list{background:var(--panel);color:var(--bone);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:24px;}
+.home-list-row{display:flex;align-items:center;gap:16px;width:100%;box-sizing:border-box;background:none;
+  border:none;border-left:3px solid var(--accent);border-bottom:1px solid var(--line);
+  padding:16px 18px;cursor:pointer;text-align:left;color:inherit;font-family:var(--sans);transition:background .15s;}
+.home-list-row:last-child{border-bottom:none;}
+.home-list-row:hover{background:var(--panel2);}
+.home-list-icon{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb, var(--accent) 16%, transparent);color:var(--accent);}
-.home-card-body{min-width:0;}
 .home-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
-.home-card-stat{font-family:var(--serif);font-size:30px;line-height:1.15;margin:1px 0;color:var(--bone);}
-/* Capped instead of unbounded now that the card isn't stretched to fill
-   its column - without a max-width here, Library's long "latest: ..."
-   line would size the whole card to match it instead of ellipsizing. */
-.home-card-sub{font-size:12px;color:var(--dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;}
+.home-list-title{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);width:104px;flex:0 0 auto;}
+.home-list-stat{font-family:var(--serif);font-size:20px;color:var(--bone);flex:0 0 auto;}
+.home-list-sub{font-size:12.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0;}
+.home-list-chev{flex:0 0 auto;color:var(--dim);font-size:16px;opacity:.6;}
 
 .home-mv{margin-top:8px;}
 .home-mv-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-dim);font-style:italic;margin-bottom:10px;}
@@ -6760,11 +6804,14 @@ const CSS = `
      again) competing for the same small space, so it's dropped rather
      than squeezed in. Untested on a real phone yet - flag anything that
      still looks off. */
+  .home-top-row{flex-direction:column;}
   .home-hero{width:100%;padding:16px 18px;gap:14px;}
   .home-hero-icon{width:44px;height:44px;border-radius:12px;}
   .home-hero-stat{font-size:32px;}
   .home-hero-divider{display:none;}
   .home-hero-breakdown{display:none;}
+  .home-side-card{width:100%;box-sizing:border-box;padding:14px 16px;}
+  .home-list-title{width:76px;}
   .home-mv-item{padding:9px 14px 9px 10px;}
   .home-mv-label{max-width:160px;}
 }
