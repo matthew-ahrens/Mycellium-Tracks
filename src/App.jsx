@@ -281,6 +281,25 @@ export default function App() {
     const [accountOpen, setAccountOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
+    /* Resolved signed URL for profile.avatar_url - a private storage path
+       in the same 'photos' bucket as item/equipment photos, but not a row
+       in the `photos` table those load through, so it needs its own fetch.
+       Re-runs whenever the path changes, which covers both the initial
+       load and right after a fresh upload (uploadPhoto's onSave updates
+       `profile` here). Every avatar-displaying spot in the app reads this
+       one value instead of each re-deriving its own signed URL. */
+    const [avatarUrl, setAvatarUrl] = useState(null);
+    useEffect(() => {
+        if (!profile?.avatar_url) { setAvatarUrl(null); return; }
+        let cancelled = false;
+        supabase.storage.from('photos').createSignedUrl(profile.avatar_url, 21600).then(({ data, error }) => {
+            if (cancelled) return;
+            if (error) { console.error(error); setAvatarUrl(null); return; }
+            setAvatarUrl(data?.signedUrl ?? null);
+        });
+        return () => { cancelled = true; };
+    }, [profile?.avatar_url]);
+
     const go = (next, direction = 'fwd') => { setDir(direction); setNav(next); };
 
     const saveProfile = async (fields) => {
@@ -1490,7 +1509,7 @@ export default function App() {
     let screen, key;
     if (accountOpen) {
         key = 'account';
-        screen = <AccountPanel profile={profile} onSave={saveProfile} onBack={() => setAccountOpen(false)} />;
+        screen = <AccountPanel profile={profile} avatarUrl={avatarUrl} onSave={saveProfile} onBack={() => setAccountOpen(false)} />;
     } else if (settingsOpen) {
         key = 'settings';
         screen = <SettingsPanel profile={profile} onSave={saveProfile} onBack={() => setSettingsOpen(false)} />;
@@ -1526,6 +1545,7 @@ export default function App() {
             onGoSection={goSection}
             onOpenItem={jumpToItem} onOpenLot={jumpToLot}
             onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary}
+            avatarUrl={avatarUrl}
             onOpenAccount={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}
             onOpenSettings={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }} />;
     } else if (section === 'supplies') {
@@ -1632,7 +1652,7 @@ export default function App() {
                     <div className="mobile-brand-icons" onClick={(e) => e.stopPropagation()}>
                     <button className="mb-icon" aria-label="Account"
                         onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
-                        <AvatarIcon preset={profile?.avatar_preset} size={19} />
+                        <AvatarBadge url={profile?.avatar_url ? avatarUrl : null} preset={profile?.avatar_preset} size={19} />
                     </button>
                     <button className="mb-icon" aria-label="Settings"
                         onClick={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }}>
@@ -1661,7 +1681,7 @@ export default function App() {
                     <div className="side-bottom">
                         <button className={`nav-item ${accountOpen ? 'on' : ''}`}
                             onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
-                            <AvatarIcon preset={profile?.avatar_preset} size={17} />
+                            <AvatarBadge url={profile?.avatar_url ? avatarUrl : null} preset={profile?.avatar_preset} size={17} />
                             <span>Account</span>
                         </button>
                         <button className={`nav-item ${settingsOpen ? 'on' : ''}`}
@@ -1709,9 +1729,29 @@ function AvatarIcon({ preset, size = 22 }) {
     );
 }
 
-function AccountPanel({ profile, onSave, onBack }) {
+/* Single place every avatar-displaying spot goes through: an uploaded
+   photo (once its signed URL has resolved) wins over the preset glyph,
+   never both at once - matches how saving in AccountPanel treats the
+   two as mutually exclusive. */
+function AvatarBadge({ url, preset, size = 22 }) {
+    if (url) {
+        return <img src={url} alt="" width={size} height={size}
+            style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />;
+    }
+    return <AvatarIcon preset={preset} size={size} />;
+}
+
+function AccountPanel({ profile, avatarUrl, onSave, onBack }) {
     const [name, setName] = useState(profile?.display_name ?? '');
     const [avatarPreset, setAvatarPreset] = useState(profile?.avatar_preset ?? AVATAR_PRESETS[0].id);
+    /* Mirrors profile.avatar_url so the picker (and saveBasics below) has
+       a single source of truth for "is a photo currently active" that
+       updates the instant uploadPhoto succeeds, without waiting on a
+       parent re-render. Previously saveBasics always sent avatar_url:
+       null regardless of what was actually set - meant saving a plain
+       display-name edit after uploading a photo silently deleted the
+       photo reference. */
+    const [avatarUrlLocal, setAvatarUrlLocal] = useState(profile?.avatar_url ?? null);
     const [visibility, setVisibility] = useState(profile?.visibility ?? 'private');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
@@ -1726,7 +1766,12 @@ function AccountPanel({ profile, onSave, onBack }) {
 
     const saveBasics = async () => {
         setBusy(true); setMsg('');
-        await onSave({ display_name: name.trim() || null, avatar_preset: avatarPreset, avatar_url: null, visibility });
+        await onSave({
+            display_name: name.trim() || null,
+            avatar_preset: avatarUrlLocal ? null : avatarPreset,
+            avatar_url: avatarUrlLocal,
+            visibility,
+        });
         setBusy(false); setMsg('Saved.');
         setTimeout(() => setMsg(''), 2000);
     };
@@ -1747,6 +1792,7 @@ function AccountPanel({ profile, onSave, onBack }) {
         const { error: upErr } = await supabase.storage.from('photos').upload(path, file, { upsert: true });
         if (upErr) { console.error(upErr); setMsg('Could not upload - check console'); setBusy(false); return; }
         await onSave({ avatar_url: path, avatar_preset: null });
+        setAvatarUrlLocal(path); setAvatarPreset(null);
         setBusy(false); setMsg('Saved.');
         setTimeout(() => setMsg(''), 2000);
     };
@@ -1765,9 +1811,19 @@ function AccountPanel({ profile, onSave, onBack }) {
 
                 <label>Avatar</label>
                 <div className="avatar-row">
+                    {/* Live preview of whatever's currently active - a
+                        preset swaps instantly (no async round trip), a
+                        fresh upload catches up to its own signed URL a
+                        moment after avatarUrlLocal matches the saved
+                        profile.avatar_url (see App()'s avatarUrl effect). */}
+                    <div className="avatar-preview">
+                        {avatarUrlLocal && avatarUrlLocal === profile.avatar_url
+                            ? <AvatarBadge url={avatarUrl} size={48} />
+                            : <AvatarIcon preset={avatarPreset} size={48} />}
+                    </div>
                     {AVATAR_PRESETS.map((p) => (
-                        <button key={p.id} className={`avatar-pick ${avatarPreset === p.id && !profile.avatar_url ? 'on' : ''}`}
-                            onClick={() => setAvatarPreset(p.id)}>
+                        <button key={p.id} className={`avatar-pick ${avatarPreset === p.id && !avatarUrlLocal ? 'on' : ''}`}
+                            onClick={() => { setAvatarPreset(p.id); setAvatarUrlLocal(null); }}>
                             <AvatarIcon preset={p.id} size={28} />
                         </button>
                     ))}
@@ -1777,6 +1833,7 @@ function AccountPanel({ profile, onSave, onBack }) {
                             onChange={(e) => e.target.files[0] && uploadPhoto(e.target.files[0])} />
                     </label>
                 </div>
+                {avatarUrlLocal && <div className="acct-hint">Using your uploaded photo - pick a mushroom above to switch back.</div>}
 
                 <label>Visibility (placeholder)</label>
                 <div className="seg">
@@ -3995,7 +4052,7 @@ function HomeIcon({ path, size = 18 }) {
    SECTION_ACCENTS on every card and on Most Visited's tiles, colors the
    Data card by the success rate itself instead of a fixed tone, and
    clamps subtitle text to one line so card heights stop being ragged. */
-function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, profile, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary, onOpenAccount, onOpenSettings }) {
+function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, profile, avatarUrl, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary, onOpenAccount, onOpenSettings }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
@@ -4137,7 +4194,7 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     and stack under the hero on mobile instead (see CSS). */}
                 <button className="home-side-card" onClick={onOpenAccount} style={{ '--accent': 'var(--slate)' }}>
                     <div className="home-side-icon">
-                        <AvatarIcon preset={profile?.avatar_preset} size={22} />
+                        <AvatarBadge url={profile?.avatar_url ? avatarUrl : null} preset={profile?.avatar_preset} size={22} />
                     </div>
                     <div>
                         <div className="home-card-title">Account</div>
@@ -6437,6 +6494,8 @@ const CSS = `
 .avatar-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;}
 .avatar-pick{width:44px;height:44px;border-radius:50%;background:var(--panel2);border:2px solid transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;}
 .avatar-pick.on{border-color:var(--amber);}
+.avatar-preview{width:52px;height:52px;border-radius:50%;overflow:hidden;background:var(--panel2);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto;margin-right:6px;}
 .avatar-upload{font-size:12px;color:var(--amber);border:1px dashed var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;margin-left:4px;}
 .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:fit-content;margin-top:6px;}
 .seg button{background:var(--panel2);border:none;color:var(--dim);font-size:12.5px;padding:8px 16px;cursor:pointer;}
