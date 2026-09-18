@@ -61,7 +61,7 @@ function PasswordStrengthMeter({ password }) {
    launch replaces it with a paywall/subscription check instead. */
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined) // undefined = still checking
-  const [mode, setMode] = useState('signin') // 'signin' | 'signup'
+  const [mode, setMode] = useState('signin') // 'signin' | 'signup' | 'forgot'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -70,6 +70,16 @@ export default function AuthGate({ children }) {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+  // True once Supabase reports the PASSWORD_RECOVERY event - fires after
+  // the user clicks a "reset your password" email link and lands back
+  // here with a valid-but-special recovery session. While true, they see
+  // the set-new-password screen regardless of session state, instead of
+  // being dropped straight into the app on a session they didn't mean to
+  // just "log in" with.
+  const [recoveryMode, setRecoveryMode] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('')
 
   useEffect(() => {
     /* If this hangs or fails - flaky connection, stale token, Supabase
@@ -91,7 +101,10 @@ export default function AuthGate({ children }) {
         setSession(null);
       });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (_event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
+      setSession(s);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -109,6 +122,26 @@ export default function AuthGate({ children }) {
         p,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out - check your connection and try again.')), 12000)),
       ])
+
+      if (mode === 'forgot') {
+        const { error: err } = await withTimeout(
+          supabase.auth.resetPasswordForEmail(email.trim(), {
+            // Same reasoning as signUp's emailRedirectTo below - explicit
+            // rather than relying on the dashboard's Site URL. Landing
+            // back here fires Supabase's PASSWORD_RECOVERY event, which
+            // the onAuthStateChange listener above catches to show the
+            // set-new-password screen instead of the sign-in form.
+            redirectTo: window.location.origin,
+          })
+        )
+        if (err) { setError(err.message); return }
+        // Deliberately doesn't say whether the email exists - Supabase's
+        // own call doesn't distinguish this either, so no wording here
+        // should claim otherwise (that would leak which emails have
+        // accounts).
+        setResetSent(true)
+        return
+      }
 
       if (mode === 'signin') {
         const { error: err } = await withTimeout(
@@ -183,11 +216,71 @@ export default function AuthGate({ children }) {
     }
   }
 
+  const submitNewPassword = async (e) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      if (!passwordMeetsRequirements(newPassword)) {
+        setError('Password must be at least 8 characters and include a number and a special character.')
+        return
+      }
+      if (newPassword !== newPasswordConfirm) {
+        setError('Passwords do not match.')
+        return
+      }
+      const withTimeout = (p) => Promise.race([
+        p,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out - check your connection and try again.')), 12000)),
+      ])
+      const { error: err } = await withTimeout(supabase.auth.updateUser({ password: newPassword }))
+      if (err) { setError(err.message); return }
+      // The recovery session Supabase attached on redirect is already a
+      // real, valid session - clearing recoveryMode is enough to drop
+      // straight into the app, same auto-sign-in pattern as email
+      // confirmation. No separate manual sign-in step.
+      setRecoveryMode(false)
+      setNewPassword('')
+      setNewPasswordConfirm('')
+    } catch (ex) {
+      setError(ex.message || 'Something went wrong - check the browser console.')
+      console.error(ex)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (session === undefined) {
     return (
       <div className="auth-loading">
         <style>{AUTH_CSS}</style>
         <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="auth-loading-mark" />
+      </div>
+    )
+  }
+
+  if (recoveryMode) {
+    return (
+      <div>
+        <style>{AUTH_CSS}</style>
+        <form className="auth-card" onSubmit={submitNewPassword}>
+          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <div className="auth-brand">SporeDesk</div>
+          <div className="auth-sub">Set a new password</div>
+
+          <label>New password</label>
+          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} autoFocus />
+          {newPassword && <PasswordStrengthMeter password={newPassword} />}
+
+          <label>Confirm new password</label>
+          <input type="password" value={newPasswordConfirm} onChange={(e) => setNewPasswordConfirm(e.target.value)} required minLength={8} />
+
+          {error && <div className="auth-error">{error}</div>}
+
+          <button type="submit" disabled={busy}>
+            {busy ? 'Working…' : 'Set password'}
+          </button>
+        </form>
       </div>
     )
   }
@@ -218,6 +311,32 @@ export default function AuthGate({ children }) {
     )
   }
 
+  if (!session && mode === 'forgot' && resetSent) {
+    return (
+      <div>
+        <style>{AUTH_CSS}</style>
+        <div className="auth-card">
+          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <div className="auth-brand">SporeDesk</div>
+          <div className="auth-sub">Check your email</div>
+          <p className="auth-confirm-text">
+            If an account exists for <strong>{email.trim()}</strong>, we've sent a link to reset the
+            password. Click it and you'll be asked to set a new one - no need to come back here and
+            sign in by hand afterward.
+          </p>
+          <button type="button" className="auth-switch" onClick={() => {
+            setResetSent(false)
+            setMode('signin')
+            setError('')
+            setNotice('')
+          }}>
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!session) {
     return (
       <div>
@@ -225,14 +344,20 @@ export default function AuthGate({ children }) {
         <form className="auth-card" onSubmit={submit}>
           <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
-          <div className="auth-sub">{mode === 'signin' ? 'Sign in' : 'Create an account - beta'}</div>
+          <div className="auth-sub">
+            {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create an account - beta' : 'Reset your password'}
+          </div>
 
           <label>Email</label>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
 
-          <label>Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 6} />
-          {mode === 'signup' && password && <PasswordStrengthMeter password={password} />}
+          {mode !== 'forgot' && (
+            <>
+              <label>Password</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 6} />
+              {mode === 'signup' && password && <PasswordStrengthMeter password={password} />}
+            </>
+          )}
 
           {mode === 'signup' && (
             <>
@@ -248,16 +373,38 @@ export default function AuthGate({ children }) {
           {notice && <div className="auth-notice">{notice}</div>}
 
           <button type="submit" disabled={busy}>
-            {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send reset link'}
           </button>
 
-          <button type="button" className="auth-switch" onClick={() => {
-            setMode(mode === 'signin' ? 'signup' : 'signin')
-            setError('')
-            setNotice('')
-          }}>
-            {mode === 'signin' ? "Have a beta code? Create an account" : 'Already have an account? Sign in'}
-          </button>
+          {mode === 'signin' && (
+            <button type="button" className="auth-switch" onClick={() => {
+              setMode('forgot')
+              setError('')
+              setNotice('')
+            }}>
+              Forgot password?
+            </button>
+          )}
+
+          {mode !== 'forgot' && (
+            <button type="button" className="auth-switch" onClick={() => {
+              setMode(mode === 'signup' ? 'signin' : 'signup')
+              setError('')
+              setNotice('')
+            }}>
+              {mode === 'signup' ? 'Already have an account? Sign in' : "Have a beta code? Create an account"}
+            </button>
+          )}
+
+          {mode === 'forgot' && (
+            <button type="button" className="auth-switch" onClick={() => {
+              setMode('signin')
+              setError('')
+              setNotice('')
+            }}>
+              Back to sign in
+            </button>
+          )}
         </form>
       </div>
     )
