@@ -1476,6 +1476,17 @@ export default function App() {
     const openItem = items.find((i) => i.id === open);
     const openCulture = genetics.find((g) => g.id === openItem?.geneticsId);
 
+    /* Declared here (before the screen/key switch below) rather than
+       right above the return - Home's own branch of that switch now
+       renders a SearchBox too (2026-09-18), so this has to exist before
+       that branch runs or it's a temporal-dead-zone ReferenceError, same
+       issue jumpToItem/etc. already ran into further up. */
+    const searchProps = {
+        items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
+        onOpenItem: jumpToItem, onOpenSpecies: jumpToSpecies, onOpenLot: jumpToLot,
+        onOpenLibrary: jumpToLibrary, onOpenSupplies: jumpToSupplies,
+    };
+
     let screen, key;
     if (accountOpen) {
         key = 'account';
@@ -1511,7 +1522,7 @@ export default function App() {
     } else if (section === 'home') {
         key = 'home';
         screen = <HomeTab items={items} genetics={genetics} species={species} lots={lots} library={library} stock={stock}
-            usageEvents={usageEvents}
+            usageEvents={usageEvents} searchProps={searchProps}
             onGoSection={goSection}
             onOpenItem={jumpToItem} onOpenLot={jumpToLot}
             onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary} />;
@@ -1609,11 +1620,6 @@ export default function App() {
        leaving nav on whatever species (or none) was showing before
        produced a detail page with no matching item in its list, which
        blew up white (2026-09-17, search-dropdown fixes). */
-    const searchProps = {
-        items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
-        onOpenItem: jumpToItem, onOpenSpecies: jumpToSpecies, onOpenLot: jumpToLot,
-        onOpenLibrary: jumpToLibrary, onOpenSupplies: jumpToSupplies,
-    };
 
     return (
         <div className="root">
@@ -3992,7 +3998,7 @@ function HomeIcon({ path, size = 18 }) {
    SECTION_ACCENTS on every card and on Most Visited's tiles, colors the
    Data card by the success rate itself instead of a fixed tone, and
    clamps subtitle text to one line so card heights stop being ragged. */
-function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary }) {
+function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
@@ -4101,6 +4107,10 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     <div className="eyebrow">Everything, at a glance</div>
                     <h1>Home</h1>
                 </div>
+                {/* Desktop-only stand-in for the sidebar's search, same as
+                    .home-logo above - mobile already has one pinned in
+                    .mobile-brand regardless of section. */}
+                <div className="home-search"><SearchBox {...searchProps} /></div>
             </div>
 
             <button className="home-hero" onClick={() => onGoSection('cultures')} style={{ '--accent': SECTION_ACCENTS.cultures }}>
@@ -6435,10 +6445,11 @@ const CSS = `
   }
   .brand{display:none;}
   .side-search{display:none;}
-  /* Mobile already shows the logo in .mobile-brand above the page - this
-     is the desktop-only stand-in for the sidebar's .brand, so it'd be a
-     second logo here otherwise. */
+  /* Mobile already shows the logo + search in .mobile-brand above the
+     page - these are the desktop-only stand-ins for the sidebar's .brand
+     and .side-search, so they'd be duplicates here otherwise. */
   .home-logo{display:none;}
+  .home-search{display:none;}
   .mobile-brand{
     display:flex;flex-direction:column;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
     padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
@@ -6654,6 +6665,8 @@ const CSS = `
    never hardcodes a tone, so one map in App.jsx controls all of it. */
 .home-logo{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:16px;color:var(--ink);margin-bottom:18px;}
 .home-logo .brand-icon{width:20px;height:20px;flex:0 0 auto;}
+.home-search{width:300px;max-width:100%;position:relative;}
+.home-search .in{width:100%;box-sizing:border-box;}
 .home-hero{display:flex;align-items:center;gap:22px;width:100%;background:var(--panel);color:var(--bone);
   border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 28px;
   margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
