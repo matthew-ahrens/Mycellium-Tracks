@@ -88,14 +88,20 @@ const DONE_ITEM_STATUSES = ['retired', 'contaminated', 'failed', 'consumed'];
 
 const TONE = { amber: "#D6934A", jade: "#7FA66A", clay: "#8C3B26", rust: "#A85C35", slate: "#8A7862" };
 
-const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", block: "Substrate block", cake: "Nutrient cake", aio: "AIO bag", other: "Other" };
+/* No 'block' kind here on purpose (2026-09-18, Matt): a substrate block is
+   just bulk substrate shaped differently at use time, not a distinct thing
+   you'd stock - you never buy or make "block" as raw material, you shape it
+   from bulk when you start the item. 'block' stays a valid item TYPE and a
+   key in STOCK_KIND_RECIPE_CATEGORY (grouped with bulk) so old data and
+   stockUsableFor() still work; it's just not offered as a stock Kind. */
+const STOCK_KIND = { agar: "Agar plate", lc: "Liquid culture", grain: "Grain spawn", bulk: "Bulk substrate", cake: "Nutrient cake", aio: "AIO bag", other: "Other" };
 /* Auto-numbered Stock labels use their OWN tag letters per kind - deliberately
    not the same letters as genetics' CODE (SP/AG/LC/GR/BK/FB/NC), so a label
    like TUB-MM03 can never be mistaken for a genetics container like BO1-LC3
    at a glance. Paired with a one-time `label_prefix` set on the recipe
    (library row) or supplier the first time it's used to log stock - see
    addStock's auto-numbering block below. */
-const STOCK_KIND_TAG = { agar: "PLT", lc: "JAR", grain: "GRN", bulk: "TUB", block: "BLK", cake: "CAK", aio: "AIO", other: "MSC" };
+const STOCK_KIND_TAG = { agar: "PLT", lc: "JAR", grain: "GRN", bulk: "TUB", cake: "CAK", aio: "AIO", other: "MSC" };
 const STOCK_STATUS = {
     on_hand: { label: "On hand", tone: "jade" },
     used: { label: "Used", tone: "slate" },
@@ -3512,6 +3518,19 @@ const STOCK_KIND_RECIPE_CATEGORY = {
     other: 'Other',
 };
 
+/* Whether a stock unit can supply a given item type when starting a new
+   culture from it (2026-09-18, found via Matt's real MM01/MM02 case: same
+   Master's Mix batch, half went in a monotub - bulk - the other half got
+   hand-formed into a fruiting block - block - same substrate either way).
+   Reuses the same bulk/block/cake grouping STOCK_KIND_RECIPE_CATEGORY
+   already uses for recipe-matching, rather than a strict kind===type
+   check - a bulk-substrate stock bag's eventual shape depends on what you
+   do with it, not which kind label it was logged under. agar/lc/grain
+   still only match themselves, since those categories are already 1:1
+   with their own kind. */
+const stockUsableFor = (stockKind, itemType) =>
+    STOCK_KIND_RECIPE_CATEGORY[stockKind] === STOCK_KIND_RECIPE_CATEGORY[itemType];
+
 function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
@@ -5573,12 +5592,12 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                                 {Object.keys(TYPES).map((t) => <option key={t} value={t}>{TYPES[t]}</option>)}
                             </select>
                         </div>
-                        {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand').length > 0 && (
+                        {stock.filter((s) => stockUsableFor(s.kind, nf.firstType) && s.status === 'on_hand').length > 0 && (
                             <div className="nf-field wide">
                                 <label>Made from on-hand stock (optional) — pick the exact unit</label>
                                 <select className="in sel" value={nf.stockId} onChange={(e) => setNf({ ...nf, stockId: e.target.value })}>
                                     <option value="">— not from stock —</option>
-                                    {stock.filter((s) => s.kind === nf.firstType && s.status === 'on_hand')
+                                    {stock.filter((s) => stockUsableFor(s.kind, nf.firstType) && s.status === 'on_hand')
                                         .map((s) => <option key={s.id} value={s.id}>
                                             {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
                                         </option>)}
@@ -5931,7 +5950,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                     <div className="picker">
                         <span className="pk-l">Into what?</span>
                         {["agar", "lc", "grain", "bulk", "block", "cake"].map((t) => {
-                            const matches = stock.filter((s) => s.kind === t && s.status === 'on_hand');
+                            const matches = stock.filter((s) => stockUsableFor(s.kind, t) && s.status === 'on_hand');
                             return (
                                 <button key={t} className="chip go" onClick={() => {
                                     if (matches.length) setPickedType(t);
@@ -5944,7 +5963,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                 ) : (
                     <div className="picker">
                         <span className="pk-l">From stock, or fresh? Pick the exact unit.</span>
-                        {stock.filter((s) => s.kind === pickedType && s.status === 'on_hand').map((s) => (
+                        {stock.filter((s) => stockUsableFor(s.kind, pickedType) && s.status === 'on_hand').map((s) => (
                             <button key={s.id} className="chip go" onClick={() => {
                                 addChild(id, pickedType, s.id); setPicking(false); setPickedType(null);
                             }}>{s.label || stockLabel(s, library, suppliers)}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}</button>
