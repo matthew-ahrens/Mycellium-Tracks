@@ -63,6 +63,16 @@ const STATUS = {
     colonizing: { label: "Colonizing", tone: "amber", live: true },
     colonized: { label: "Colonized", tone: "jade", live: true },
     fruiting: { label: "Fruiting", tone: "jade", live: true },
+    /* Added 2026-09-18 per Matt: a lot of his LC syringes (and spore
+       prints/syringes) aren't "colonizing" or actively anything - they're
+       just banked in the fridge for whenever he next needs them, which
+       was getting miscounted as active/live work on Home's "colonizing
+       right now" tally. `live: false` (the default, omitted) keeps it out
+       of that count and out of LIVE_STATUSES. Not terminal either - it's
+       deliberately absent from DONE_ITEM_STATUSES, since a stored culture
+       is still fully viable and hasn't been judged a success or fail yet
+       (see itemOutcome below) - it's just paused, not resolved. */
+    stored: { label: "Stored", tone: "slate" },
     contaminated: { label: "Contaminated", tone: "clay", needsReason: true },
     failed: { label: "Failed", tone: "rust", needsReason: true },
     consumed: { label: "Consumed", tone: "slate" },
@@ -156,6 +166,57 @@ function nextStockLabels(kindTag, code, count, existingStock) {
     return labels;
 }
 const FRUITS = ["bulk", "block"];
+
+/* An item's real OUTCOME for success-rate purposes, as opposed to its
+   current `status` - worked out with Matt 2026-09-18 after noticing
+   `retired` was being counted as an automatic success even when it meant
+   "contaminated, salvaged what I could, then threw the rest out." What
+   counts as success isn't the same for every item type, and it isn't
+   always just whatever the status field currently says:
+   - Fruiting substrate (bulk/block, see FRUITS - cake has no harvest
+     tracking of its own yet, so it's grouped with agar/grain/spores below
+     until that changes) - success means it logged at least one real
+     flush. Sticky once it happens: a tub that flushed twice and then got
+     contaminated on flush 3 already did its job.
+   - Liquid culture - not judged directly. Success if ANY child of it
+     ever succeeds; fail only once every child that has itself resolved
+     has resolved to fail (a still-growing child doesn't count against it
+     yet). Never overrides an individual child's own outcome - purely a
+     one-way rollup, per Matt: "if everything under that LC results in a
+     fail that LC is a fail, not every item underneath it."
+   - Everything else (agar, grain, spores, cake) - success just means it
+     got used to start something, regardless of that child's own eventual
+     fate or what happens to the leftover material afterward.
+   Falls back to current status only once the type-specific "did the
+   actual thing happen" test comes up empty: a DONE_ITEM_STATUSES status
+   (retired/contaminated/failed/consumed) with nothing to show for it is a
+   fail; anything else - including the live/still-viable 'stored' status -
+   stays unresolved, since it could still be used or still flush later.
+   `seen` guards against a cyclical parent chain the same defensive way
+   lotSpeciesNames does, though a real one should never occur. */
+function childrenOf(item, allItems) {
+    return allItems.filter((i) => i.parent === item.id);
+}
+function itemOutcome(item, allItems, seen = new Set()) {
+    if (seen.has(item.id)) return 'unresolved';
+    seen.add(item.id);
+    const terminal = DONE_ITEM_STATUSES.includes(item.status);
+
+    if (FRUITS.includes(item.type)) {
+        if ((item.harvests?.length ?? 0) > 0) return 'success';
+        return terminal ? 'fail' : 'unresolved';
+    }
+    if (item.type === 'lc') {
+        const kids = childrenOf(item, allItems);
+        if (kids.length === 0) return terminal ? 'fail' : 'unresolved';
+        const outcomes = kids.map((k) => itemOutcome(k, allItems, seen));
+        if (outcomes.includes('success')) return 'success';
+        if (outcomes.every((o) => o === 'fail')) return 'fail';
+        return 'unresolved';
+    }
+    if (childrenOf(item, allItems).length > 0) return 'success';
+    return terminal ? 'fail' : 'unresolved';
+}
 
 /* Shared vendor picker - Stock and genetics lines both need "pick an
    existing supplier, or type one that isn't in the list yet and have it
@@ -4058,8 +4119,9 @@ function HomeIcon({ path, size = 18 }) {
    blending record opens and section opens (Matt: "a section that is
    most visited links to speed up navigation"; AskUserQuestion answer:
    "Both", synced across devices). Every card doubles as a link into its
-   own section - Matt's explicit build requirement. Reuses SUCCESS_STATUSES/
-   FAIL_STATUSES from DataTab (hoisted to module scope) so the Data card's
+   own section - Matt's explicit build requirement. Calls the same
+   itemOutcome() helper the real Data tab uses (hoisted to module scope,
+   see its definition near FRUITS/DONE_ITEM_STATUSES) so the Data card's
    rate can never drift from the real Data tab's.
 
    Redesigned 2026-09-18 - Matt's first-launch reaction was "it's kinda
@@ -4106,9 +4168,11 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
     const sortedLibrary = [...library].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
     const latestEntry = sortedLibrary[0];
 
-    // Data: identical resolved-runs-only success rate as the real Data tab.
-    const successCount = visibleItems.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
-    const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
+    // Data: identical resolved-runs-only success rate as the real Data tab -
+    // itemOutcome, not raw status (see its definition) so this stays in
+    // sync with how Data itself now judges a run.
+    const successCount = visibleItems.filter((i) => itemOutcome(i, items) === 'success').length;
+    const failCount = visibleItems.filter((i) => itemOutcome(i, items) === 'fail').length;
     const resolvedCount = successCount + failCount;
     const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
     // Colored by the number itself, not a fixed tone - this is the one
@@ -4652,14 +4716,18 @@ function RateBarChart({ rows }) {
    colonization speed. Stage 3 (2026-09-11): success rate by species/vendor
    as horizontal bar charts, replacing the activity heatmap - see
    sporedesk-beta-launch-plan.md. */
-// "Resolved" = the run is actually over, good or bad - colonizing is
-// still in flight and shouldn't count against (or for) the rate yet.
-// Hoisted to module scope (2026-09-17) so HomeTab's Data card can share
-// the exact same success-rate computation as the real Data tab without
-// drift risk - two independently-maintained copies of this list is how
-// they quietly go out of sync.
-const SUCCESS_STATUSES = ['colonized', 'fruiting', 'consumed', 'retired'];
-const FAIL_STATUSES = ['contaminated', 'failed'];
+// "Resolved" = the run is actually over, good or bad, per itemOutcome
+// (see its definition near FRUITS/DONE_ITEM_STATUSES up top) - colonizing
+// (or stored, or anything else itemOutcome calls 'unresolved') is still
+// in flight and shouldn't count against (or for) the rate yet. Rate math
+// below is hoisted-function-based now (2026-09-18, replacing the old flat
+// SUCCESS_STATUSES/FAIL_STATUSES membership check - see itemOutcome's own
+// comment for why "current status" alone stopped being enough), so
+// HomeTab's Data card and the real Data tab both call the same function
+// rather than keeping two copies of the rule in sync by hand.
+// Just the two fail *kinds* that get their own all-time total-count card
+// below - not a rate-determining list anymore.
+const FAIL_KINDS = ['contaminated', 'failed'];
 
 function DataTab({ items, genetics, species, suppliers }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
@@ -4680,21 +4748,26 @@ function DataTab({ items, genetics, species, suppliers }) {
        same leak the AI-connector hidden-items rule exists to avoid. */
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
 
-    const successCount = visibleItems.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
-    const failCount = visibleItems.filter((i) => FAIL_STATUSES.includes(i.status)).length;
+    /* Every rate/breakdown below runs items through itemOutcome once and
+       reuses the result, rather than re-deriving it inline everywhere (and
+       risking the type-specific rule drifting out of sync between spots). */
+    const outcome = (i) => itemOutcome(i, items);
+    const successCount = visibleItems.filter((i) => outcome(i) === 'success').length;
+    const failCount = visibleItems.filter((i) => outcome(i) === 'fail').length;
     const resolvedCount = successCount + failCount;
     const successRate = resolvedCount ? Math.round((successCount / resolvedCount) * 100) : null;
 
     const LIVE_STATUSES = ['colonizing', 'colonized', 'fruiting'];
     const liveItems = visibleItems.filter((i) => STATUS[i.status]?.live);
+    const storedItems = visibleItems.filter((i) => i.status === 'stored');
 
     // Made in-house vs. bought pre-colonized - `items.source` is just this
     // binary. The by-vendor cut below is the richer version now that
     // supplier_id is actually getting logged.
     const SOURCE_LABEL = { made: 'Made in-house', bought: 'Bought' };
     const bySource = Object.keys(SOURCE_LABEL).map((src) => {
-        const rows = visibleItems.filter((i) => i.source === src && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
-        const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+        const rows = visibleItems.filter((i) => i.source === src && outcome(i) !== 'unresolved');
+        const s = rows.filter((i) => outcome(i) === 'success').length;
         return { key: src, label: SOURCE_LABEL[src], rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
     }).filter((row) => row.resolved > 0).sort((a, b) => b.rate - a.rate);
 
@@ -4703,8 +4776,8 @@ function DataTab({ items, genetics, species, suppliers }) {
        thin but real). Matt asked to revisit this as more purchases get
        tagged with a vendor. */
     const bySupplier = suppliers.map((sup) => {
-        const rows = visibleItems.filter((i) => i.supplierId === sup.id && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
-        const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+        const rows = visibleItems.filter((i) => i.supplierId === sup.id && outcome(i) !== 'unresolved');
+        const s = rows.filter((i) => outcome(i) === 'success').length;
         return { key: sup.id, label: sup.name, rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
     }).filter((row) => row.resolved > 0).sort((a, b) => b.rate - a.rate);
 
@@ -4716,16 +4789,28 @@ function DataTab({ items, genetics, species, suppliers }) {
        paraphrase that doesn't share the exact phrase lands in "Other"
        rather than getting force-fit into the wrong bucket. Every pill
        carries the real logged text in its title tooltip so nothing here
-       hides behind a category label. */
+       hides behind a category label.
+       Reads the History log instead of the live failureReason column
+       (2026-09-18) - that column gets wiped the moment status changes
+       again, so an item that was Contaminated and later got Retired
+       would otherwise silently drop out of this breakdown even though it
+       still very much belongs here. Scanning every status-kind log entry
+       for the "Contaminated —"/"Failed —" prefix picks up every reason
+       ever logged for an item, not just whatever's true of it right now -
+       genuinely "what's actually going wrong," full history included. */
     const reasonTally = (statusKey) => {
         const keywords = REASONS[statusKey];
         const buckets = {};
         keywords.forEach((k) => { buckets[k] = []; });
         buckets.Other = [];
-        visibleItems.filter((i) => i.status === statusKey && i.failureReason).forEach((i) => {
-            const text = i.failureReason.toLowerCase();
-            const hit = keywords.find((k) => text.includes(k.toLowerCase()));
-            (buckets[hit] ?? buckets.Other).push(i.failureReason);
+        const prefix = `${STATUS[statusKey].label} — `;
+        visibleItems.forEach((i) => {
+            (i.log ?? []).filter((e) => e.kind === 'status' && e.body?.startsWith(prefix)).forEach((e) => {
+                const reasonText = e.body.slice(prefix.length);
+                const text = reasonText.toLowerCase();
+                const hit = keywords.find((k) => text.includes(k.toLowerCase()));
+                (buckets[hit] ?? buckets.Other).push(reasonText);
+            });
         });
         return Object.entries(buckets).filter(([, ex]) => ex.length > 0).sort((a, b) => b[1].length - a[1].length);
     };
@@ -4764,8 +4849,8 @@ function DataTab({ items, genetics, species, suppliers }) {
     const bySpecies = species
         .filter((s) => !s.hidden)
         .map((sp) => {
-            const rows = visibleItems.filter((i) => speciesFor(i)?.id === sp.id && (SUCCESS_STATUSES.includes(i.status) || FAIL_STATUSES.includes(i.status)));
-            const s = rows.filter((i) => SUCCESS_STATUSES.includes(i.status)).length;
+            const rows = visibleItems.filter((i) => speciesFor(i)?.id === sp.id && outcome(i) !== 'unresolved');
+            const s = rows.filter((i) => outcome(i) === 'success').length;
             return { key: sp.id, label: sp.common_name, rate: rows.length ? Math.round((s / rows.length) * 100) : null, resolved: rows.length, success: s };
         })
         .filter((row) => row.resolved > 0)
@@ -4779,6 +4864,24 @@ function DataTab({ items, genetics, species, suppliers }) {
                 counts[st] = liveItems.filter((i) => i.status === st && speciesFor(i)?.id === s.id).length;
             });
             const total = LIVE_STATUSES.reduce((n, st) => n + counts[st], 0);
+            return { sp: s, counts, total };
+        })
+        .filter((row) => row.total > 0)
+        .sort((a, b) => b.total - a.total);
+
+    /* In storage, by species - Matt: "storage is like Stock but for living
+       tissue" (2026-09-18). Broken down by item TYPE rather than by status
+       like liveBySpecies above, since every row here already shares the
+       one status (stored) - type is the dimension that's actually
+       informative here (3 LC vs. 2 spore prints reads very differently). */
+    const storageBySpecies = species
+        .filter((s) => !s.hidden)
+        .map((s) => {
+            const counts = {};
+            storedItems.filter((i) => speciesFor(i)?.id === s.id).forEach((i) => {
+                counts[i.type] = (counts[i.type] ?? 0) + 1;
+            });
+            const total = Object.values(counts).reduce((n, c) => n + c, 0);
             return { sp: s, counts, total };
         })
         .filter((row) => row.total > 0)
@@ -4800,7 +4903,7 @@ function DataTab({ items, genetics, species, suppliers }) {
                 <div className="calc-card">
                     <div className="calc-head">
                         <div className="calc-title">Success rate</div>
-                        <div className="calc-sub">Colonized, fruited, consumed, or retired clean vs. contaminated or failed - still-colonizing runs aren't counted either way yet.</div>
+                        <div className="calc-sub">What "success" means depends on the item - a flush for fruiting substrate, getting used for agar/grain/spores, at least one successful child for LC. Still-colonizing or stored items aren't counted either way yet.</div>
                     </div>
                     {successRate === null ? (
                         <p className="calc-note">Nothing's resolved yet - once a culture finishes, good or bad, it shows up here.</p>
@@ -4827,15 +4930,15 @@ function DataTab({ items, genetics, species, suppliers }) {
                     </div>
                 ))}
 
-                {FAIL_STATUSES.map((st) => (
+                {FAIL_KINDS.map((st) => (
                     <div key={st} className="calc-card">
                         <div className="calc-head">
                             <div className="calc-title">{STATUS[st].label}</div>
-                            <div className="calc-sub">All-time count, not just this run of resolved items.</div>
+                            <div className="calc-sub">All-time count, including ones since retired or consumed - not just current status.</div>
                         </div>
                         <div className="tally">
                             <span className="num" style={{ color: TONE[STATUS[st].tone] }}>
-                                {visibleItems.filter((i) => i.status === st).length}
+                                {visibleItems.filter((i) => (i.log ?? []).some((e) => e.kind === 'status' && e.body?.startsWith(STATUS[st].label))).length}
                             </span>
                             <span className="tally-l">total<br />{STATUS[st].label.toLowerCase()}</span>
                         </div>
@@ -4970,6 +5073,37 @@ function DataTab({ items, genetics, species, suppliers }) {
                             <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                 {LIVE_STATUSES.filter((st) => counts[st] > 0).map((st) => (
                                     <span key={st} className={`pill tone-${STATUS[st].tone}`}>{counts[st]} {STATUS[st].label}</span>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Storage - your culture bank, per Matt (2026-09-18): "it's
+                like stock but for living tissue." Same shape as the
+                live-right-now section above, but broken down by item type
+                since everything here already shares one status. */}
+            <div className="bar" style={{ marginTop: 30 }}>
+                <div>
+                    <div className="eyebrow">Banked for later - not counted toward success or fail until it's used</div>
+                    <h1 style={{ fontSize: 21 }}>In storage, by species ({storedItems.length})</h1>
+                </div>
+            </div>
+
+            {storageBySpecies.length === 0 ? (
+                <p className="nf-help nf-help-page" style={{ marginTop: 18 }}>Nothing marked Stored yet.</p>
+            ) : (
+                <div className="calc-grid">
+                    {storageBySpecies.map(({ sp, counts }) => (
+                        <div key={sp.id} className="calc-card">
+                            <div className="calc-head">
+                                <div className="calc-title">{sp.common_name}</div>
+                                {sp.latin_name && <div className="calc-sub" style={{ fontStyle: 'italic' }}>{sp.latin_name}</div>}
+                            </div>
+                            <div className="calc-body" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {Object.keys(counts).map((t) => (
+                                    <span key={t} className="pill tone-slate">{counts[t]} {TYPES[t]}</span>
                                 ))}
                             </div>
                         </div>
