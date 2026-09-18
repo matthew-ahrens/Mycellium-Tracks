@@ -165,7 +165,7 @@ function nextStockLabels(kindTag, code, count, existingStock) {
     }
     return labels;
 }
-const FRUITS = ["bulk", "block"];
+const FRUITS = ["bulk", "block", "cake"];
 
 /* An item's real OUTCOME for success-rate purposes, as opposed to its
    current `status` - worked out with Matt 2026-09-18 after noticing
@@ -173,19 +173,20 @@ const FRUITS = ["bulk", "block"];
    "contaminated, salvaged what I could, then threw the rest out." What
    counts as success isn't the same for every item type, and it isn't
    always just whatever the status field currently says:
-   - Fruiting substrate (bulk/block, see FRUITS - cake has no harvest
-     tracking of its own yet, so it's grouped with agar/grain/spores below
-     until that changes) - success means it logged at least one real
-     flush. Sticky once it happens: a tub that flushed twice and then got
-     contaminated on flush 3 already did its job.
+   - Fruiting substrate (bulk/block/cake, see FRUITS - cake counts here
+     too, per Matt 2026-09-18: "the cake is just the 'substrate' of the
+     cordyceps world," same as a monotub or fruiting block is for gilled
+     species) - success means it logged at least one real flush. Sticky
+     once it happens: a tub that flushed twice and then got contaminated
+     on flush 3 already did its job.
    - Liquid culture - not judged directly. Success if ANY child of it
      ever succeeds; fail only once every child that has itself resolved
      has resolved to fail (a still-growing child doesn't count against it
      yet). Never overrides an individual child's own outcome - purely a
      one-way rollup, per Matt: "if everything under that LC results in a
      fail that LC is a fail, not every item underneath it."
-   - Everything else (agar, grain, spores, cake) - success just means it
-     got used to start something, regardless of that child's own eventual
+   - Everything else (agar, grain, spores) - success just means it got
+     used to start something, regardless of that child's own eventual
      fate or what happens to the leftover material afterward.
    Falls back to current status only once the type-specific "did the
    actual thing happen" test comes up empty: a DONE_ITEM_STATUSES status
