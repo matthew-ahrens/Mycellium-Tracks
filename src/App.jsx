@@ -4122,7 +4122,8 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 {/* Breaks the headline number down by stage - on a wide
                     desktop card, "44 active" alone left most of the box
                     empty; this is what actually fills that space with real
-                    content instead of padding. */}
+                    content instead of padding. Desktop-only, see CSS. */}
+                <div className="home-hero-divider" />
                 <div className="home-hero-breakdown">
                     <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizingCount}</span><span className="home-hero-bd-label">Colonizing</span></div>
                     <div className="home-hero-bd-item"><span className="home-hero-bd-num">{colonizedCount}</span><span className="home-hero-bd-label">Colonized</span></div>
@@ -6663,22 +6664,28 @@ const CSS = `
 /* --accent is set inline per card/tile (SECTION_ACCENTS, or the computed
    dataAccent for Data) - every rule below just reads var(--accent),
    never hardcodes a tone, so one map in App.jsx controls all of it. */
-.home-logo{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:16px;color:var(--ink);margin-bottom:18px;}
-.home-logo .brand-icon{width:20px;height:20px;flex:0 0 auto;}
+/* Bigger + centered is a look Matt asked to see, not a settled call -
+   easy to dial back to the small left-aligned version if it doesn't
+   land once he's actually looked at it. */
+.home-logo{display:flex;align-items:center;justify-content:center;gap:12px;font-family:var(--serif);font-size:30px;color:var(--ink);margin-bottom:24px;}
+.home-logo .brand-icon{width:36px;height:36px;flex:0 0 auto;}
 .home-search{width:300px;max-width:100%;position:relative;}
 .home-search .in{width:100%;box-sizing:border-box;}
-.home-hero{display:flex;align-items:center;gap:22px;width:100%;background:var(--panel);color:var(--bone);
-  border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 28px;
+.home-hero{display:flex;align-items:center;gap:24px;width:100%;background:var(--panel);color:var(--bone);
+  border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 32px;
   margin-bottom:16px;cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-hero:hover{transform:translateY(-1px);border-left-color:var(--accent);}
 .home-hero-icon{flex:0 0 auto;width:60px;height:60px;border-radius:16px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
-.home-hero-body{min-width:0;}
+.home-hero-body{min-width:0;flex:0 0 auto;}
 .home-hero-stat{font-family:var(--serif);font-size:46px;line-height:1;color:var(--bone);margin-top:6px;}
 .home-hero-stat-unit{font-family:var(--sans);font-size:14px;font-weight:400;color:var(--dim);margin-left:8px;}
-/* Breakdown fills the rest of the hero's width with real per-stage
-   counts instead of leaving it as dead space next to one big number. */
-.home-hero-breakdown{display:flex;gap:32px;margin-left:auto;padding-left:24px;flex:0 0 auto;}
+.home-hero-divider{flex:0 0 auto;width:1px;align-self:stretch;background:var(--line);}
+/* flex:1 + space-evenly spreads the three counts across whatever room is
+   left in the card, instead of the old margin-left:auto approach, which
+   just shoved them into the far right corner and left a dead gap in the
+   middle of the card on a wide screen - that gap was the actual bug. */
+.home-hero-breakdown{display:flex;flex:1;justify-content:space-evenly;}
 .home-hero-bd-item{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;}
 .home-hero-bd-num{font-family:var(--serif);font-size:26px;line-height:1;color:var(--bone);}
 .home-hero-bd-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
@@ -6712,12 +6719,17 @@ const CSS = `
   /* Keep the hero horizontal (icon beside text, not stacked) with tighter
      padding and a smaller icon - stacked+spacious read as a mostly-empty
      bar on a narrow screen even though it's the same content. The
-     breakdown row wraps onto its own full-width line under that, spread
-     evenly, instead of trying to squeeze in beside the headline number. */
-  .home-hero{padding:16px 18px;gap:14px;flex-wrap:wrap;}
+     colonizing/colonized/fruiting breakdown is a desktop-only add-on to
+     fill a wide card's width - on a phone the card's already compact
+     enough that it'd just be four numbers (the total plus the same three
+     again) competing for the same small space, so it's dropped rather
+     than squeezed in. Untested on a real phone yet - flag anything that
+     still looks off. */
+  .home-hero{padding:16px 18px;gap:14px;}
   .home-hero-icon{width:44px;height:44px;border-radius:12px;}
   .home-hero-stat{font-size:32px;}
-  .home-hero-breakdown{width:100%;margin:12px 0 0;padding-left:0;justify-content:space-around;gap:0;}
+  .home-hero-divider{display:none;}
+  .home-hero-breakdown{display:none;}
   .home-mv-item{padding:9px 14px 9px 10px;}
   .home-mv-label{max-width:160px;}
 }
