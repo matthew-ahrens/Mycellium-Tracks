@@ -5729,15 +5729,28 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
     useEffect(() => { const t = setTimeout(fit, 60); return () => clearTimeout(t); }, [fit]);
 
-    const onWheel = (e) => {
-        e.preventDefault();
-        const r = box.current.getBoundingClientRect();
-        const mx = e.clientX - r.left, my = e.clientY - r.top;
-        setView((v) => {
-            const k = Math.min(2.6, Math.max(0.25, v.k * (e.deltaY < 0 ? 1.12 : 0.893)));
-            return { k, x: mx - (mx - v.x) * (k / v.k), y: my - (my - v.y) * (k / v.k) };
-        });
-    };
+    /* Native (non-React) wheel listener, deliberately not the JSX onWheel prop.
+       React attaches onWheel at the root as a passive listener, so
+       e.preventDefault() inside a synthetic handler is silently ignored by
+       the browser and the page scrolls right along with the zoom - this is
+       what caused the tree's zoom-also-scrolls-the-page bug. Attaching
+       directly to the canvas element with { passive: false } is the only
+       way to actually block the page scroll while zooming. */
+    useEffect(() => {
+        const el = box.current;
+        if (!el) return;
+        const handleWheel = (e) => {
+            e.preventDefault();
+            const r = el.getBoundingClientRect();
+            const mx = e.clientX - r.left, my = e.clientY - r.top;
+            setView((v) => {
+                const k = Math.min(2.6, Math.max(0.25, v.k * (e.deltaY < 0 ? 1.12 : 0.893)));
+                return { k, x: mx - (mx - v.x) * (k / v.k), y: my - (my - v.y) * (k / v.k) };
+            });
+        };
+        el.addEventListener('wheel', handleWheel, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheel);
+    }, []);
     const onDown = (e) => {
         moved.current = false;
         ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -6006,7 +6019,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                 </div>
             )}
 
-            <div className="canvas" ref={box} onWheel={onWheel} onPointerDown={onDown}>
+            <div className="canvas" ref={box} onPointerDown={onDown}>
                 <svg width="100%" height="100%">
                     <g className="stage" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
                         {items.filter((i) => !i.parent).map((r) => {
