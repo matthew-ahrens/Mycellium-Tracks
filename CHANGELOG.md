@@ -520,3 +520,239 @@ after Matt pointed out that things you make on purpose don't need
 flagging. Briefly added to `items`, then dropped - species-screen
 creations are intentional; only side-created records (harvests, quick-added
 suppliers) get it.
+
+
+## 2026-09-10 to 2026-09-22 - backfilled from the Project backlog
+
+Everything below was originally logged as "Done" entries in the claude.ai
+Project's `sporedesk-backlog.md` and never made it into this file. Moved
+here 2026-09-22 when the Project docs were consolidated, so the history
+lives in one place. Entries a few days apart that were logged with dates
+after 2026-09-22 were typos and are filed under 2026-09-22.
+
+## 2026-09-11 - Log & outdoor bed reference docs (data only)
+
+Added `Log Cultivation Reference` and `Outdoor Bed Cultivation Reference`
+straight to `library` (kind=note, general=true) - species suitability,
+prep, inoculation, regional timing, lifespan, troubleshooting, sourced
+from Cornell Small Farms/Ohio State Extension/North Spore/Field & Forest.
+How logs/beds get *tracked* is still undesigned (see roadmap).
+
+## 2026-09-13 - Stock and item form cleanup
+
+- **Stock weight field** (`7ba139f`): `stock.amount`/`amount_unit` existed
+  with no UI. Added an optional Weight pair (same `amt-pair` pattern as
+  Items). Add applies one weight across the whole batch; Edit fixes one unit.
+- **Weight shown in the species-screen stock pickers** (`34247c6`): "Made
+  from on-hand stock" and "Inoculate from this" now show e.g.
+  "LC10 · 1360 g". A species-wide weight rollup was considered and dropped.
+- **Merged item header facts into Details, dropped "Where"** (`d9e28dc`):
+  one edit point (the header pencil, now also covering Substrate/Dry
+  substrate), all facts listed together under Details. `items.location`
+  column left in place - hiding UI is reversible, dropping a column isn't.
+- **Removed Species from Stock** (`a1d7c8b`): stock is uninoculated by
+  definition and the pickers never filtered on it. Bought pre-inoculated
+  spawn gets a new genetics line instead. `stock.species_id` column kept.
+- **Stock edit expands in place** (`d91c62d`): the shared edit form now
+  renders inline under the row being edited instead of at the top of the
+  tab. Scroll-into-view kept only for search/QR deep links.
+- **Kind filter on Stock; Reference chips -> dropdowns** (`3585d00`).
+  Category and Species went from multi-select chips to single-select
+  dropdowns - a small deliberate capability trade for less clutter. The
+  entry form's own tag pickers stayed as chips (they need multi-select).
+- **Stock edit form sizing - six passes** (`8497498`, `b3b4972`, `833a515`,
+  `6ff4057`, `d8fa3a1`, `d91c62d`). Real root causes: CSS Grid's default
+  `align-items:stretch` made every field match the tallest (fixed with
+  `align-items:start` on `.nf-grid`), and **`.amt-pair`'s `flex:1 1 150px`
+  was written for a row-direction parent (`.head-edit`) - inside a
+  column-direction `.nf-field` the same flex-basis means 150px *height*.**
+  Flex-basis is axis-relative. Scoped the rule to `.head-edit .amt-pair`.
+  These classes are shared by every add/edit form in the app.
+- **Species quick-add templates** (`ddc49e7`): 12 species (Blue/Pink/Yellow/
+  King Oyster, Lion's Mane, Chestnut, Shiitake, Reishi, Turkey Tail,
+  Maitake, Cordyceps militaris, Enoki), one per species not per strain,
+  every number from 2+ published grow guides. `dry_yield_pct` left blank
+  on purpose: published "yield" numbers are BE (fresh yield / dry
+  substrate), but this field is dried weight as % of fresh harvest - a
+  different metric. Reishi and Cordyceps have no honest single
+  pin-to-harvest number, so that field is blank and explained in notes.
+
+## 2026-09-16 - Stock auto-labels, Data tab leak, Account & Settings v1, Units
+
+- **Stock auto-numbered labels** (`750c30b`): new `STOCK_KIND_TAG`
+  (PLT/JAR/GRN/TUB/BLK/CAK/AIO/MSC) deliberately different from genetics'
+  codes (SP/AG/LC/GR/BK/FB/NC), so `TUB-MM03` can't be mistaken for
+  `BO1-LC3`. New `label_prefix` on `library` and `suppliers`, asked for once
+  the first time a recipe/supplier is used. `nextStockLabels()` scans for
+  the highest existing number and counts up - no stored counter, same
+  self-healing approach as `addChild`. A typed Labels value always wins.
+  Bought stock with only a product name (no supplier) stays manual.
+- **Data tab hidden-genetics leak** (`9c82adb`): `visibleItems` only checked
+  the species' `hidden` flag, so a hidden genetics line still counted in
+  every rollup. Added `geneticsFor()` and exclude on either.
+- **Account + Settings pages** (overlays, like Detail/PrintLabels). Desktop
+  icons pinned at the bottom of the sidebar; mobile puts them in the top
+  header to keep the tab bar clear. New `profiles` table (display name,
+  avatar preset/url, visibility, default_section, units_pref, date_format),
+  RLS own-row only, auto-created by a trigger on signup. The security
+  advisor flagged the trigger function as a callable public RPC - revoked
+  execute from anon/authenticated. Real: display name, avatar (6 procedural
+  presets + upload to `photos/avatars/`), password change, default landing
+  tab. Placeholders: Visibility, Shared references, AI connector,
+  Notifications, ToS/Privacy links. Delete account and Erase all content
+  have real type-to-confirm UI but inert actions (see roadmap). Version
+  bumped `0.0.0` -> `0.1.0`.
+- **Units Metric/Imperial/Adaptive** (`ad959d9`): reuses Calculators'
+  `MASS`/`VOLUME` tables (+`qt`). `normalizeUnit`/`displayAmount`/
+  `fmtAmount` with a tolerant alias map for real historical drift (`LBS`,
+  `cc`, `mL`, the literal `;bs` typo) - unrecognized units display
+  unconverted rather than guessed. New `UnitSelect` dropdown replaces free
+  text in Stock, Item header, and Draw Syringes (default `cc` -> `mL`).
+  Adaptive = "show exactly as recorded"; the originally brainstormed
+  per-field last-used-unit memory was skipped as unneeded complexity.
+- **Units follow-up** (`dd969ee`): species cheat-sheet temps get a `(°C)`
+  appended under Metric via regex (`displayTempText()`), stored text
+  untouched - tested against every real row first. Known quirk: Wood Ear's
+  colonize_temp already had a manual "(30C)" so it shows twice. Also fixed
+  the Recipe batch-size input ignoring the Units setting (new
+  `convertUnits()`, converts back to native unit before scaling). Grams-only
+  columns (`dry_substrate_g`, lot amounts) intentionally left alone.
+- **Cheat-sheet cards editable from Library** (`6b620ad`): same field set
+  and same `saveSpeciesFields` as Tree's Edit species - no duplicate logic.
+
+## 2026-09-17 - Nav 8 -> 5, tab renames, search dropdown, multi-tenancy
+
+- **Nav rebalance** (`30e6a11`): one shared `NAV` array drives both the
+  desktop sidebar and mobile bar, so simplifying one simplified both.
+  Gallery removed entirely (checked first: all 49 photos were tagged to an
+  item or equipment, nothing orphaned). Calculators folded into Reference
+  as a Library/Calculators toggle (`embedded` prop). Search moved out of
+  the nav into a persistent live-dropdown `SearchBox` (sidebar on desktop,
+  second header row on mobile), same match logic and destinations.
+- **Renames** (`287ff28`): Cultures -> Cultivation, Inventory -> Harvests
+  (first considered and rejected 2026-08-31), Reference -> Library (the
+  page h1 already said Library). Only Harvests got a new icon (basket).
+  Internal section keys unchanged, so `profiles.default_section` and every
+  `setSection()` still work.
+- **Search dropdown fixes** (`e7bc542`, `892dee6`, `35bc9cb`, `4947ead`):
+  fixed 380px flyout instead of inheriting the 186px sidebar width; set
+  `color:var(--bone)` on the dropdown (`.lib-title` inherits color and was
+  picking up the light-page default on a dark panel); all five search
+  handlers now close Account/Settings first (those overlays render ahead of
+  `section`); `onOpenItem` now points `nav` at the item's species first -
+  a stale `nav.speciesId` left Detail with an item list missing the target
+  and crashed the render (same bug fixed on Supplies' item-open handler).
+  Groups capped at 5 with "Show N more" (reset via render-time state
+  adjustment, since setState in an effect trips
+  `react-hooks/set-state-in-effect`). Themed scrollbar. Mobile touch-scroll
+  hardening: `touch-action:pan-y`, `overscroll-behavior:contain`, `70dvh`,
+  `-webkit-overflow-scrolling:touch` - not verified on a real device then.
+- **Multi-tenancy + beta-code sign-up** (`ad98d1d`, live same day): no table
+  had an owner column and RLS only checked "is someone logged in." Added
+  `user_id` + owner-scoped RLS (`user_id = auth.uid()`, qual and
+  with_check) to species, genetics, items, item_events, lots, lot_links,
+  library, library_species, equipment, suppliers, photos, stock, plus the
+  `photos` Storage bucket. Backfilled to Matt's account. Database branching
+  needs a paid plan, so it went straight to production via nullable column
+  -> backfill -> verify -> NOT NULL -> policy swap -> re-verify. Sign-up:
+  one shared code in `app_config`, `check_beta_code()` RPC for the friendly
+  error, `enforce_beta_code()` BEFORE INSERT trigger on `auth.users` as
+  the backstop (fires before the profiles trigger, so no orphan rows). If
+  the trigger is what rejects, Supabase shows a generic error instead of
+  "Invalid beta code." **Gotcha found 2026-09-22:** the trigger only raises
+  when the stored code is NOT NULL - blanking/deleting the code opens
+  sign-ups. Close enrollment by rotating to a random string.
+
+## 2026-09-18 - Sign-up hardening, isolation test, Data tab outcome rules
+
+- **Password rules** (`2c2fc03`): confirm-password field; 8 chars + number
+  + special char enforced client-side before `signUp()` (sign-in minLength
+  left at 6 so Matt's older password still works); in-house
+  weak/fair/good/strong meter, no zxcvbn dependency.
+- **"Email not confirmed" after sign-up** (`5da68cf`): the project had
+  Confirm-email ON at Supabase's default all along - the code comment
+  claiming no verification was wrong. Sign-up now shows a "check your
+  email" screen when `signUp()` returns no session, and passes
+  `emailRedirectTo: window.location.origin` so the link target is
+  deterministic; supabase-js picks up the session from the URL. Only works
+  if the app URL is in Auth > URL Configuration > Redirect URLs - add
+  sporedesk.com / app.sporedesk.com there when the domain moves.
+- **Forgot password** (`38a25a1`): `resetPasswordForEmail()`, doesn't
+  reveal whether the email exists. The `PASSWORD_RECOVERY` event forces a
+  set-new-password screen - otherwise the recovery session drops the user
+  straight into the app without ever setting one.
+- **Sign out** (`3cd9a18`): there was none - testing had all been in
+  incognito. Card on the Account page; AuthGate's listener does the rest.
+- **Real second-account isolation test**: live account created through the
+  real sign-up flow, a throwaway row in every owned table, confirmed
+  invisible from Matt's account and scoped to the test `user_id` in the DB.
+  Every data table uses `ON DELETE RESTRICT` from `auth.users`, so deleting
+  a user with real data fails loudly rather than cascading.
+- **Leaked-password protection left off** - Pro plan only.
+- **Print Labels select all / deselect all** (`b4c9ca9`) with a live
+  "N of M selected" count.
+- **Data tab outcome rules + Stored status** (`41ae84c`, `5f61f51`): retired
+  silently overrode contamination. New `itemOutcome()` is the single source
+  of truth: fruiting substrate (monotub/block/cake) succeeds only if it
+  logged a flush, fails when terminal with zero flushes; LC is judged by its
+  children (any success = success, all failed = fail); grain/agar/spores
+  succeed if they inoculated something. New `Stored` status for fridge
+  LC/spores - not "colonizing," not forced to resolve. New "In storage, by
+  species" section. The failure-reason breakdown now scans log history
+  instead of the live `failureReason` column, which blanked on any later
+  status change. Cake added to `FRUITS` (Matt: "the cake is just the
+  substrate of the cordyceps world"), which also gave cake real flush UI.
+- **Hosting cost first pass**: 13 MB DB, 128 MB photos, 105 items on one
+  user; photo storage is the first free-tier limit likely to bite.
+
+## 2026-09-20 - Recipe library overhaul (data only)
+
+- Grain bags resized to Matt's real 1.5lb practice: Rye 410g, Millet 340g,
+  Milo/Sorghum 400g dry -> ~680g finished. Rye/Millet blend reframed as two
+  1.5lb bags. New Rye/Millet/Sorghum blend (300g each), flagged untested.
+  Whole Oats / Whole White Millet (jar/NSNS) untouched.
+- Every recipe reformatted to "What it is / Best for / Watch-outs".
+- Accuracy fixes: "LME" -> DME everywhere (measured in grams, it's the
+  powder); Vermiculite and Coir Casing Layer's body and steps described two
+  different methods at two scales - rewritten as one equal-parts recipe;
+  two title/ingredient typos. Library at 40 rows.
+
+## 2026-09-22 - Print queue, lot labels, stock grouping, date format, wheel zoom
+
+- **Batch print queue** (`74c258d`, `5ada522`, `2efbb15`): "+ Queue" next to
+  Print on Detail, Tree, and Stock batches adds to an in-memory
+  `printQueue` (items + stock, deduped). Printer badge with a live count
+  next to Search, hidden when empty, opens a queue print screen. Printing
+  clears only what was checked and printed, so unchecked rows survive a
+  partial run. Desktop-only, same as all printing. Follow-ups: the extra
+  button made `.stock-batch-head`'s `space-between` spread three children
+  and push Print to the middle - Print+Queue now always sit in one
+  `.pl-icon-row` wrapper. Both became 28px icon-only buttons; the Queue
+  icon is the Print icon with a "+" badge, both in `--bone` on `--panel2`
+  (a transparent background with a `--dim` icon was nearly invisible on
+  tan).
+- **Harvest/lot labels** (`c4d8f88`): Print/Queue on `LotCard` and
+  `LotDetail`, new `?lot=<uuid>` deep link, third `lot` kind in the queue.
+  `LotCard` changed from `<button>` to `<div role="button" tabIndex={0}>`
+  to avoid button-in-button; the icons call `stopPropagation()`. Lot labels
+  lead with remaining weight (`lotRemaining()`/`fmtG`) so it survives
+  ellipsis truncation (`6f12efd`).
+- **Print screen help text unreadable** (`0598e37`): `--dim` on the tan page.
+  All four `.nf-help` spans in `.pl-controls` got the existing
+  `nf-help-page` modifier. Same palette rule as the contrast-bug entry
+  above: dark-panel colors vanish on tan and vice versa.
+- **Stock grouped by product, not by date** (`fdc10d4`): `stockBatchKey`
+  baked the made-on date into identity, so Master Mix sessions on different
+  days split apart. New `stockProductKey` (same fields minus date) groups
+  them under one product header inside each kind; each dated session still
+  renders underneath with its own Print/Queue.
+- **Tree wheel-zoom also scrolled the page** (`9caa6fb`): React's `onWheel`
+  is attached as a *passive* listener, so `preventDefault()` inside it is
+  silently ignored. Now a native `addEventListener('wheel', ...,
+  { passive: false })` in a `useEffect`, with cleanup.
+- **Date format setting actually applied** (`befd1de`): every date goes
+  through `fmt()` (10 call sites, the only `toLocaleDateString`). A
+  module-level variable was rejected - ESLint's `react-hooks/globals`
+  flags mutating it during render, and syncing via an effect leaves a stale
+  render. `dateFormat` is computed once in `App()` and threaded as a prop,
+  same pattern as `unitsPref`. Dates now render numeric with year.
