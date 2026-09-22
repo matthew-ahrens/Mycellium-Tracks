@@ -7000,7 +7000,16 @@ const CSS = `
 .pl-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border-radius:8px;cursor:pointer;flex:0 0 auto;transition:border-color .15s,color .15s;}
 .pl-icon-btn.pl-trigger{background:var(--panel2);border:1px solid var(--line);color:var(--bone);}
 .pl-icon-btn.pl-trigger:hover{border-color:var(--amber);color:var(--amber);}
-.pl-icon-btn.pl-queue{background:none;border:1px solid var(--line);color:var(--dim);}
+/* Was background:none (a true see-through outline button) - on Detail/
+   Tree/Stock that sits directly on the page's tan background, and
+   --dim (#A6927A) is nearly the same tone as --ground (#B3966B), so the
+   icon all but vanished there (Matt 2026-09-22: "blank outline box...
+   filling the same color as the background"). Matches every other
+   "ghost" button in the app instead (.mini.ghost is the same idea) -
+   still a dark panel2 chip, just dimmer text/icon than the primary
+   Print button, which keeps real contrast regardless of what page
+   background it's sitting on. */
+.pl-icon-btn.pl-queue{background:var(--panel2);border:1px solid var(--line);color:var(--dim);}
 .pl-icon-btn.pl-queue:hover{border-color:var(--amber);color:var(--amber);}
 .stock-batch-head .equip-name{font-family:var(--serif);font-size:15px;color:var(--ink);white-space:normal;}
 .stock-batch-head .equip-note{display:block;color:var(--ink-dim);white-space:normal;}
