@@ -330,12 +330,13 @@ export default function App() {
     const [dir, setDir] = useState('fwd');
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock' | 'queue', ids: [...] }, or null
+    const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock' | 'lot' | 'queue', ids: [...] }, or null
     /* Cross-screen print queue (2026-09-22, Matt: printing labels one at a
        time and reloading the printer for each was the actual pain point,
        not the per-screen picker itself - see PrintLabels). Array of
-       { kind: 'item' | 'stock', id } added to from Detail/Tree/Stock's new
-       "+ Queue" buttons alongside their existing immediate-print buttons.
+       { kind: 'item' | 'stock' | 'lot', id } added to from Detail/Tree/
+       Stock/Harvests's new "+ Queue" buttons alongside their existing
+       immediate-print buttons.
        In-memory only, not persisted - clears on refresh same as `printing`
        itself; if that turns out to matter revisit alongside the separate
        "refresh should stay on the current page" backlog item. */
@@ -525,7 +526,21 @@ export default function App() {
                 }
             }
 
-            /* Strip ?item=/?stock= once they've been used, or refreshing
+            /* Deep link: ?lot=<uuid> - a QR printed for a harvested lot
+               (dried batch, extract jar, whatever it got processed into).
+               Lots don't sit in the lineage tree the way items do, so this
+               just lands straight on that lot's own detail page in
+               Harvests - no tree-jump logic to mirror from ?item=. */
+            const wantedLot = new URLSearchParams(window.location.search).get('lot');
+            if (wantedLot) {
+                const target = (allLots ?? []).find((l) => l.id === wantedLot);
+                if (target) {
+                    setSection('inventory');
+                    setOpenLot(target.id);
+                }
+            }
+
+            /* Strip ?item=/?stock=/?lot= once they've been used, or refreshing
                the page (or just leaving the tab open - Matt's actual
                report, 2026-09-17: "lately it's taking me to a turkey
                tail item randomly") replays the same deep link forever,
@@ -536,10 +551,11 @@ export default function App() {
                junk back-button entry - the params never should have been
                "navigable" history to begin with, just a one-shot landing
                instruction. */
-            if (wantedItem || wantedStock) {
+            if (wantedItem || wantedStock || wantedLot) {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('item');
                 url.searchParams.delete('stock');
+                url.searchParams.delete('lot');
                 window.history.replaceState({}, '', url.pathname + url.search + url.hash);
             }
 
@@ -1615,6 +1631,15 @@ export default function App() {
             const sp = g && species.find((s) => s.id === g.species_id);
             return { id: i.id, kind: 'item', linkParam: 'item', printed: i.id, sub: sp?.common_name ?? '', started: i.created };
         };
+        const lotCandidate = (l) => {
+            const spNames = lotSpeciesNames(l.id, lots, lotLinks, items, genetics, species);
+            return {
+                id: l.id, kind: 'lot', linkParam: 'lot',
+                printed: l.label || 'Untitled lot',
+                sub: [LOT_FORMS[l.form] ?? l.form, spNames.length ? spNames.join(' + ') : null].filter(Boolean).join(' · '),
+                started: l.harvested_on,
+            };
+        };
         if (printing.kind === 'stock') {
             const candidates = printing.ids
                 .map((id) => stock.find((s) => s.id === id)).filter(Boolean)
@@ -1631,17 +1656,28 @@ export default function App() {
             screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens straight to that item."
                 onClose={() => setPrinting(null)} />;
+        } else if (printing.kind === 'lot') {
+            const candidates = printing.ids
+                .map((id) => lots.find((l) => l.id === id)).filter(Boolean)
+                .map(lotCandidate)
+                .sort((a, b) => a.printed.localeCompare(b.printed));
+            screen = <PrintLabels candidates={candidates}
+                subtitle="each QR opens straight to that lot."
+                onClose={() => setPrinting(null)} />;
         } else {
-            // 'queue' - added to from across the app (Detail/Tree/Stock's
-            // "+ Queue" buttons); order follows queue insertion order
-            // rather than being re-sorted, since that's the order Matt
-            // actually worked through the grows in.
+            // 'queue' - added to from across the app (Detail/Tree/Stock/
+            // Harvests's "+ Queue" buttons); order follows queue insertion
+            // order rather than being re-sorted, since that's the order
+            // Matt actually worked through the grows in.
             const byKey = new Map();
             printQueue.forEach((e) => {
                 if (byKey.has(`${e.kind}:${e.id}`)) return;
                 if (e.kind === 'stock') {
                     const s = stock.find((x) => x.id === e.id);
                     if (s) byKey.set(`${e.kind}:${e.id}`, stockCandidate(s));
+                } else if (e.kind === 'lot') {
+                    const l = lots.find((x) => x.id === e.id);
+                    if (l) byKey.set(`${e.kind}:${e.id}`, lotCandidate(l));
                 } else {
                     const i = items.find((x) => x.id === e.id);
                     if (i) byKey.set(`${e.kind}:${e.id}`, itemCandidate(i));
@@ -1649,7 +1685,7 @@ export default function App() {
             });
             const candidates = printQueue.map((e) => byKey.get(`${e.kind}:${e.id}`)).filter(Boolean);
             screen = <PrintLabels candidates={candidates}
-                subtitle="your print queue, added from across the app - each QR still opens the right thing, item or stock unit."
+                subtitle="your print queue, added from across the app - each QR still opens the right thing, item, stock unit, or lot."
                 onClose={() => setPrinting(null)}
                 onRemove={removeFromPrintQueue}
                 onPrinted={(printed) => setPrintQueue((prev) =>
@@ -1699,9 +1735,13 @@ export default function App() {
             ? <LotDetail lots={lots} lotLinks={lotLinks} lotId={openLot} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onBack={() => setOpenLot(null)} onOpen={openLotById}
                 onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot}
-                onEditLink={editLotLink} onDeleteLink={deleteLotLink} />
+                onEditLink={editLotLink} onDeleteLink={deleteLotLink}
+                onPrintLot={(id) => setPrinting({ kind: 'lot', ids: [id] })}
+                onQueueLot={(id) => addToPrintQueue('lot', id)} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
-                remaining={lotRemaining} onOpen={openLotById} onAddManual={addManualLot} />;
+                remaining={lotRemaining} onOpen={openLotById} onAddManual={addManualLot}
+                onPrintLot={(id) => setPrinting({ kind: 'lot', ids: [id] })}
+                onQueueLot={(id) => addToPrintQueue('lot', id)} />;
     } else if (section === 'data') {
         key = 'data';
         screen = <DataTab items={items} genetics={genetics} species={species} suppliers={suppliers} />;
@@ -2750,11 +2790,13 @@ function lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species, seen =
     return [...names];
 }
 
-function LotCard({ lot, rem, sp, onOpen }) {
+function LotCard({ lot, rem, sp, onOpen, onPrintLot, onQueueLot }) {
     const pct = lot.amount_g ? (rem / lot.amount_g) * 100 : 0;
     const used = rem <= LOT_EPS;
     return (
-        <button className={`lot-card ${used ? 'used' : ''}`} onClick={() => onOpen(lot.id)}>
+        <div className={`lot-card ${used ? 'used' : ''}`} role="button" tabIndex={0}
+            onClick={() => onOpen(lot.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(lot.id); } }}>
             <div className="lot-top">
                 <span className={`pill tone-${used ? 'slate' : 'amber'}`}>{LOT_FORMS[lot.form] ?? lot.form}</span>
                 <span className="lot-sp">{sp.length ? sp.join(' + ') : 'unknown origin'}</span>
@@ -2766,7 +2808,18 @@ function LotCard({ lot, rem, sp, onOpen }) {
             </div>
             {!used && <div className="lot-bar"><div className="lot-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></div>}
             {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on)}</div>}
-        </button>
+            {/* Own click handler stops propagation so tapping Print/Queue
+                doesn't also fire the card's onOpen underneath it - see the
+                2026-09-22 layout-bug note on .pl-icon-row for why this
+                pair always lives in its own wrapper rather than as loose
+                siblings. */}
+            <div className="pl-icon-row" onClick={(e) => e.stopPropagation()}>
+                <button type="button" className="pl-icon-btn pl-trigger" title="Print a QR sticker for this lot"
+                    onClick={() => onPrintLot(lot.id)}><PrinterIcon /></button>
+                <button type="button" className="pl-icon-btn pl-queue" title="Add to the print queue instead - print it later alongside other labels"
+                    onClick={() => onQueueLot(lot.id)}><PrinterQueueIcon /></button>
+            </div>
+        </div>
     );
 }
 
@@ -3043,7 +3096,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
     );
 }
 
-function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen, onAddManual }) {
+function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen, onAddManual, onPrintLot, onQueueLot }) {
     const [formFilter, setFormFilter] = useState('all');
     const [hideUsed, setHideUsed] = useState(true);
     const [adding, setAdding] = useState(false);
@@ -3133,7 +3186,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                 {visible.map(({ lot, rem }) => (
                     <LotCard key={lot.id} lot={lot} rem={rem}
                         sp={lotSpeciesNames(lot.id, lots, lotLinks, items, genetics, species)}
-                        onOpen={onOpen} />
+                        onOpen={onOpen} onPrintLot={onPrintLot} onQueueLot={onQueueLot} />
                 ))}
             </div>
         </div>
@@ -3142,7 +3195,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
 
 /* ---------------- LOT DETAIL ---------------- */
 
-function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete, onEditLink, onDeleteLink }) {
+function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete, onEditLink, onDeleteLink, onPrintLot, onQueueLot }) {
     const lot = lots.find((l) => l.id === lotId);
     const [editing, setEditing] = useState(false);
     const [f, setF] = useState({});
@@ -3211,9 +3264,15 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                     </div>
                 )}
                 {!editing && (
-                    <button className="edit-btn" title="Edit"
-                        onClick={() => { setF({ label: lot.label ?? '', form: lot.form, amount_g: lot.amount_g ?? '',
-                            species_id: lot.species_id ?? '', harvested_on: lot.harvested_on ?? '' }); setEditing(true); }}>✎</button>
+                    <>
+                        <button className="edit-btn" title="Edit"
+                            onClick={() => { setF({ label: lot.label ?? '', form: lot.form, amount_g: lot.amount_g ?? '',
+                                species_id: lot.species_id ?? '', harvested_on: lot.harvested_on ?? '' }); setEditing(true); }}>✎</button>
+                        <div className="pl-icon-row">
+                            <button className="pl-icon-btn pl-trigger" title="Print a QR sticker for this lot" onClick={() => onPrintLot(lotId)}><PrinterIcon /></button>
+                            <button className="pl-icon-btn pl-queue" title="Add to the print queue instead - print it later alongside other labels" onClick={() => onQueueLot(lotId)}><PrinterQueueIcon /></button>
+                        </div>
+                    </>
                 )}
             </div>
 
@@ -7448,6 +7507,7 @@ const CSS = `
 .lot-bar{height:3px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden;}
 .lot-bar-fill{height:100%;background:var(--amber);}
 .lot-date{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:7px;}
+.lot-card .pl-icon-row{margin-top:9px;}
 .lot-amount-hero{display:flex;gap:26px;margin:18px 0 6px;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
 .lot-amount-hero div{display:flex;flex-direction:column;gap:2px;}
 .lot-amount-hero strong{font-family:var(--mono);font-size:22px;font-weight:400;}
