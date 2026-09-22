@@ -7085,15 +7085,23 @@ const CSS = `
   /* Label printing needs exact physical page control that mobile
      browsers don't reliably give a webpage (iOS Safari especially) -
      hide the trigger here rather than let it produce a broken print.
-     Desktop/native app is where this actually works. */
-  .pl-trigger{display:none;}
+     Desktop/native app is where this actually works.
+     Compound selector (.pl-icon-btn.pl-trigger, not bare .pl-trigger) is
+     deliberate, not decorative - 2026-09-22's .pl-icon-btn (display:
+     inline-flex) redesign sits later in this stylesheet and, at equal
+     single-class specificity, source order alone let it silently win
+     over a bare .pl-trigger rule and bring these back on mobile. Bumping
+     to two classes (0-2-0) beats .pl-icon-btn's 0-1-0 regardless of
+     where either is declared, so this can't regress again the next time
+     something gets added after this block. */
+  .pl-icon-btn.pl-trigger{display:none;}
   /* The cross-screen print queue (badge + "+ Queue" buttons + the queue
      print screen) is desktop-only for the same reason as .pl-trigger
      above - printing doesn't work reliably from a mobile browser yet.
      Making mobile printing work is its own future task; until then the
      whole queue feature stays out of the mobile view rather than
-     half-working there. */
-  .pl-queue{display:none;}
+     half-working there. Same compound-selector fix as .pl-trigger above. */
+  .pl-icon-btn.pl-queue{display:none;}
   .lc-mosaic{grid-template-columns:repeat(2,1fr);gap:7px;}
 }
 
