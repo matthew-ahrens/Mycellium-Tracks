@@ -276,6 +276,24 @@ function SupplierPicker({ suppliers, value, onChange, onCreate }) {
 
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
 
+/* Refresh-preserves-page (2026-09-16, Matt: refreshing the browser dumped
+   you back to Settings' default landing page instead of staying put).
+   Session-scoped on purpose - closing the tab and coming back fresh still
+   opens to the default landing page, same as a first-ever visit; only a
+   same-tab refresh restores. Read via lazy useState initializers in App()
+   so the restored values are there on the very first render (no flash of
+   the default page), and written back by a single effect that watches
+   section/nav/open/openLot together. */
+const NAV_STORAGE_KEY = 'sporedesk_nav_v1';
+const readStoredNav = () => {
+    try {
+        const raw = sessionStorage.getItem(NAV_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null; // private browsing / storage disabled - just skip restoring
+    }
+};
+
 /* Renders per the signed-in user's Settings > Date format preference
    (profile.date_format: 'MDY' | 'DMY' | 'YMD') - `dateFormat` is threaded
    down as a real prop from App() (same pattern as unitsPref/displayAmount)
@@ -339,7 +357,11 @@ function hypha(a, b) {
 /* ================= APP ================= */
 
 export default function App() {
-    const [section, setSection] = useState('cultures');
+    // Captured once on mount, before the write-back effect below ever runs,
+    // so load() can tell "there's a real prior-session page to restore"
+    // apart from "nothing was stored, use Settings' default landing page."
+    const [hadStoredNav] = useState(() => readStoredNav() !== null);
+    const [section, setSection] = useState(() => readStoredNav()?.section ?? 'cultures');
     const [library, setLibrary] = useState([]);
     const [librarySpecies, setLibrarySpecies] = useState([]); // library_species join rows: {library_id, species_id}
     const [equipment, setEquipment] = useState([]);
@@ -347,7 +369,7 @@ export default function App() {
     const [stock, setStock] = useState([]);
     const [lots, setLots] = useState([]);
     const [lotLinks, setLotLinks] = useState([]);
-    const [openLot, setOpenLot] = useState(null);
+    const [openLot, setOpenLot] = useState(() => readStoredNav()?.openLot ?? null);
     const [photos, setPhotos] = useState([]);
     const [photoUrls, setPhotoUrls] = useState({});
     /* Most-recent slice of usage_events (see load() below), newest first -
@@ -358,9 +380,9 @@ export default function App() {
     const [items, setItems] = useState([]);
     const [species, setSpecies] = useState([]);
     const [genetics, setGenetics] = useState([]);
-    const [nav, setNav] = useState({ level: 'species', speciesId: null, geneticsId: null });
+    const [nav, setNav] = useState(() => readStoredNav()?.nav ?? { level: 'species', speciesId: null, geneticsId: null });
     const [dir, setDir] = useState('fwd');
-    const [open, setOpen] = useState(null);
+    const [open, setOpen] = useState(() => readStoredNav()?.open ?? null);
     const [loading, setLoading] = useState(true);
     const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock' | 'lot' | 'queue', ids: [...] }, or null
     /* Cross-screen print queue (2026-09-22, Matt: printing labels one at a
@@ -370,8 +392,9 @@ export default function App() {
        Stock/Harvests's new "+ Queue" buttons alongside their existing
        immediate-print buttons.
        In-memory only, not persisted - clears on refresh same as `printing`
-       itself; if that turns out to matter revisit alongside the separate
-       "refresh should stay on the current page" backlog item. */
+       itself. Revisited alongside the "refresh should stay on the current
+       page" fix (2026-09-16) and left this way on purpose - Matt wants the
+       queue to keep clearing on refresh, it's meant for one sitting. */
     const [printQueue, setPrintQueue] = useState([]);
     const addToPrintQueue = (kind, ids) => {
         const idArr = Array.isArray(ids) ? ids : [ids];
@@ -405,6 +428,18 @@ export default function App() {
     // comment at the top of the file for why this is a prop, not a module
     // variable synced via effect.
     const dateFormat = profile?.date_format || 'MDY';
+
+    /* Mirrors section/nav/open/openLot into sessionStorage on every change
+       - see readStoredNav()/NAV_STORAGE_KEY up top for why and the lazy
+       useState initializers above that read this back in. Deep links
+       (?item=/?stock=/?lot=) and the "always go home" logo click still win
+       over a restored page since both call their own setSection/setOpen
+       after this state has settled, same as before this existed. */
+    useEffect(() => {
+        try {
+            sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify({ section, nav, open, openLot }));
+        } catch { /* private browsing / storage disabled - refresh just won't restore */ }
+    }, [section, nav, open, openLot]);
 
     /* Resolved signed URL for profile.avatar_url - a private storage path
        in the same 'photos' bucket as item/equipment photos, but not a row
@@ -487,7 +522,12 @@ export default function App() {
             setPhotos(pics ?? []);
             setProfile(prof ?? null);
             setUsageEvents(usage ?? []);
-            if (prof?.default_section) setSection(prof.default_section);
+            // Only land on the default section for a genuinely fresh tab -
+            // hadStoredNav means section/nav/open/openLot were already
+            // restored from sessionStorage by this component's initial
+            // render, and a refresh shouldn't override that with Settings'
+            // default landing page (see NAV_STORAGE_KEY up top).
+            if (!hadStoredNav && prof?.default_section) setSection(prof.default_section);
 
             setItems(data.map((r) => ({
                 id: r.label,
@@ -599,7 +639,10 @@ export default function App() {
             setLoading(false);
         }
         load();
-    }, []);
+        // hadStoredNav never changes after mount (set once via lazy useState,
+        // no setter ever called) - listed for lint honesty, not because this
+        // should ever actually re-run.
+    }, [hadStoredNav]);
 
     if (loading) return (
       <div className="root">
