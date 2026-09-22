@@ -2812,14 +2812,11 @@ const SEARCH_GROUP_CAP = 5;
    for now (see .pl-trigger/.pl-queue), so surfacing this on mobile would
    just be a dead end. Renders nothing once the queue is empty rather
    than sitting there dimmed. */
-/* Printer / "printer with a plus" glyphs for the compact icon-only
-   Print/Queue button pairs on Detail, Tree, and Stock (see .pl-icon-btn
-   below) - Matt's ask 2026-09-22 after the text-label versions kept
-   colliding on the Stock screen (see the .stock-batch-head fix). Same
-   printer glyph as PrintQueueButton's own badge icon, just drawn twice:
-   once plain, once with a small "+" worked into the same viewBox so it
-   still reads as "printing, but the queue variant" at 15px rather than
-   two unrelated icons. */
+/* Printer icon for the compact icon-only Print/Queue button pairs on
+   Detail, Tree, and Stock (see .pl-icon-btn below) - Matt's ask
+   2026-09-22 after the text-label versions kept colliding on the Stock
+   screen (see the .stock-batch-head fix). Same glyph as PrintQueueButton's
+   own badge icon. */
 function PrinterIcon({ size = 15 }) {
     return (
         <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -2830,14 +2827,26 @@ function PrinterIcon({ size = 15 }) {
     );
 }
 
+/* Queue variant - the exact same PrinterIcon (same size, same color, so
+   the two buttons read as a matched pair) with a small "+" badge
+   overlaid on its corner, rather than trying to cram a second printer
+   glyph and a plus into one squeezed 24x24 viewBox. That combined-glyph
+   version (2026-09-22's first pass) came out "wonky" per Matt and its
+   color didn't match the plain Print icon - this is the redo: identical
+   printer icon underneath, a small filled circle badge (cut into the
+   page with its own background so it reads as sitting ON the icon, not
+   just overlapping it) with a plus mark, the standard "add a variant of
+   this" pattern. */
 function PrinterQueueIcon({ size = 15 }) {
+    const badge = Math.round(size * 0.62);
     return (
-        <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="5 9 5 2 14 2 14 9" />
-            <path d="M5 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
-            <rect x="5" y="14" width="8" height="8" />
-            <path d="M19 13v7M15.5 16.5h7" />
-        </svg>
+        <span className="pl-icon-badge-wrap">
+            <PrinterIcon size={size} />
+            <svg className="pl-icon-badge" viewBox="0 0 24 24" width={badge} height={badge}>
+                <circle cx="12" cy="12" r="11" className="pl-icon-badge-bg" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+            </svg>
+        </span>
     );
 }
 
@@ -6998,19 +7007,21 @@ const CSS = `
    text labels down to two 28px icon squares. */
 .pl-icon-row{display:flex;gap:6px;flex:0 0 auto;}
 .pl-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border-radius:8px;cursor:pointer;flex:0 0 auto;transition:border-color .15s,color .15s;}
-.pl-icon-btn.pl-trigger{background:var(--panel2);border:1px solid var(--line);color:var(--bone);}
-.pl-icon-btn.pl-trigger:hover{border-color:var(--amber);color:var(--amber);}
-/* Was background:none (a true see-through outline button) - on Detail/
-   Tree/Stock that sits directly on the page's tan background, and
-   --dim (#A6927A) is nearly the same tone as --ground (#B3966B), so the
-   icon all but vanished there (Matt 2026-09-22: "blank outline box...
-   filling the same color as the background"). Matches every other
-   "ghost" button in the app instead (.mini.ghost is the same idea) -
-   still a dark panel2 chip, just dimmer text/icon than the primary
-   Print button, which keeps real contrast regardless of what page
-   background it's sitting on. */
-.pl-icon-btn.pl-queue{background:var(--panel2);border:1px solid var(--line);color:var(--dim);}
-.pl-icon-btn.pl-queue:hover{border-color:var(--amber);color:var(--amber);}
+/* Print and Queue share one look now - same panel2 chip, same --bone
+   icon color - so the pair reads as a matched set (Matt 2026-09-22
+   didn't want Queue's icon a different shade from Print's). They're
+   told apart by the icon itself (plain printer vs. printer+badge, see
+   PrinterQueueIcon above SearchBox), not by button color. */
+.pl-icon-btn.pl-trigger,.pl-icon-btn.pl-queue{background:var(--panel2);border:1px solid var(--line);color:var(--bone);}
+.pl-icon-btn.pl-trigger:hover,.pl-icon-btn.pl-queue:hover{border-color:var(--amber);color:var(--amber);}
+/* The small "+" badge on PrinterQueueIcon - sits over the printer
+   icon's bottom-right corner. pl-icon-badge-bg is filled with the
+   BUTTON's own background (panel2) so the badge reads as a solid disc
+   cut into the printer glyph rather than a ring that lets the icon's
+   own strokes show through underneath it. */
+.pl-icon-badge-wrap{position:relative;display:inline-flex;}
+.pl-icon-badge{position:absolute;bottom:-4px;right:-5px;}
+.pl-icon-badge-bg{fill:var(--panel2);}
 .stock-batch-head .equip-name{font-family:var(--serif);font-size:15px;color:var(--ink);white-space:normal;}
 .stock-batch-head .equip-note{display:block;color:var(--ink-dim);white-space:normal;}
 .stock-archive-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin:12px 0 6px;}
