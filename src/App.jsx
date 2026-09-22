@@ -6622,7 +6622,7 @@ function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted }) {
                 <div className="pl-field-row">
                     <label>Start at label #<input className="in sm" type="number" min="1" max={PER_SHEET}
                         value={startAt} onChange={(e) => setStartAt(e.target.value)} /></label>
-                    <span className="nf-help">Already used some labels on this sheet? Skip them instead of reprinting over them.</span>
+                    <span className="nf-help nf-help-page">Already used some labels on this sheet? Skip them instead of reprinting over them.</span>
                 </div>
                 <div className="pl-field-row">
                     <label>Top margin (in)<input className="in sm" type="number" step="0.02"
@@ -6633,18 +6633,18 @@ function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted }) {
                         value={gapXIn} onChange={(e) => setGapXIn(e.target.value)} /></label>
                     <label>Row gap (in)<input className="in sm" type="number" step="0.02"
                         value={gapYIn} onChange={(e) => setGapYIn(e.target.value)} /></label>
-                    <span className="nf-help">Set to the standard Avery 5160-style spec (0.5"/0.1875"/0.125"/0") - nudge these if your test print is off.</span>
+                    <span className="nf-help nf-help-page">Set to the standard Avery 5160-style spec (0.5"/0.1875"/0.125"/0") - nudge these if your test print is off.</span>
                 </div>
 
                 {candidates.length > 0 && (
                     <div className="pl-field-row">
                         <button type="button" className="sw" onClick={() => setChecked(new Set(candidates.map(ckey)))}>Select all</button>
                         <button type="button" className="sw" onClick={() => setChecked(new Set())}>Deselect all</button>
-                        <span className="nf-help">{selected.length} of {candidates.length} selected</span>
+                        <span className="nf-help nf-help-page">{selected.length} of {candidates.length} selected</span>
                     </div>
                 )}
                 <div className="pl-list">
-                    {candidates.length === 0 && <p className="nf-help">Nothing to print here.</p>}
+                    {candidates.length === 0 && <p className="nf-help nf-help-page">Nothing to print here.</p>}
                     {candidates.map((c) => (
                         <label key={ckey(c)} className="pl-item">
                             <input type="checkbox" checked={checked.has(ckey(c))} onChange={() => toggle(ckey(c))} />
