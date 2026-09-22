@@ -330,7 +330,26 @@ export default function App() {
     const [dir, setDir] = useState('fwd');
     const [open, setOpen] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock', ids: [...] }, or null
+    const [printing, setPrinting] = useState(null); // { kind: 'item' | 'stock' | 'queue', ids: [...] }, or null
+    /* Cross-screen print queue (2026-09-22, Matt: printing labels one at a
+       time and reloading the printer for each was the actual pain point,
+       not the per-screen picker itself - see PrintLabels). Array of
+       { kind: 'item' | 'stock', id } added to from Detail/Tree/Stock's new
+       "+ Queue" buttons alongside their existing immediate-print buttons.
+       In-memory only, not persisted - clears on refresh same as `printing`
+       itself; if that turns out to matter revisit alongside the separate
+       "refresh should stay on the current page" backlog item. */
+    const [printQueue, setPrintQueue] = useState([]);
+    const addToPrintQueue = (kind, ids) => {
+        const idArr = Array.isArray(ids) ? ids : [ids];
+        setPrintQueue((prev) => {
+            const have = new Set(prev.filter((e) => e.kind === kind).map((e) => e.id));
+            const additions = idArr.filter((id) => !have.has(id)).map((id) => ({ kind, id }));
+            return additions.length ? [...prev, ...additions] : prev;
+        });
+    };
+    const removeFromPrintQueue = (kind, id) =>
+        setPrintQueue((prev) => prev.filter((e) => !(e.kind === kind && e.id === id)));
     /* One-shot "land on this specific tab, and this specific row" hints for
        Search results (and the ?stock= QR deep link) that point into
        Supplies/Reference - each of those screens fully remounts on every
@@ -1583,28 +1602,58 @@ export default function App() {
         screen = <SettingsPanel profile={profile} onSave={saveProfile} onBack={() => setSettingsOpen(false)} />;
     } else if (printing) {
         key = 'print';
+        /* Building blocks for all three kinds below - `queue` combines both
+           so a mixed batch (items + stock units, added from wherever) can
+           print in one pass with each row's QR keyed off its own kind, not
+           one shared linkParam like the single-kind cases used to assume. */
+        const stockCandidate = (s) => ({
+            id: s.id, kind: 'stock', linkParam: 'stock',
+            printed: s.label || 'Unlabeled unit', sub: stockLabel(s, library, suppliers), started: s.made_or_bought_on,
+        });
+        const itemCandidate = (i) => {
+            const g = genetics.find((x) => x.id === i.geneticsId);
+            const sp = g && species.find((s) => s.id === g.species_id);
+            return { id: i.id, kind: 'item', linkParam: 'item', printed: i.id, sub: sp?.common_name ?? '', started: i.created };
+        };
         if (printing.kind === 'stock') {
             const candidates = printing.ids
-                .map((id) => stock.find((s) => s.id === id))
-                .filter(Boolean)
-                .map((s) => ({ id: s.id, printed: s.label || 'Unlabeled unit', sub: stockLabel(s, library, suppliers), started: s.made_or_bought_on }))
+                .map((id) => stock.find((s) => s.id === id)).filter(Boolean)
+                .map(stockCandidate)
                 .sort((a, b) => a.printed.localeCompare(b.printed));
-            screen = <PrintLabels candidates={candidates} linkParam="stock"
+            screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens this unit, and once it's inoculated into a culture, follows through to that item automatically - no reprint needed."
                 onClose={() => setPrinting(null)} />;
-        } else {
+        } else if (printing.kind === 'item') {
             const candidates = printing.ids
-                .map((id) => items.find((i) => i.id === id))
-                .filter(Boolean)
-                .map((i) => {
-                    const g = genetics.find((x) => x.id === i.geneticsId);
-                    const sp = g && species.find((s) => s.id === g.species_id);
-                    return { id: i.id, printed: i.id, sub: sp?.common_name ?? '', started: i.created };
-                })
+                .map((id) => items.find((i) => i.id === id)).filter(Boolean)
+                .map(itemCandidate)
                 .sort((a, b) => a.printed.localeCompare(b.printed));
-            screen = <PrintLabels candidates={candidates} linkParam="item"
+            screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens straight to that item."
                 onClose={() => setPrinting(null)} />;
+        } else {
+            // 'queue' - added to from across the app (Detail/Tree/Stock's
+            // "+ Queue" buttons); order follows queue insertion order
+            // rather than being re-sorted, since that's the order Matt
+            // actually worked through the grows in.
+            const byKey = new Map();
+            printQueue.forEach((e) => {
+                if (byKey.has(`${e.kind}:${e.id}`)) return;
+                if (e.kind === 'stock') {
+                    const s = stock.find((x) => x.id === e.id);
+                    if (s) byKey.set(`${e.kind}:${e.id}`, stockCandidate(s));
+                } else {
+                    const i = items.find((x) => x.id === e.id);
+                    if (i) byKey.set(`${e.kind}:${e.id}`, itemCandidate(i));
+                }
+            });
+            const candidates = printQueue.map((e) => byKey.get(`${e.kind}:${e.id}`)).filter(Boolean);
+            screen = <PrintLabels candidates={candidates}
+                subtitle="your print queue, added from across the app - each QR still opens the right thing, item or stock unit."
+                onClose={() => setPrinting(null)}
+                onRemove={removeFromPrintQueue}
+                onPrinted={(printed) => setPrintQueue((prev) =>
+                    prev.filter((e) => !printed.some((p) => p.kind === e.kind && p.id === e.id)))} />;
         }
     } else if (section === 'home') {
         key = 'home';
@@ -1614,6 +1663,7 @@ export default function App() {
             onOpenItem={jumpToItem} onOpenLot={jumpToLot}
             onOpenSpecies={jumpToSpecies} onOpenLibrary={jumpToLibrary}
             avatarUrl={avatarUrl}
+            printQueueCount={printQueue.length} onOpenPrintQueue={() => setPrinting({ kind: 'queue' })}
             onOpenAccount={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}
             onOpenSettings={() => { setPrinting(null); setAccountOpen(false); setSettingsOpen(true); }} />;
     } else if (section === 'supplies') {
@@ -1622,6 +1672,7 @@ export default function App() {
             items={items} initialTab={suppliesTab} initialOpenId={suppliesOpenId}
             onAddStock={addStock} onEditStock={editStock} onDeleteStock={deleteStock}
             onPrintStock={(ids) => setPrinting({ kind: 'stock', ids })}
+            onQueueStock={(ids) => addToPrintQueue('stock', ids)}
             onOpenItem={(label) => {
                 const it = items.find((i) => i.id === label);
                 const gen = genetics.find((g) => g.id === it?.geneticsId);
@@ -1664,13 +1715,15 @@ export default function App() {
             deleteItem={deleteItem} reparentItem={reparentItem} stock={stock} library={library} suppliers={suppliers}
             onGetOrCreateSupplier={getOrCreateSupplier}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} editPhoto={editPhoto}
-            onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })} unitsPref={profile?.units_pref ?? 'adaptive'} />;
+            onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })}
+            onQueueLabel={() => addToPrintQueue('item', open)} unitsPref={profile?.units_pref ?? 'adaptive'} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={openItemById} photos={photos} stock={stock}
             suppliers={suppliers} onGetOrCreateSupplier={getOrCreateSupplier}
             photoUrl={photoUrl} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onPrintLabels={(ids) => setPrinting({ kind: 'item', ids })}
+            onQueueLabels={(ids) => addToPrintQueue('item', ids)}
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onDeleteLine={deleteGenetics} onToggleLineHidden={toggleGeneticsHidden}
             onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden} onDeleteSpecies={deleteSpecies}
@@ -1737,7 +1790,10 @@ export default function App() {
                 {key !== 'home' && (
                 <nav className="side">
                     <div className="brand" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
-                    <div className="side-search"><SearchBox {...searchProps} /></div>
+                    <div className="side-search">
+                        <SearchBox {...searchProps} />
+                        <PrintQueueButton count={printQueue.length} onOpen={() => setPrinting({ kind: 'queue' })} />
+                    </div>
                     {NAV.map(([k, label, d]) => (
                         <button key={k} className={`nav-item ${!accountOpen && !settingsOpen && section === k ? 'on' : ''}`}
                             onClick={() => goSection(k)}>
@@ -2749,6 +2805,28 @@ function firstMatch(fields, nq) {
    first just because the species name also matched (2026-09-17). */
 const SEARCH_GROUP_CAP = 5;
 
+/* Small persistent entry point into the cross-screen print queue (see
+   printQueue/addToPrintQueue near the top of App) - sits next to
+   SearchBox wherever it renders on desktop (.side-search, .home-search).
+   Deliberately NOT placed in .mobile-search - printing is desktop-only
+   for now (see .pl-trigger/.pl-queue), so surfacing this on mobile would
+   just be a dead end. Renders nothing once the queue is empty rather
+   than sitting there dimmed. */
+function PrintQueueButton({ count, onOpen, className }) {
+    if (!count) return null;
+    return (
+        <button type="button" className={`pq-badge ${className || ''}`} onClick={onOpen}
+            title={`${count} label${count === 1 ? '' : 's'} queued to print`}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            <span className="pq-count">{count}</span>
+        </button>
+    );
+}
+
 function SearchBox({ items, genetics, species, lots, lotLinks, library, librarySpecies, equipment, suppliers, stock,
     onOpenItem, onOpenSpecies, onOpenLot, onOpenLibrary, onOpenSupplies }) {
     const [q, setQ] = useState('');
@@ -3606,7 +3684,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
 const stockUsableFor = (stockKind, itemType) =>
     STOCK_KIND_RECIPE_CATEGORY[stockKind] === STOCK_KIND_RECIPE_CATEGORY[itemType];
 
-function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onQueueStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
         amount: '', amount_unit: '', new_code: '' };
@@ -3859,9 +3937,15 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                             </span>
                                         </div>
                                         {onHand.length > 0 && (
-                                            <button className="mini ghost pl-trigger" onClick={() => onPrintStock(onHand.map((s) => s.id))}>
-                                                Print labels
-                                            </button>
+                                            <>
+                                                <button className="mini ghost pl-trigger" onClick={() => onPrintStock(onHand.map((s) => s.id))}>
+                                                    Print labels
+                                                </button>
+                                                <button className="mini ghost pl-queue" title="Add this batch's on-hand labels to the print queue instead"
+                                                    onClick={() => onQueueStock(onHand.map((s) => s.id))}>
+                                                    + Queue
+                                                </button>
+                                            </>
                                         )}
                                     </div>
                                     <div className="equip-list">
@@ -3899,7 +3983,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
    half keeps the "stuff I have or can get" grouping; see ReferenceSection
    below for the "stuff I read" half. */
 function Supplies({ stock, library, species, suppliers, equipment, initialTab, initialOpenId, items,
-    onAddStock, onEditStock, onDeleteStock, onPrintStock, onOpenItem,
+    onAddStock, onEditStock, onDeleteStock, onPrintStock, onQueueStock, onOpenItem,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpEquipQty,
     onAddSupplier, onEditSupplier, onDeleteSupplier, onGetOrCreateSupplier }) {
     const [tab, setTab] = useState(initialTab || 'stock');
@@ -3919,7 +4003,7 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
             {tab === 'stock' ? (
                 <StockTab stock={stock} library={library} suppliers={suppliers} species={species} items={items}
                     onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock}
-                    onPrintStock={onPrintStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId}
+                    onPrintStock={onPrintStock} onQueueStock={onQueueStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId}
                     onGetOrCreateSupplier={onGetOrCreateSupplier} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
@@ -4147,7 +4231,7 @@ function HomeIcon({ path, size = 18 }) {
    SECTION_ACCENTS on every card and on Most Visited's tiles, colors the
    Data card by the success rate itself instead of a fixed tone, and
    clamps subtitle text to one line so card heights stop being ragged. */
-function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, profile, avatarUrl, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary, onOpenAccount, onOpenSettings }) {
+function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, searchProps, profile, avatarUrl, onGoSection, onOpenItem, onOpenLot, onOpenSpecies, onOpenLibrary, onOpenAccount, onOpenSettings, printQueueCount, onOpenPrintQueue }) {
     const geneticsFor = (item) => genetics.find((g) => g.id === item.geneticsId);
     const speciesFor = (item) => { const gen = geneticsFor(item); return gen && species.find((s) => s.id === gen.species_id); };
     const visibleItems = items.filter((i) => !speciesFor(i)?.hidden && !geneticsFor(i)?.hidden);
@@ -4261,7 +4345,10 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 {/* Desktop-only stand-in for the sidebar's search, same as
                     .home-logo above - mobile already has one pinned in
                     .mobile-brand regardless of section. */}
-                <div className="home-search"><SearchBox {...searchProps} /></div>
+                <div className="home-search">
+                    <SearchBox {...searchProps} />
+                    <PrintQueueButton count={printQueueCount} onOpen={onOpenPrintQueue} />
+                </div>
             </div>
 
             <div className="home-top-row">
@@ -5404,7 +5491,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier, unitsPref }) {
+function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, onQueueLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier, unitsPref }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -5571,9 +5658,15 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                     }}>✎ Species</button>
                     <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
                     {items.length > 0 && (
-                        <button className="sw pl-trigger" onClick={() => onPrintLabels(items.map((i) => i.id))}>
-                            Print labels
-                        </button>
+                        <>
+                            <button className="sw pl-trigger" onClick={() => onPrintLabels(items.map((i) => i.id))}>
+                                Print labels
+                            </button>
+                            <button className="sw ghost pl-queue" title="Add every item shown here to the print queue instead - print it later alongside other labels"
+                                onClick={() => onQueueLabels(items.map((i) => i.id))}>
+                                + Queue
+                            </button>
+                        </>
                     )}
                     <button className="sw" onClick={fit}>Fit</button>
                     <button className="sw" onClick={() => onToggleHidden(species.id, !species.hidden)}>
@@ -5847,7 +5940,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel, unitsPref }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel, onQueueLabel, unitsPref }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -6014,6 +6107,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         <button className="edit-btn" title="Edit label, type, form, amount, method, vendor, start date, substrate"
                             onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "", supplierId: it.supplierId ?? "", substrate: it.substrate ?? "", dryWeight: it.dryWeight ?? "" }); setEditHead(true); }}>✎</button>
                         <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
+                        <button className="sw ghost pl-queue" title="Add to the print queue instead - print it later alongside other labels" onClick={onQueueLabel}>+ Queue</button>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
                 )}
@@ -6360,9 +6454,23 @@ const DEFAULT_TOP = 0.5, DEFAULT_LEFT = 0.1875, DEFAULT_GAP_X = 0.125, DEFAULT_G
    consumeStock() for why that keeps working after the unit is consumed).
    `candidates` is already the fully-resolved, caller-sorted browsable list
    - every entry starts checked, and unchecking just drops it from what
-   prints without removing it from the list, same as before. */
-function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
-    const [checked, setChecked] = useState(() => new Set(candidates.map((c) => c.id)));
+   prints without removing it from the list, same as before.
+
+   Each candidate now carries its own `kind`/`linkParam` (2026-09-22, print
+   queue) rather than one shared `linkParam` prop - the queue view mixes
+   items and stock units in one list, so the QR for each row has to be
+   built from that row's own kind, not a batch-wide assumption. Identity
+   throughout (checked-set, qrs cache, React keys) uses `kind:id` rather
+   than bare `id` for the same reason - an item id and a stock uuid living
+   in the same list should never be able to collide.
+
+   `onRemove(kind, id)` and `onPrinted(printedList)` are only passed for
+   the print-queue view (see the `printing.kind === 'queue'` branch in the
+   render switch) - undefined for the plain single-kind call sites, where
+   there's no persistent queue to remove from or clear. */
+function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted }) {
+    const ckey = (c) => `${c.kind}:${c.id}`;
+    const [checked, setChecked] = useState(() => new Set(candidates.map(ckey)));
     const [startAt, setStartAt] = useState(1);
     const [topIn, setTopIn] = useState(String(DEFAULT_TOP));
     const [leftIn, setLeftIn] = useState(String(DEFAULT_LEFT));
@@ -6370,27 +6478,27 @@ function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
     const [gapYIn, setGapYIn] = useState(String(DEFAULT_GAP_Y));
     const [qrs, setQrs] = useState({});
 
-    const selected = useMemo(() => candidates.filter((c) => checked.has(c.id)), [candidates, checked]);
+    const selected = useMemo(() => candidates.filter((c) => checked.has(ckey(c))), [candidates, checked]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             const entries = await Promise.all(selected.map(async (c) => {
-                const url = `${APP_URL}?${linkParam}=${encodeURIComponent(c.id)}`;
+                const url = `${APP_URL}?${c.linkParam}=${encodeURIComponent(c.id)}`;
                 // Error correction Q (~25% recovery) rather than the default M -
                 // these end up on jars and tubs in a humid grow space, splashed
                 // and misted, so a little print/label damage shouldn't kill the scan.
                 const svg = await QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'Q' });
-                return [c.id, svg];
+                return [ckey(c), svg];
             }));
             if (!cancelled) setQrs(Object.fromEntries(entries));
         })();
         return () => { cancelled = true; };
-    }, [selected, linkParam]);
+    }, [selected]);
 
-    const toggle = (id) => setChecked((p) => {
+    const toggle = (key) => setChecked((p) => {
         const next = new Set(p);
-        if (next.has(id)) next.delete(id); else next.add(id);
+        if (next.has(key)) next.delete(key); else next.add(key);
         return next;
     });
 
@@ -6429,7 +6537,7 @@ function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
 
                 {candidates.length > 0 && (
                     <div className="pl-field-row">
-                        <button type="button" className="sw" onClick={() => setChecked(new Set(candidates.map((c) => c.id)))}>Select all</button>
+                        <button type="button" className="sw" onClick={() => setChecked(new Set(candidates.map(ckey)))}>Select all</button>
                         <button type="button" className="sw" onClick={() => setChecked(new Set())}>Deselect all</button>
                         <span className="nf-help">{selected.length} of {candidates.length} selected</span>
                     </div>
@@ -6437,15 +6545,17 @@ function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
                 <div className="pl-list">
                     {candidates.length === 0 && <p className="nf-help">Nothing to print here.</p>}
                     {candidates.map((c) => (
-                        <label key={c.id} className="pl-item">
-                            <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggle(c.id)} />
+                        <label key={ckey(c)} className="pl-item">
+                            <input type="checkbox" checked={checked.has(ckey(c))} onChange={() => toggle(ckey(c))} />
                             <span className="lc-code">{c.printed}</span>
                             <span className="lc-name">{c.sub}</span>
+                            {onRemove && <button type="button" className="mini ghost pl-remove"
+                                onClick={(e) => { e.preventDefault(); onRemove(c.kind, c.id); }}>Remove</button>}
                         </label>
                     ))}
                 </div>
 
-                <button className="cta" disabled={!selected.length} onClick={() => window.print()}>
+                <button className="cta" disabled={!selected.length} onClick={() => { onPrinted?.(selected.map((c) => ({ kind: c.kind, id: c.id }))); window.print(); }}>
                     Print {selected.length} label{selected.length === 1 ? '' : 's'} ({sheetCount} sheet{sheetCount === 1 ? '' : 's'})
                 </button>
             </div>
@@ -6465,8 +6575,8 @@ function PrintLabels({ candidates, linkParam, subtitle, onClose }) {
                                 if (!item) return <div className="pl-cell empty" key={n} />;
                                 return (
                                     <div className="pl-cell" key={n}>
-                                        {qrs[item.id]
-                                            ? <div className="pl-qr" dangerouslySetInnerHTML={{ __html: qrs[item.id] }} />
+                                        {qrs[ckey(item)]
+                                            ? <div className="pl-qr" dangerouslySetInnerHTML={{ __html: qrs[ckey(item)] }} />
                                             : <div className="pl-qr pl-qr-pending">…</div>}
                                         <div className="pl-text">
                                             <span className="pl-id">{item.printed}</span>
@@ -6683,9 +6793,19 @@ const CSS = `
 .app-version span{font-size:11px;color:var(--dim);}
 .mobile-brand{display:none;}
 .mobile-search{display:none;}
-.side-search{padding:0 10px 14px;position:relative;}
+.side-search{padding:0 10px 14px;position:relative;display:flex;align-items:center;gap:6px;}
 .search-box{position:relative;}
 .search-box .in{width:100%;box-sizing:border-box;}
+.side-search .search-box{flex:1 1 auto;min-width:0;}
+/* Print-queue badge, dark-panel variant (.side-search lives inside .side,
+   which is the dark-panel half of the app's two-color-half system - see
+   the CSS comment above .root for the bone/dim/amber vs ink/ink-dim/
+   amber-ink split). */
+.side-search .pq-badge{color:var(--bone);}
+.side-search .pq-badge:hover{color:var(--amber);}
+.side-search .pq-count{background:var(--amber);color:var(--panel);}
+.pq-badge{flex:0 0 auto;display:flex;align-items:center;gap:4px;background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;transition:color .15s;}
+.pq-count{font-family:var(--mono);font-size:10.5px;font-weight:600;border-radius:9px;padding:1px 6px;min-width:14px;text-align:center;line-height:1.4;}
 .search-dropdown{position:absolute;top:calc(100% + 6px);left:0;width:380px;max-width:calc(100vw - 40px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:70vh;max-height:70dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;z-index:50;box-shadow:0 14px 30px rgba(0,0,0,.4);color:var(--bone);scrollbar-width:thin;scrollbar-color:var(--line) var(--panel);}
 .search-dropdown::-webkit-scrollbar{width:8px;}
 .search-dropdown::-webkit-scrollbar-track{background:var(--panel);}
@@ -6744,6 +6864,13 @@ const CSS = `
      hide the trigger here rather than let it produce a broken print.
      Desktop/native app is where this actually works. */
   .pl-trigger{display:none;}
+  /* The cross-screen print queue (badge + "+ Queue" buttons + the queue
+     print screen) is desktop-only for the same reason as .pl-trigger
+     above - printing doesn't work reliably from a mobile browser yet.
+     Making mobile printing work is its own future task; until then the
+     whole queue feature stays out of the mobile view rather than
+     half-working there. */
+  .pl-queue{display:none;}
   .lc-mosaic{grid-template-columns:repeat(2,1fr);gap:7px;}
 }
 
@@ -6939,8 +7066,15 @@ const CSS = `
    land once he's actually looked at it. */
 .home-logo{display:flex;align-items:center;justify-content:center;gap:12px;font-family:var(--serif);font-size:30px;color:var(--ink);margin-bottom:24px;}
 .home-logo .brand-icon{width:36px;height:36px;flex:0 0 auto;}
-.home-search{width:300px;max-width:100%;position:relative;}
+.home-search{width:300px;max-width:100%;position:relative;display:flex;align-items:center;gap:6px;}
 .home-search .in{width:100%;box-sizing:border-box;}
+.home-search .search-box{flex:1 1 auto;min-width:0;}
+/* Print-queue badge, tan-background variant - .home-search sits on the
+   page's tan half (var(--ground)), not inside .side, so it needs the
+   ink/ink-dim/amber-ink half of the palette instead of bone/dim/amber. */
+.home-search .pq-badge{color:var(--ink);}
+.home-search .pq-badge:hover{color:var(--amber-ink);}
+.home-search .pq-count{background:var(--amber-ink);color:var(--bone);}
 /* Matt's hard limit: no more than ~0.5in (48px) of visible dead space
    inside a box. Every previous pass kept the hero at width:100% and
    tried to fan sparse content out to fill that width - that's what kept
