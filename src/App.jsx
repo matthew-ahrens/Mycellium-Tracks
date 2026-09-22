@@ -275,7 +275,26 @@ function SupplierPicker({ suppliers, value, onChange, onCreate }) {
 }
 
 const days = (iso) => iso ? Math.round((new Date() - new Date(iso + "T12:00:00")) / 86400000) : null;
-const fmt = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "date unknown";
+
+/* Renders per the signed-in user's Settings > Date format preference
+   (profile.date_format: 'MDY' | 'DMY' | 'YMD') - `dateFormat` is threaded
+   down as a real prop from App() (same pattern as unitsPref/displayAmount)
+   rather than read off a module-level variable: React's rules forbid
+   mutating shared module state during render, and syncing it via an
+   effect instead would leave a stale render right after `profile` loads
+   or changes, since nothing would force a re-render once the effect
+   finally caught up. Defaults to 'MDY' so any caller that hasn't been
+   threaded yet still renders something sane instead of crashing. */
+const fmt = (iso, dateFormat = 'MDY') => {
+    if (!iso) return "date unknown";
+    const d = new Date(iso + "T12:00:00");
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    if (dateFormat === 'DMY') return `${dd}/${mm}/${yyyy}`;
+    if (dateFormat === 'YMD') return `${yyyy}-${mm}-${dd}`;
+    return `${mm}/${dd}/${yyyy}`;
+};
 
 /* ================= LAYOUT ================= */
 
@@ -381,6 +400,11 @@ export default function App() {
     const [profile, setProfile] = useState(null);
     const [accountOpen, setAccountOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
+
+    // Threaded down to every component that calls fmt() - see fmt()'s own
+    // comment at the top of the file for why this is a prop, not a module
+    // variable synced via effect.
+    const dateFormat = profile?.date_format || 'MDY';
 
     /* Resolved signed URL for profile.avatar_url - a private storage path
        in the same 'photos' bucket as item/equipment photos, but not a row
@@ -1661,7 +1685,7 @@ export default function App() {
                 .sort((a, b) => a.printed.localeCompare(b.printed));
             screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens this unit, and once it's inoculated into a culture, follows through to that item automatically - no reprint needed."
-                onClose={() => setPrinting(null)} />;
+                onClose={() => setPrinting(null)} dateFormat={dateFormat} />;
         } else if (printing.kind === 'item') {
             const candidates = printing.ids
                 .map((id) => items.find((i) => i.id === id)).filter(Boolean)
@@ -1669,7 +1693,7 @@ export default function App() {
                 .sort((a, b) => a.printed.localeCompare(b.printed));
             screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens straight to that item."
-                onClose={() => setPrinting(null)} />;
+                onClose={() => setPrinting(null)} dateFormat={dateFormat} />;
         } else if (printing.kind === 'lot') {
             const candidates = printing.ids
                 .map((id) => lots.find((l) => l.id === id)).filter(Boolean)
@@ -1677,7 +1701,7 @@ export default function App() {
                 .sort((a, b) => a.printed.localeCompare(b.printed));
             screen = <PrintLabels candidates={candidates}
                 subtitle="each QR opens straight to that lot."
-                onClose={() => setPrinting(null)} />;
+                onClose={() => setPrinting(null)} dateFormat={dateFormat} />;
         } else {
             // 'queue' - added to from across the app (Detail/Tree/Stock/
             // Harvests's "+ Queue" buttons); order follows queue insertion
@@ -1700,7 +1724,7 @@ export default function App() {
             const candidates = printQueue.map((e) => byKey.get(`${e.kind}:${e.id}`)).filter(Boolean);
             screen = <PrintLabels candidates={candidates}
                 subtitle="your print queue, added from across the app - each QR still opens the right thing, item, stock unit, or lot."
-                onClose={() => setPrinting(null)}
+                onClose={() => setPrinting(null)} dateFormat={dateFormat}
                 onRemove={removeFromPrintQueue}
                 onPrinted={(printed) => setPrintQueue((prev) =>
                     prev.filter((e) => !printed.some((p) => p.kind === e.kind && p.id === e.id)))} />;
@@ -1735,7 +1759,7 @@ export default function App() {
             photos={photos} photoUrl={photoUrl} onAddPhoto={addPhoto} onDeletePhoto={deletePhoto} onEditPhoto={editPhoto}
             onBumpEquipQty={bumpEquipmentQty}
             onAddSupplier={addSupplier} onEditSupplier={editSupplier} onDeleteSupplier={deleteSupplier}
-            onGetOrCreateSupplier={getOrCreateSupplier} />;
+            onGetOrCreateSupplier={getOrCreateSupplier} dateFormat={dateFormat} />;
     } else if (section === 'reference') {
         key = 'reference';
         screen = <ReferenceSection library={library} librarySpecies={librarySpecies} species={species} initialOpenId={referenceTab}
@@ -1751,11 +1775,11 @@ export default function App() {
                 onProcess={processLot} onLoss={logLoss} onSave={saveLotFields} onDelete={deleteLot}
                 onEditLink={editLotLink} onDeleteLink={deleteLotLink}
                 onPrintLot={(id) => setPrinting({ kind: 'lot', ids: [id] })}
-                onQueueLot={(id) => addToPrintQueue('lot', id)} />
+                onQueueLot={(id) => addToPrintQueue('lot', id)} dateFormat={dateFormat} />
             : <Inventory lots={lots} lotLinks={lotLinks} items={items} genetics={genetics} species={species}
                 remaining={lotRemaining} onOpen={openLotById} onAddManual={addManualLot}
                 onPrintLot={(id) => setPrinting({ kind: 'lot', ids: [id] })}
-                onQueueLot={(id) => addToPrintQueue('lot', id)} />;
+                onQueueLot={(id) => addToPrintQueue('lot', id)} dateFormat={dateFormat} />;
     } else if (section === 'data') {
         key = 'data';
         screen = <DataTab items={items} genetics={genetics} species={species} suppliers={suppliers} />;
@@ -1770,7 +1794,7 @@ export default function App() {
             onGetOrCreateSupplier={getOrCreateSupplier}
             photos={photos} photoUrl={photoUrl} addPhoto={addPhoto} deletePhoto={deletePhoto} editPhoto={editPhoto}
             onPrintLabel={() => setPrinting({ kind: 'item', ids: [open] })}
-            onQueueLabel={() => addToPrintQueue('item', open)} unitsPref={profile?.units_pref ?? 'adaptive'} />;
+            onQueueLabel={() => addToPrintQueue('item', open)} unitsPref={profile?.units_pref ?? 'adaptive'} dateFormat={dateFormat} />;
     } else if (nav.level === 'tree') {
         key = 'tree-' + nav.speciesId;
         screen = <Tree items={mine} lines={lines} species={sp} library={library} librarySpecies={librarySpecies} onOpen={openItemById} photos={photos} stock={stock}
@@ -1781,7 +1805,7 @@ export default function App() {
             onAddLine={(fields, firstType, stockId) => addGenetics(nav.speciesId, fields, firstType, stockId)}
             onEditLine={saveGeneticsFields} onDeleteLine={deleteGenetics} onToggleLineHidden={toggleGeneticsHidden}
             onEditSpecies={saveSpeciesFields} onToggleHidden={toggleSpeciesHidden} onDeleteSpecies={deleteSpecies}
-            onBack={() => go({ level: 'species', speciesId: null }, 'back')} unitsPref={profile?.units_pref ?? 'adaptive'} />;
+            onBack={() => go({ level: 'species', speciesId: null }, 'back')} unitsPref={profile?.units_pref ?? 'adaptive'} dateFormat={dateFormat} />;
     } else {
         key = 'species';
         screen = <SpeciesGrid species={species} genetics={genetics} items={items}
@@ -2160,7 +2184,7 @@ function SettingsPanel({ profile, onSave, onBack }) {
 
             <div className="acct-card">
                 <div className="acct-section-title">Date format</div>
-                <div className="acct-hint"><strong>Saved here, not applied anywhere yet</strong> - same follow-up pass as Units above.</div>
+                <div className="acct-hint">Applies to every date shown across the app.</div>
                 <select value={dateFormat}
                     onChange={(e) => { setDateFormat(e.target.value); save({ date_format: e.target.value }); }}>
                     <option value="MDY">MM/DD/YYYY</option>
@@ -2804,7 +2828,7 @@ function lotSpeciesNames(lotId, lots, lotLinks, items, genetics, species, seen =
     return [...names];
 }
 
-function LotCard({ lot, rem, sp, onOpen, onPrintLot, onQueueLot }) {
+function LotCard({ lot, rem, sp, onOpen, onPrintLot, onQueueLot, dateFormat }) {
     const pct = lot.amount_g ? (rem / lot.amount_g) * 100 : 0;
     const used = rem <= LOT_EPS;
     return (
@@ -2821,7 +2845,7 @@ function LotCard({ lot, rem, sp, onOpen, onPrintLot, onQueueLot }) {
                 <span> / {fmtG(lot.amount_g, lot.form)} g</span>
             </div>
             {!used && <div className="lot-bar"><div className="lot-bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></div>}
-            {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on)}</div>}
+            {lot.harvested_on && <div className="lot-date">{fmt(lot.harvested_on, dateFormat)}</div>}
             {/* Own click handler stops propagation so tapping Print/Queue
                 doesn't also fire the card's onOpen underneath it - see the
                 2026-09-22 layout-bug note on .pl-icon-row for why this
@@ -3110,7 +3134,7 @@ function SearchBox({ items, genetics, species, lots, lotLinks, library, libraryS
     );
 }
 
-function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen, onAddManual, onPrintLot, onQueueLot }) {
+function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen, onAddManual, onPrintLot, onQueueLot, dateFormat }) {
     const [formFilter, setFormFilter] = useState('all');
     const [hideUsed, setHideUsed] = useState(true);
     const [adding, setAdding] = useState(false);
@@ -3200,7 +3224,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
                 {visible.map(({ lot, rem }) => (
                     <LotCard key={lot.id} lot={lot} rem={rem}
                         sp={lotSpeciesNames(lot.id, lots, lotLinks, items, genetics, species)}
-                        onOpen={onOpen} onPrintLot={onPrintLot} onQueueLot={onQueueLot} />
+                        onOpen={onOpen} onPrintLot={onPrintLot} onQueueLot={onQueueLot} dateFormat={dateFormat} />
                 ))}
             </div>
         </div>
@@ -3209,7 +3233,7 @@ function Inventory({ lots, lotLinks, items, genetics, species, remaining, onOpen
 
 /* ---------------- LOT DETAIL ---------------- */
 
-function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete, onEditLink, onDeleteLink, onPrintLot, onQueueLot }) {
+function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining, onBack, onOpen, onProcess, onLoss, onSave, onDelete, onEditLink, onDeleteLink, onPrintLot, onQueueLot, dateFormat }) {
     const lot = lots.find((l) => l.id === lotId);
     const [editing, setEditing] = useState(false);
     const [f, setF] = useState({});
@@ -3274,7 +3298,7 @@ function LotDetail({ lots, lotLinks, lotId, items, genetics, species, remaining,
                 ) : (
                     <div className="head-read">
                         <h1 className="d-id" style={{ fontFamily: 'var(--serif)', fontSize: 25 }}>{lot.label || 'Untitled lot'}</h1>
-                        <div className="d-sub">{LOT_FORMS[lot.form] ?? lot.form} · {sp.length ? sp.join(' + ') : 'unknown origin'}{lot.harvested_on ? ` · ${fmt(lot.harvested_on)}` : ''}</div>
+                        <div className="d-sub">{LOT_FORMS[lot.form] ?? lot.form} · {sp.length ? sp.join(' + ') : 'unknown origin'}{lot.harvested_on ? ` · ${fmt(lot.harvested_on, dateFormat)}` : ''}</div>
                     </div>
                 )}
                 {!editing && (
@@ -3649,7 +3673,7 @@ const EQUIP_STATUS = {
     wishlist: { label: 'Wishlist', tone: 'slate' },
 };
 
-function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpQty, initialOpenId }) {
+function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpQty, initialOpenId, dateFormat }) {
     const blank = { name: '', category: '', status: 'active', quantity: '', notes: '' };
     const [form, setForm] = useState(null);
     const [f, setF] = useState(blank);
@@ -3705,7 +3729,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
 
                     {form !== 'new' && (
                         <PhotoStrip attach={{ equipmentId: form }} photos={photos.filter((p) => p.equipment_id === form)}
-                            photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDeletePhoto} onEdit={onEditPhoto} label="Photo (optional)" />
+                            photoUrl={photoUrl} onAdd={onAddPhoto} onDelete={onDeletePhoto} onEdit={onEditPhoto} label="Photo (optional)" dateFormat={dateFormat} />
                     )}
 
                     <div className="edit-row">
@@ -3795,7 +3819,7 @@ const STOCK_KIND_RECIPE_CATEGORY = {
 const stockUsableFor = (stockKind, itemType) =>
     STOCK_KIND_RECIPE_CATEGORY[stockKind] === STOCK_KIND_RECIPE_CATEGORY[itemType];
 
-function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onQueueStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier }) {
+function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete, onPrintStock, onQueueStock, onOpenItem, items, initialOpenId, onGetOrCreateSupplier, dateFormat }) {
     const blank = { kind: 'agar', source: 'made', recipe_id: '', supplier_id: '', product_name: '',
         quantity: '1', labels: '', made_or_bought_on: '', status: 'on_hand', notes: '', label: '',
         amount: '', amount_unit: '', new_code: '' };
@@ -4066,7 +4090,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                             <div key={stockBatchKey(first)} className="stock-batch">
                                                 <div className="stock-batch-head">
                                                     <div>
-                                                        <span className="equip-name">{first.made_or_bought_on ? fmt(first.made_or_bought_on) : 'No date logged'}</span>
+                                                        <span className="equip-name">{first.made_or_bought_on ? fmt(first.made_or_bought_on, dateFormat) : 'No date logged'}</span>
                                                         <span className="equip-note">
                                                             {first.source === 'made' ? 'made' : 'bought'}
                                                             {' · '}{onHand.length} of {sorted.length} on hand
@@ -4125,7 +4149,7 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
 function Supplies({ stock, library, species, suppliers, equipment, initialTab, initialOpenId, items,
     onAddStock, onEditStock, onDeleteStock, onPrintStock, onQueueStock, onOpenItem,
     onAddEquip, onEditEquip, onDeleteEquip, photos, photoUrl, onAddPhoto, onDeletePhoto, onEditPhoto, onBumpEquipQty,
-    onAddSupplier, onEditSupplier, onDeleteSupplier, onGetOrCreateSupplier }) {
+    onAddSupplier, onEditSupplier, onDeleteSupplier, onGetOrCreateSupplier, dateFormat }) {
     const [tab, setTab] = useState(initialTab || 'stock');
     return (
         <div className="page">
@@ -4144,11 +4168,11 @@ function Supplies({ stock, library, species, suppliers, equipment, initialTab, i
                 <StockTab stock={stock} library={library} suppliers={suppliers} species={species} items={items}
                     onAdd={onAddStock} onEdit={onEditStock} onDelete={onDeleteStock}
                     onPrintStock={onPrintStock} onQueueStock={onQueueStock} onOpenItem={onOpenItem} initialOpenId={initialOpenId}
-                    onGetOrCreateSupplier={onGetOrCreateSupplier} />
+                    onGetOrCreateSupplier={onGetOrCreateSupplier} dateFormat={dateFormat} />
             ) : tab === 'equipment' ? (
                 <EquipmentTab equipment={equipment} onAdd={onAddEquip} onEdit={onEditEquip} onDelete={onDeleteEquip}
                     photos={photos} photoUrl={photoUrl} onAddPhoto={onAddPhoto} onDeletePhoto={onDeletePhoto} onEditPhoto={onEditPhoto}
-                    onBumpQty={onBumpEquipQty} initialOpenId={initialOpenId} />
+                    onBumpQty={onBumpEquipQty} initialOpenId={initialOpenId} dateFormat={dateFormat} />
             ) : (
                 <SupplierTab suppliers={suppliers} onAdd={onAddSupplier} onEdit={onEditSupplier} onDelete={onDeleteSupplier}
                     initialOpenId={initialOpenId} />
@@ -5631,7 +5655,7 @@ function tileSize(id) {
     return 'big';
 }
 
-function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, onQueueLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier, unitsPref }) {
+function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, onAddLine, onEditLine, onDeleteLine, onToggleLineHidden, onEditSpecies, onToggleHidden, onDeleteSpecies, photos, stock, onPrintLabels, onQueueLabels, photoUrl, onDeletePhoto, onEditPhoto, suppliers, onGetOrCreateSupplier, unitsPref, dateFormat }) {
     const [view, setView] = useState({ x: 0, y: 0, k: 1 });
     const [hover, setHover] = useState(null);
     const [lightbox, setLightbox] = useState(null);
@@ -5994,7 +6018,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                                     <option value="">— not from stock —</option>
                                     {stock.filter((s) => stockUsableFor(s.kind, nf.firstType) && s.status === 'on_hand')
                                         .map((s) => <option key={s.id} value={s.id}>
-                                            {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on)}` : ''}
+                                            {s.label || 'Unlabeled unit'}{s.amount != null ? ` · ${fmtAmount(s.amount, s.amount_unit, unitsPref)}` : ''}{s.made_or_bought_on ? ` · ${fmt(s.made_or_bought_on, dateFormat)}` : ''}
                                         </option>)}
                                 </select>
                             </div>
@@ -6074,7 +6098,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                                     <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} loading="lazy" />
                                     <div className="lc-meta">
                                         <span>{it?.id ?? 'Unlinked'}</span>
-                                        {p.taken_on && <span>{fmt(p.taken_on)}</span>}
+                                        {p.taken_on && <span>{fmt(p.taken_on, dateFormat)}</span>}
                                     </div>
                                 </button>
                             );
@@ -6085,7 +6109,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
             {lightbox && (
                 <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo.storage_path)}
-                    onClose={() => setLightbox(null)} onDelete={onDeletePhoto} onEdit={onEditPhoto}
+                    onClose={() => setLightbox(null)} onDelete={onDeletePhoto} onEdit={onEditPhoto} dateFormat={dateFormat}
                     extra={lightbox.item && <button className="mini ghost" onClick={() => onOpen(lightbox.item.id)}>Open {lightbox.item.id}</button>} />
             )}
         </div>
@@ -6094,7 +6118,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
 
 /* ---------------- DETAIL PAGE ---------------- */
 
-function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel, onQueueLabel, unitsPref }) {
+function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, saveStatus, saveNote, saveHarvest, deleteEvent, deleteHarvest, editEvent, editHarvest, saveItemFields, deleteItem, reparentItem, stock, library, suppliers, onGetOrCreateSupplier, photos, photoUrl, addPhoto, deletePhoto, editPhoto, onPrintLabel, onQueueLabel, unitsPref, dateFormat }) {
     const it = items.find((i) => i.id === id);
     const [picking, setPicking] = useState(false);
     const [pickedType, setPickedType] = useState(null);
@@ -6279,7 +6303,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
             </div>
 
             <PhotoStrip attach={{ itemId: it.uid }} photos={photos.filter((p) => p.item_id === it.uid)}
-                photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} onEdit={editPhoto} />
+                photoUrl={photoUrl} onAdd={addPhoto} onDelete={deletePhoto} onEdit={editPhoto} dateFormat={dateFormat} />
 
             <div className="actions">
                 {/* Only a jar can be drawn from - a syringe isn't decanted
@@ -6444,7 +6468,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                                         ) : (
                                             <tr key={h.lotId ?? h.f}>
                                                 <td>{h.f}</td>
-                                                <td>{fmt(h.date)}</td>
+                                                <td>{fmt(h.date, dateFormat)}</td>
                                                 <td className="num">{h.wet} g</td>
                                                 <td className="x-cell">
                                                     {h.lotId && (
@@ -6477,7 +6501,7 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                         <dt>Amount</dt>
                         <dd>{it.amount != null ? fmtAmount(it.amount, it.amountUnit, unitsPref) : "—"}</dd>
                         <dt>Started</dt>
-                        <dd>{fmt(it.created)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</dd>
+                        <dd>{fmt(it.created, dateFormat)}{days(it.created) !== null ? ` · day ${days(it.created)}` : ""}</dd>
                         <dt>Method</dt>
                         <dd>{it.method
                             ? <>
@@ -6544,12 +6568,12 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                             </li>
                         ) : (
                             <li key={l.id ?? n}>
-                                <span className="log-d">{fmt(l.date)}</span>
+                                <span className="log-d">{fmt(l.date, dateFormat)}</span>
                                 <span className="log-t">{l.body}</span>
                                 {l.id && (
                                     <EventPhotos photos={photos.filter((p) => p.event_id === l.id)} photoUrl={photoUrl}
                                         onAdd={(file) => addPhoto(file, { itemId: it.uid, eventId: l.id })}
-                                        onDelete={deletePhoto} onEdit={editPhoto} />
+                                        onDelete={deletePhoto} onEdit={editPhoto} dateFormat={dateFormat} />
                                 )}
                                 {l.id && (
                                     <button className="log-x" title="Edit this entry"
@@ -6624,7 +6648,7 @@ const DEFAULT_TOP = 0.5, DEFAULT_LEFT = 0.1875, DEFAULT_GAP_X = 0.125, DEFAULT_G
    the print-queue view (see the `printing.kind === 'queue'` branch in the
    render switch) - undefined for the plain single-kind call sites, where
    there's no persistent queue to remove from or clear. */
-function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted }) {
+function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted, dateFormat }) {
     const ckey = (c) => `${c.kind}:${c.id}`;
     const [checked, setChecked] = useState(() => new Set(candidates.map(ckey)));
     const [startAt, setStartAt] = useState(1);
@@ -6737,7 +6761,7 @@ function PrintLabels({ candidates, subtitle, onClose, onRemove, onPrinted }) {
                                         <div className="pl-text">
                                             <span className="pl-id">{item.printed}</span>
                                             {item.sub && <span className="pl-sp">{item.sub}</span>}
-                                            {item.started && <span className="pl-date">{fmt(item.started)}</span>}
+                                            {item.started && <span className="pl-date">{fmt(item.started, dateFormat)}</span>}
                                         </div>
                                     </div>
                                 );
@@ -6759,7 +6783,7 @@ const Sec = ({ title, onEdit }) => (
 
 /* ---------------- PHOTOS ---------------- */
 
-function Lightbox({ photo, url, onClose, onDelete, onEdit, extra }) {
+function Lightbox({ photo, url, onClose, onDelete, onEdit, extra, dateFormat }) {
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState({ caption: photo.caption ?? '', taken_on: photo.taken_on ?? '' });
 
@@ -6786,7 +6810,7 @@ function Lightbox({ photo, url, onClose, onDelete, onEdit, extra }) {
                     </div>
                 ) : (
                     <div className="lb-bar">
-                        <span>{photo.taken_on ? fmt(photo.taken_on) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
+                        <span>{photo.taken_on ? fmt(photo.taken_on, dateFormat) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
                         <div>
                             {extra}
                             {onEdit && <button className="mini ghost" onClick={() => { setDraft({ caption: photo.caption ?? '', taken_on: photo.taken_on ?? '' }); setEditing(true); }}>Edit</button>}
@@ -6804,7 +6828,7 @@ function Lightbox({ photo, url, onClose, onDelete, onEdit, extra }) {
    the addPhoto/deletePhoto/editPhoto plumbing that already supports
    photos.event_id, which nothing in the app called with an eventId
    before this. Usually 0 or 1 photo per note, but nothing stops more. */
-function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit }) {
+function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit, dateFormat }) {
     const [lightbox, setLightbox] = useState(null);
     const fileRef = useRef(null);
     const onFile = (e) => {
@@ -6825,7 +6849,7 @@ function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit }) {
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
             {lightbox && (
                 <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)}
-                    onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} />
+                    onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} dateFormat={dateFormat} />
             )}
         </span>
     );
@@ -6837,7 +6861,7 @@ function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit }) {
    Deliberately no `capture` attribute on the file input - that forces
    mobile browsers straight into the camera and hides the "choose from
    library" option, which is exactly what's needed to backlog old photos. */
-function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, label }) {
+function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, label, dateFormat }) {
     const [adding, setAdding] = useState(false);
     const [caption, setCaption] = useState('');
     const [lightbox, setLightbox] = useState(null);
@@ -6875,7 +6899,7 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, la
                         style={{ display: 'none' }} onChange={onFile} />
                 </div>
             )}
-            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} />}
+            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} dateFormat={dateFormat} />}
         </div>
     );
 }
