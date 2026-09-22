@@ -2812,6 +2812,35 @@ const SEARCH_GROUP_CAP = 5;
    for now (see .pl-trigger/.pl-queue), so surfacing this on mobile would
    just be a dead end. Renders nothing once the queue is empty rather
    than sitting there dimmed. */
+/* Printer / "printer with a plus" glyphs for the compact icon-only
+   Print/Queue button pairs on Detail, Tree, and Stock (see .pl-icon-btn
+   below) - Matt's ask 2026-09-22 after the text-label versions kept
+   colliding on the Stock screen (see the .stock-batch-head fix). Same
+   printer glyph as PrintQueueButton's own badge icon, just drawn twice:
+   once plain, once with a small "+" worked into the same viewBox so it
+   still reads as "printing, but the queue variant" at 15px rather than
+   two unrelated icons. */
+function PrinterIcon({ size = 15 }) {
+    return (
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
+        </svg>
+    );
+}
+
+function PrinterQueueIcon({ size = 15 }) {
+    return (
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="5 9 5 2 14 2 14 9" />
+            <path d="M5 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" />
+            <rect x="5" y="14" width="8" height="8" />
+            <path d="M19 13v7M15.5 16.5h7" />
+        </svg>
+    );
+}
+
 function PrintQueueButton({ count, onOpen, className }) {
     if (!count) return null;
     return (
@@ -3937,15 +3966,16 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
                                             </span>
                                         </div>
                                         {onHand.length > 0 && (
-                                            <>
-                                                <button className="mini ghost pl-trigger" onClick={() => onPrintStock(onHand.map((s) => s.id))}>
-                                                    Print labels
+                                            <div className="pl-icon-row">
+                                                <button className="pl-icon-btn pl-trigger" title="Print labels for this batch's on-hand units"
+                                                    onClick={() => onPrintStock(onHand.map((s) => s.id))}>
+                                                    <PrinterIcon />
                                                 </button>
-                                                <button className="mini ghost pl-queue" title="Add this batch's on-hand labels to the print queue instead"
+                                                <button className="pl-icon-btn pl-queue" title="Add this batch's on-hand labels to the print queue instead"
                                                     onClick={() => onQueueStock(onHand.map((s) => s.id))}>
-                                                    + Queue
+                                                    <PrinterQueueIcon />
                                                 </button>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                     <div className="equip-list">
@@ -5658,15 +5688,16 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                     }}>✎ Species</button>
                     <button className="sw" onClick={() => setAddingLine(true)}>+ Add line</button>
                     {items.length > 0 && (
-                        <>
-                            <button className="sw pl-trigger" onClick={() => onPrintLabels(items.map((i) => i.id))}>
-                                Print labels
+                        <div className="pl-icon-row">
+                            <button className="pl-icon-btn pl-trigger" title="Print labels for every item shown here"
+                                onClick={() => onPrintLabels(items.map((i) => i.id))}>
+                                <PrinterIcon />
                             </button>
-                            <button className="sw ghost pl-queue" title="Add every item shown here to the print queue instead - print it later alongside other labels"
+                            <button className="pl-icon-btn pl-queue" title="Add every item shown here to the print queue instead - print it later alongside other labels"
                                 onClick={() => onQueueLabels(items.map((i) => i.id))}>
-                                + Queue
+                                <PrinterQueueIcon />
                             </button>
-                        </>
+                        </div>
                     )}
                     <button className="sw" onClick={fit}>Fit</button>
                     <button className="sw" onClick={() => onToggleHidden(species.id, !species.hidden)}>
@@ -6106,8 +6137,10 @@ function Detail({ items, id, culture, onBack, onOpen, addChild, drawSyringes, sa
                     <>
                         <button className="edit-btn" title="Edit label, type, form, amount, method, vendor, start date, substrate"
                             onClick={() => { setF({ id: it.id, type: it.type, form: it.form ?? "", amount: it.amount ?? "", amountUnit: it.amountUnit ?? "", method: it.method ?? "", methodNote: it.methodNote ?? "", created: it.created ?? "", parent: it.parent ?? "", supplierId: it.supplierId ?? "", substrate: it.substrate ?? "", dryWeight: it.dryWeight ?? "" }); setEditHead(true); }}>✎</button>
-                        <button className="sw pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}>Print label</button>
-                        <button className="sw ghost pl-queue" title="Add to the print queue instead - print it later alongside other labels" onClick={onQueueLabel}>+ Queue</button>
+                        <div className="pl-icon-row">
+                            <button className="pl-icon-btn pl-trigger" title="Print a QR sticker for this item" onClick={onPrintLabel}><PrinterIcon /></button>
+                            <button className="pl-icon-btn pl-queue" title="Add to the print queue instead - print it later alongside other labels" onClick={onQueueLabel}><PrinterQueueIcon /></button>
+                        </div>
                         <span className="pill" style={{ background: tone, color: 'var(--panel)' }}>{st.label}</span>
                     </>
                 )}
@@ -6952,6 +6985,23 @@ const CSS = `
 .equip-side{display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
 .stock-batch{margin-bottom:20px;padding-bottom:2px;}
 .stock-batch-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:14px 0 8px;flex-wrap:wrap;}
+/* Compact icon-only Print/Queue button pair, shared by Detail, Tree, and
+   Stock's per-batch row (see PrinterIcon/PrinterQueueIcon above SearchBox).
+   Grouping them in .pl-icon-row keeps them paired as ONE flex child
+   wherever they sit next to other space-between siblings - on
+   .stock-batch-head specifically, two ungrouped buttons used to become a
+   THIRD sibling alongside the batch-info div, which flexbox then spread
+   evenly across the row instead of keeping the pair pinned to the right
+   (found by Matt 2026-09-22: "the original print button is getting
+   pulled way out to the middle"). Same fix incidentally also shrank the
+   buttons themselves, per Matt's request the same day, from full
+   text labels down to two 28px icon squares. */
+.pl-icon-row{display:flex;gap:6px;flex:0 0 auto;}
+.pl-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border-radius:8px;cursor:pointer;flex:0 0 auto;transition:border-color .15s,color .15s;}
+.pl-icon-btn.pl-trigger{background:var(--panel2);border:1px solid var(--line);color:var(--bone);}
+.pl-icon-btn.pl-trigger:hover{border-color:var(--amber);color:var(--amber);}
+.pl-icon-btn.pl-queue{background:none;border:1px solid var(--line);color:var(--dim);}
+.pl-icon-btn.pl-queue:hover{border-color:var(--amber);color:var(--amber);}
 .stock-batch-head .equip-name{font-family:var(--serif);font-size:15px;color:var(--ink);white-space:normal;}
 .stock-batch-head .equip-note{display:block;color:var(--ink-dim);white-space:normal;}
 .stock-archive-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);margin:12px 0 6px;}
