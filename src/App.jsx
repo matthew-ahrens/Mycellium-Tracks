@@ -1633,10 +1633,11 @@ export default function App() {
         };
         const lotCandidate = (l) => {
             const spNames = lotSpeciesNames(l.id, lots, lotLinks, items, genetics, species);
+            const weight = `${fmtG(lotRemaining(l.id), l.form)}g`;
             return {
                 id: l.id, kind: 'lot', linkParam: 'lot',
                 printed: l.label || 'Untitled lot',
-                sub: [LOT_FORMS[l.form] ?? l.form, spNames.length ? spNames.join(' + ') : null].filter(Boolean).join(' · '),
+                sub: [weight, LOT_FORMS[l.form] ?? l.form, spNames.length ? spNames.join(' + ') : null].filter(Boolean).join(' · '),
                 started: l.harvested_on,
             };
         };
