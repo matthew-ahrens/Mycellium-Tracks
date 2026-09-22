@@ -139,6 +139,19 @@ function stockBatchKey(s) {
     return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || '', s.made_or_bought_on || ''].join('|');
 }
 
+/* Groups stock units into "the same thing regardless of when it was
+   made" - same kind/source/recipe/supplier/product, date left out on
+   purpose. This is the level Matt actually wants grouped together in
+   the Stock list (2026-09-23: "I just want all the master mix together
+   ... instead of separated by date") - stockBatchKey above nests one
+   level inside this as the per-session (same-day) grouping, so two
+   Master Mix sessions made a week apart still land under one shared
+   "Master Mix" heading instead of becoming two unrelated top-level
+   groups sorted apart by date. */
+function stockProductKey(s) {
+    return [s.kind, s.source, s.recipe_id || '', s.supplier_id || '', s.product_name || ''].join('|');
+}
+
 /* Auto-numbers a batch of new stock units as {KIND_TAG}-{code}{NN}, e.g.
    TUB-MM03. Scans existing stock labels sharing the same prefix for the
    highest number in use, then counts up from there - same self-healing
@@ -3968,96 +3981,124 @@ function StockTab({ stock, library, suppliers, species, onAdd, onEdit, onDelete,
             {form === 'new' && formPanel}
 
             {Object.keys(kindGroups).sort().filter((k) => !kindFilter || k === kindFilter).map((k) => {
-                const batches = {};
-                kindGroups[k].forEach((s) => { (batches[stockBatchKey(s)] ||= []).push(s); });
-                const batchList = Object.values(batches).sort((a, b) =>
-                    (b[0].made_or_bought_on ?? '').localeCompare(a[0].made_or_bought_on ?? ''));
+                /* Two levels: product (same recipe/supplier/product -
+                   "all the Master Mix together," Matt's ask 2026-09-23) is
+                   the outer grouping now, with session (the old top-level
+                   grouping - same day's Add-stock submission, via
+                   stockBatchKey) nested inside it. A session still shows
+                   its own date and still gets its own Print/Queue and
+                   active/done split exactly as before - it just no longer
+                   splits its product apart from every other session of
+                   the same thing. */
+                const products = {};
+                kindGroups[k].forEach((s) => { (products[stockProductKey(s)] ||= []).push(s); });
+                const productList = Object.values(products).sort((a, b) => {
+                    const latest = (arr) => arr.reduce((m, s) => ((s.made_or_bought_on ?? '') > m ? (s.made_or_bought_on ?? '') : m), '');
+                    return latest(b).localeCompare(latest(a));
+                });
 
                 return (
                     <div key={k}>
                         <div className="sec" style={{ marginTop: 22 }}><span>{STOCK_KIND[k]}</span></div>
-                        {batchList.map((units) => {
-                            const sorted = [...units].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
-                            const first = sorted[0];
-                            const onHand = sorted.filter((s) => s.status === 'on_hand');
-
-                            /* A unit whose item is done (retired/contaminated/
-                               failed/consumed - see DONE_ITEM_STATUSES) isn't
-                               going back into rotation 9 times out of 10, so
-                               it's a record now, not something to hunt through
-                               active stock for. */
-                            const madeIntoFor = (s) => s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
-                            const isDone = (s) => DONE_ITEM_STATUSES.includes(madeIntoFor(s)?.status);
-                            const withIdx = sorted.map((s, i) => ({ s, i }));
-                            const activeUnits = withIdx.filter(({ s }) => !isDone(s));
-                            const doneUnits = withIdx.filter(({ s }) => isDone(s));
-
-                            const renderUnit = ({ s, i }) => {
-                                const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
-                                const madeInto = madeIntoFor(s);
-                                const done = isDone(s);
-                                return (
-                                    <div key={s.id}>
-                                    <div className={`equip-row${done ? ' done' : ''}`}>
-                                        <button className="equip-row-main" onClick={() => {
-                                            setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
-                                                supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
-                                                quantity: '1', labels: '',
-                                                label: s.label ?? '',
-                                                made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
-                                                amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
-                                            setForm(s.id);
-                                        }}>
-                                            <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
-                                            {madeInto && <span className="equip-note">→ became {madeInto.id}</span>}
-                                            <span className={`pill tone-${st.tone}`}>{st.label}</span>
-                                        </button>
-                                        {madeInto && (
-                                            <div className="equip-side">
-                                                <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {form === s.id && formPanel}
-                                    </div>
-                                );
-                            };
+                        {productList.map((productUnits) => {
+                            const sessions = {};
+                            productUnits.forEach((s) => { (sessions[stockBatchKey(s)] ||= []).push(s); });
+                            const sessionList = Object.values(sessions).sort((a, b) =>
+                                (b[0].made_or_bought_on ?? '').localeCompare(a[0].made_or_bought_on ?? ''));
+                            const rep = [...productUnits].sort((a, b) =>
+                                (b.made_or_bought_on ?? '').localeCompare(a.made_or_bought_on ?? ''))[0];
+                            const productOnHand = productUnits.filter((s) => s.status === 'on_hand').length;
 
                             return (
-                                <div key={stockBatchKey(first)} className="stock-batch">
-                                    <div className="stock-batch-head">
-                                        <div>
-                                            <span className="equip-name">{stockLabel(first, library, suppliers)}</span>
-                                            <span className="equip-note">
-                                                {first.source === 'made' ? 'made' : 'bought'}
-                                                {first.made_or_bought_on ? ` · ${fmt(first.made_or_bought_on)}` : ''}
-                                                {' · '}{onHand.length} of {sorted.length} on hand
-                                            </span>
-                                        </div>
-                                        {onHand.length > 0 && (
-                                            <div className="pl-icon-row">
-                                                <button className="pl-icon-btn pl-trigger" title="Print labels for this batch's on-hand units"
-                                                    onClick={() => onPrintStock(onHand.map((s) => s.id))}>
-                                                    <PrinterIcon />
-                                                </button>
-                                                <button className="pl-icon-btn pl-queue" title="Add this batch's on-hand labels to the print queue instead"
-                                                    onClick={() => onQueueStock(onHand.map((s) => s.id))}>
-                                                    <PrinterQueueIcon />
-                                                </button>
-                                            </div>
-                                        )}
+                                <div key={stockProductKey(rep)} className="stock-product">
+                                    <div className="stock-product-head">
+                                        <span className="equip-name">{stockLabel(rep, library, suppliers)}</span>
+                                        <span className="equip-note">{productOnHand} of {productUnits.length} on hand</span>
                                     </div>
-                                    <div className="equip-list">
-                                        {activeUnits.map(renderUnit)}
-                                    </div>
-                                    {doneUnits.length > 0 && (
-                                        <>
-                                            <div className="stock-archive-label">No longer active</div>
-                                            <div className="equip-list">
-                                                {doneUnits.map(renderUnit)}
+                                    {sessionList.map((units) => {
+                                        const sorted = [...units].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+                                        const first = sorted[0];
+                                        const onHand = sorted.filter((s) => s.status === 'on_hand');
+
+                                        /* A unit whose item is done (retired/contaminated/
+                                           failed/consumed - see DONE_ITEM_STATUSES) isn't
+                                           going back into rotation 9 times out of 10, so
+                                           it's a record now, not something to hunt through
+                                           active stock for. */
+                                        const madeIntoFor = (s) => s.consumed_into_item_id && items.find((it) => it.uid === s.consumed_into_item_id);
+                                        const isDone = (s) => DONE_ITEM_STATUSES.includes(madeIntoFor(s)?.status);
+                                        const withIdx = sorted.map((s, i) => ({ s, i }));
+                                        const activeUnits = withIdx.filter(({ s }) => !isDone(s));
+                                        const doneUnits = withIdx.filter(({ s }) => isDone(s));
+
+                                        const renderUnit = ({ s, i }) => {
+                                            const st = STOCK_STATUS[s.status] ?? STOCK_STATUS.on_hand;
+                                            const madeInto = madeIntoFor(s);
+                                            const done = isDone(s);
+                                            return (
+                                                <div key={s.id}>
+                                                <div className={`equip-row${done ? ' done' : ''}`}>
+                                                    <button className="equip-row-main" onClick={() => {
+                                                        setF({ kind: s.kind, source: s.source, recipe_id: s.recipe_id ?? '',
+                                                            supplier_id: s.supplier_id ?? '', product_name: s.product_name ?? '',
+                                                            quantity: '1', labels: '',
+                                                            label: s.label ?? '',
+                                                            made_or_bought_on: s.made_or_bought_on ?? '', status: s.status, notes: s.notes ?? '',
+                                                            amount: s.amount ?? '', amount_unit: s.amount_unit ?? '' });
+                                                        setForm(s.id);
+                                                    }}>
+                                                        <span className="equip-name">{s.label || `Unit ${i + 1}`}</span>
+                                                        {madeInto && <span className="equip-note">→ became {madeInto.id}</span>}
+                                                        <span className={`pill tone-${st.tone}`}>{st.label}</span>
+                                                    </button>
+                                                    {madeInto && (
+                                                        <div className="equip-side">
+                                                            <button className="mini ghost" onClick={() => onOpenItem(madeInto.id)}>Open {madeInto.id}</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {form === s.id && formPanel}
+                                                </div>
+                                            );
+                                        };
+
+                                        return (
+                                            <div key={stockBatchKey(first)} className="stock-batch">
+                                                <div className="stock-batch-head">
+                                                    <div>
+                                                        <span className="equip-name">{first.made_or_bought_on ? fmt(first.made_or_bought_on) : 'No date logged'}</span>
+                                                        <span className="equip-note">
+                                                            {first.source === 'made' ? 'made' : 'bought'}
+                                                            {' · '}{onHand.length} of {sorted.length} on hand
+                                                        </span>
+                                                    </div>
+                                                    {onHand.length > 0 && (
+                                                        <div className="pl-icon-row">
+                                                            <button className="pl-icon-btn pl-trigger" title="Print labels for this session's on-hand units"
+                                                                onClick={() => onPrintStock(onHand.map((s) => s.id))}>
+                                                                <PrinterIcon />
+                                                            </button>
+                                                            <button className="pl-icon-btn pl-queue" title="Add this session's on-hand labels to the print queue instead"
+                                                                onClick={() => onQueueStock(onHand.map((s) => s.id))}>
+                                                                <PrinterQueueIcon />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="equip-list">
+                                                    {activeUnits.map(renderUnit)}
+                                                </div>
+                                                {doneUnits.length > 0 && (
+                                                    <>
+                                                        <div className="stock-archive-label">No longer active</div>
+                                                        <div className="equip-list">
+                                                            {doneUnits.map(renderUnit)}
+                                                        </div>
+                                                    </>
+                                                )}
                                             </div>
-                                        </>
-                                    )}
+                                        );
+                                    })}
                                 </div>
                             );
                         })}
@@ -7052,6 +7093,16 @@ const CSS = `
 .equip-thumb-empty{border:1px dashed var(--line);}
 .equip-qty{display:flex;align-items:center;gap:6px;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
 .equip-side{display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--line);flex:0 0 auto;}
+/* Product (same recipe/supplier/product regardless of date - "all the
+   Master Mix together") wraps one or more .stock-batch sessions - see
+   stockProductKey and the comment above the Stock render loop. A plain
+   bottom border rather than a full panel, one step lighter than .sec's
+   kind-level header so the hierarchy (kind > product > session) reads
+   at a glance. */
+.stock-product{margin-bottom:24px;}
+.stock-product-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:16px 0 2px;padding-bottom:6px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.stock-product-head .equip-name{font-family:var(--serif);font-size:16px;color:var(--ink);white-space:normal;}
+.stock-product-head .equip-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);}
 .stock-batch{margin-bottom:20px;padding-bottom:2px;}
 .stock-batch-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:14px 0 8px;flex-wrap:wrap;}
 /* Compact icon-only Print/Queue button pair, shared by Detail, Tree, and
