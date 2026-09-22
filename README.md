@@ -1,267 +1,144 @@
-# Mycelium (SporeDesk)
+# SporeDesk (repo: mycelium) - current state
 
-**Start here (fresh session / Claude Code):** this file is current-state
-only - what the app does and how it's built, right now. It is NOT a
-changelog. For history, past bugs, and how a decision got made, see
-`CHANGELOG.md` - don't read that file by default, only pull it up if a task
-needs the backstory. Day-to-day bugs/upgrades in progress, and the beta
-rollout plan (multi-tenant rework, invite codes, feedback strategy -
-decided, not built yet), live in the `sporedesk-backlog.md` and
-`sporedesk-beta-launch-plan.md` docs in the Gourmet Mushrooms claude.ai
-Project, not in this repo. The app is `src/App.jsx` (one big file, ~4900
-lines - every screen is a component in there) plus `src/AuthGate.jsx`
-(login). Supabase project id `pbjgelklvlbzarasjcwt` holds the schema -
-check it directly rather than assuming from this file, since the DB is
-always more current than any doc. Everything below is real and current as
-of 2026-09-07 unless marked otherwise.
+**Start here in a fresh thread.** Current state only, not history. This
+file lives in two places kept identical: the repo's `README.md` and
+`claude/sporedesk-app-context.md` in the Gourmet Mushrooms claude.ai
+Project - update both together. Open work and decisions:
+`claude/sporedesk-roadmap.md` (Project). History: the repo's
+`CHANGELOG.md` (load only when backstory matters). The Supabase DB
+(`pbjgelklvlbzarasjcwt`) is always more current than any doc - check it
+directly. Code: `E:\Projects\mycelium` - `src/App.jsx` (~7,200 lines,
+every screen is a component in it) plus `src/AuthGate.jsx` (auth).
+Updated 2026-09-22.
 
-Lineage and inventory tracker for mushroom cultivation. Deployed at
-mycellium-tracks.vercel.app, gated behind sign-in. Also ships as a native
-Windows desktop app (Electron) and is installable as a home-screen PWA on
-mobile - same code, same Supabase backend for all three.
+Lineage and inventory tracker for mushroom cultivation. Live at
+mycellium-tracks.vercel.app (planned move to app.sporedesk.com - the
+vercel.app URL must keep working, printed QR labels encode it). Same code
+ships as the web app, a home-screen PWA, and an Electron Windows app, all
+on one Supabase backend.
 
 ## Data model
 
-Three layers:
-
-- **Cultures** — descending tree, one parent per item.
-  `species` -> `genetics` (one per acquisition) -> `items` (physical containers)
-- **Inventory** — merging/splitting graph. Everything enters as a wet harvest.
-  `lots` + `lot_links` (many parents, many children)
-- **Library** — reference, stock, equipment, suppliers, recipes. Flat, no
-  relation to the cultivation graph.
-- **Photos** — attach to an item, to equipment, to a specific history
-  event, or to nothing (plain gallery upload). Private Supabase Storage
-  bucket, signed URLs.
+- **Cultures** - tree, one parent per item: `species` -> `genetics` (one per
+  acquisition) -> `items` (physical containers), history in `item_events`.
+- **Harvests** - merge/split graph: `lots` + `lot_links`. Every harvest
+  becomes a wet lot.
+- **Library** - `library` (recipes + reference notes, species tags via
+  `library_species`, `general` flag), `stock`, `equipment`, `suppliers`.
+- **Photos** - private bucket, signed URLs (6hr); attach to an item,
+  equipment, a history event, or nothing.
+- **Account** - `profiles` (display name, avatar, default tab, units, date
+  format), `app_config` (beta code).
 
 Rules:
+- New container = new node; same container aging = status change.
+- Two purchases from one vendor = two genetics records.
+- Lot remaining amounts are derived, never stored.
+- Notes live where the fact lives: strain on genetics, container on item,
+  species-wide on species.
+- Contamination and failure are separate statuses, each needs a reason.
+- **Item labels are the client-side id** (string match) - keep them unique
+  per genetics line when editing by hand; `addChild` only guards the UI.
+- **Multi-tenant**: every user-owned table and the photos bucket has
+  `user_id` + `user_id = auth.uid()` RLS (`ad98d1d`). Direct SQL inserts
+  must set `user_id` or the rows are invisible. All data tables are
+  `ON DELETE RESTRICT` from `auth.users`.
+- **`items.amount`/`amount_unit` is a recorded note, never a calculation.**
+  Nothing decrements or rolls up; hand-edit it after a spill or overdraw.
+  Don't wire it into `lots`/`lot_links`.
+- **Item provenance** (`items.source` made/bought + `items.supplier_id`) is
+  about the *culture*, not the container: bought agar/AIO/Master's Mix that
+  Matt inoculated himself is still `made`. Bought *media* is `stock`'s job.
 
-- New container = new node. Same container aging = status change.
-- A genetics record is one traceable acquisition. Two purchases from the
-  same vendor are two records, because the genetics can't be verified.
-- Splitting/merging a lot leaves the parent's ID intact and decrements its
-  remaining amount (derived, never stored). Children record how much they
-  took via `lot_links`.
-- Notes go where the fact lives: strain behaviour on the genetics line,
-  container specifics on the item, species-wide parameters on the species.
-- Contamination and failure are separate statuses, each requiring a reason,
-  so contamination rate stays a real number.
-- Item labels double as the app's client-side id, matched by string
-  equality (not a stable UID) - **when adding items or fixing data by
-  hand, labels must stay unique per genetics line.** `addChild` enforces
-  this in code; direct SQL edits don't get that check for free.
-- Single-user app. RLS policies check "is someone logged in," not per-row
-  ownership — correct for one person, would need `user_id` columns if this
-  ever supported more than one grower. A real multi-tenant rework is
-  planned for the upcoming beta (see `sporedesk-beta-launch-plan.md` in
-  the Project) - decided, not built yet.
+## Items: type, form, method
 
-## Built
+- **`type`** is what it is (agar, lc, grain, bulk, block, cake, spores...).
+- **`form`** is the vessel *within* a type: `lc` = jar/syringe, `agar` =
+  plate/slant. A drawn syringe is still `type='lc'`, so every "inoculate
+  from LC" path keeps working. Labels key off form (`FORM_CODE`/`codeFor`),
+  so a syringe reads `BO-SY1`. Making these `type` values was tried and
+  rejected - see CHANGELOG before re-proposing.
+- **Draw syringes** on an LC jar creates N syringe children in one shot.
+  **The jar survives** (keeps its status, can be drawn from again; retiring
+  is manual). Syringes inherit `colonized` if the jar is, else
+  `colonizing`. Can also insert a syringe between the jar and its existing
+  children. `drawSyringes` is deliberately not a loop over `addChild` (see
+  CHANGELOG). Syringe edges render dotted (`.hypha.drawn`).
+- **`method`** is how it was started, stored on the child. Options key off
+  the *parent's* type (`METHODS`/`methodsFor`): block/monotub -> fruit
+  clone / block tissue; agar -> wedge transfer; lc -> inoculation; grain ->
+  grain transfer; spores -> germination; no parent -> purchased / spore
+  print. Every list ends in `other` + `method_note`. Syringes get none.
 
-**Cultures** — species grid -> parallel-tree screen -> item detail. Full
-CRUD: add/edit species, add/edit genetics lines, add/edit/delete/reparent
-items, inoculate-from (including "inoculate from on-hand stock," see
-Supplies below). Species and genetics lines can each be hidden or, once
-nothing depends on them, really deleted (species: blocked if culture
-lines or library entries are tagged to it; genetics: blocked if it has
-any containers under it) - deletes use a 5s undo-timer, not an immediate
-confirm(). Status includes contamination/failure with required reason
-(preset chips + free text, prefilled with the existing reason on re-edit,
-blank only on a genuine status change). History entries and harvest rows
-fully editable/deletable in place. BE% calculated live. Mycelial top-down
-tree, pan/zoom, hover lights ancestry back to origin.
+## Screens (nav: Cultivation, Harvests, Supplies, Library, Data)
 
-**Inventory** — every logged harvest becomes a wet lot automatically.
-Process (transform/merge/split are one action), write-off (eaten/given
-away/sampled/lost), manual lot entry for material with no clean paper
-trail, full lineage view (made-from / went-into) with inline edit/delete
-on individual `lot_links` (capped against what the source lot actually
-has free). Harvest lots' amount, species, and notes are all editable
-in place from the header form, not just label/form/date.
+- **Cultivation** - species grid -> pan/zoom lineage tree (hover lights
+  ancestry) -> item detail. Full CRUD, inoculate-from (including from a
+  specific stock unit), hide/delete species and genetics (delete blocked if
+  anything depends on it, 5s undo), status with required reason (prefilled
+  on re-edit), editable history and flushes, live BE%, lineage photo mosaic
+  under the tree. Species quick-add templates for 12 common species.
+- **Harvests** - lots from harvests, process/merge/split/write-off, lineage
+  view with editable `lot_links`, editable amount/species/notes.
+- **Supplies** - **Stock**: one row per physical unit (plate/jar/bag), own
+  label (auto-numbered `KIND-CODE##` from `STOCK_KIND_TAG` + the recipe's or
+  supplier's `label_prefix`), status, weight, link to the item it became
+  (`consumed_into_item_id`); grouped by kind -> product -> dated session.
+  Made (recipe, filtered by kind) or bought (supplier or product name).
+  **Equipment** (category, status, quantity, photo) and **Suppliers**
+  (rated, website).
+- **Library** - one filterable feed of recipes, reference notes, and
+  species cheat-sheet cards (Type/Category/Species dropdowns). Recipes have
+  a live batch scaler; procedural notes render as tap-to-check checklists
+  saved on the row (`library.steps`/`checklist_checked`). Cheat-sheet cards
+  read/edit the species row directly. Calculators live here too (spawn
+  ratio, hydration, BE, dry yield from `species.dry_yield_pct` or a labeled
+  10% average, unit and grain conversions). Capsule blends have their own
+  per-capsule math.
+- **Data** - success/fail via `itemOutcome()` (type-aware rules),
+  live counts, contamination/failure breakdown from full log history,
+  colonization speed, storage by species (`Stored` status).
+- **Search** - live dropdown (sidebar/header), client-side over loaded
+  state, jumps straight to the matched record.
+- **Account / Settings** - overlays. Real: name, avatar, password, sign
+  out, default tab, units (Metric/Imperial/Adaptive), date format (all
+  dates go through `fmt()`). Placeholders: visibility, shared refs, AI
+  connector, notifications, ToS links. Delete account and Erase all
+  content: UI only, inert.
+- **Page state** - section/nav/open item/open lot survive a same-tab
+  refresh via sessionStorage; a new tab lands on the default tab. Deep
+  links and the logo still win. The print queue clears on refresh on
+  purpose.
+- **QR labels** - items (`?item=`), stock (`?stock=`, follows through to
+  the item once consumed), lots (`?lot=`, leads with remaining weight).
+  Avery 5160 3x10 sheets, error correction `Q`, start-at-label,
+  cross-screen print queue. **Desktop only** - hidden under 760px (iOS
+  ignores print CSS) via compound `.pl-icon-btn.pl-trigger/.pl-queue`
+  selectors so later CSS can't un-hide them.
 
-**Supplies** (Stock, Equipment, Suppliers - "what do I have, or where do I
-get it"):
-- **Stock** — sterile-but-uninoculated inventory: agar plates, LC jars,
-  grain spawn bags, bulk substrate bags/blocks, AIO bags. Every row is one
-  physical unit (a specific plate/jar/bag, not an aggregate count) - its
-  own optional label (e.g. "LC10"), its own status (on hand/used/
-  contaminated/discarded), and once consumed, a direct link to which
-  culture it became (cleared automatically if status is edited back away
-  from "used"). "Add stock" logs a whole batch at once (how many, from
-  what recipe/supplier, when); the screen groups units back into that
-  batch for display by shared metadata, no stored batch id. Either
-  `source='made'` (linked to a Recipe, filtered to the recipe category
-  matching the stock's kind) or `source='bought'` (linked to a Supplier).
-  Saving requires enough identifying info to tell a unit apart later - a
-  made unit needs a recipe, a bought unit needs a supplier or product
-  name. Optional species tag. Feeds into Cultures as "made from on-hand
-  stock" when starting or continuing a line - picking a unit there
-  selects the exact physical container, not just "one of however many."
-  Stock units are also printable (see QR label printing below) - a label
-  printed while a unit is still on hand keeps working, unchanged, after
-  it's inoculated into a culture.
-- **Equipment** — category-grouped, status, optional quantity stepper,
-  optional photo.
-- **Suppliers** — rated, sorted by trust, optional website link.
+## Auth
 
-**Reference** (Recipes + Reference docs, two tabs on one screen - Recipes
-is the default since it gets used more):
-- **Recipes** — structured ingredient rows (amount/unit/name) with a live
-  batch-size scaler (type a target or tap ×2/×3/×5, every ingredient
-  recomputes). Ingredient names autocomplete from ones already used.
-  Covers agar media, LC media, grain spawn (rye, and a separate rye/millet
-  blend), bulk substrate (Masters Mix, Supplemented Hardwood, and a
-  manure-based recipe), casing mixes, and nutrient broth. Every recipe
-  body opens with a "Good for" line naming which species it actually
-  suits, checked against real grow guides rather than assumed - some of
-  that checking overturned a first guess (see CHANGELOG). Grain-spawn and
-  bulk-substrate recipes and their companion Reference notes were synced
-  to corrected guide PDFs 2026-09-06/07 (hydration math and gram weights
-  fixed, plus a real bug: several had the bag-sealing step written
-  *before* sterilizing instead of after cooling, which is what actually
-  causes ballooned/split bags) - pure Supabase data changes, no code
-  involved so nothing here in CHANGELOG.
-- **Reference** — your instruction sheets, general + Cordyceps tagged, plus
-  two additions:
-  - A **species cheat-sheet** grid at the top - fruiting/colonize temp,
-    humidity, FAE, colonize time, pin-to-harvest, and substrate at a
-    glance for every species, pulled straight from that species' own
-    record (`species.fruiting_temp`/`humidity`/`fae`/`colonize_temp`/
-    `colonize_time`/`pin_to_harvest`/`substrate_note`/`notes` - edited
-    from the same Species edit form in Cultures, no separate data entry
-    screen).
-  - Procedural notes (casing layer, cordyceps flat bag tek, dual
-    extraction, and the grain/substrate bag guides) render as tap-to-check
-    step checklists instead of a wall of text, with the original full
-    text still available under a collapsed "Full notes" toggle. Backed by
-    a `library.steps` jsonb column; checked-off progress persists on the
-    row itself (`library.checklist_checked`), so it survives collapsing
-    the card, switching tabs, a reload, or another device.
-  - Species filter chips narrow both the cheat sheet and the how-to list
-    down to one species.
+Email/password, self-serve sign-up gated by one shared beta code in
+`app_config` (`check_beta_code()` pre-check + `enforce_beta_code()` trigger
+backstop - **close enrollment by rotating the code, never blanking it**;
+the trigger lets everything through when the code is NULL). Email
+confirmation ON, forgot-password flow, 8-char+number+special rule.
+Confirmation/reset links need the app URL in Supabase Auth > Redirect
+URLs. Vercel auto-deploys on push to GitHub.
 
-**Capsule blends** — its own recipe category/math, since a capsule's
-per-dose amount is fixed regardless of batch size. Each ingredient is a
-species from the real species list (filtered to non-hidden, like every
-other species picker in the app) plus a dose in mg/capsule. Batch size is
-capsule count, optional spillage buffer %. Shows total mg/capsule against
-a 500mg 00-capsule reference and a live weigh-out table.
+## Platforms
 
-**Vessel forms + drawing syringes** — `items.form` is a vessel *within* a
-type, not a sibling of it: `lc` is jar/syringe, `agar` is plate/slant. A
-drawn syringe is still `type='lc'`, so every "inoculate from LC" path
-keeps working. Labels key off form (`FORM_CODE`/`codeFor`) so a syringe
-reads `BO-SY1`, not `BO-LC2`. Adding these as `items.type` values was
-tried and rejected - see CHANGELOG before re-proposing it.
-
-"Draw syringes" on an LC jar (hidden on syringes) asks how many and how
-much each, then creates them as children in one shot. **The jar
-survives** - keeps its status, can be drawn from again later; retiring is
-always manual. New syringes inherit `colonized` if the jar is, else
-`colonizing`. The dialog can also **insert a syringe between a jar and
-its existing children** (grain often gets logged before the syringe
-does): one dropdown per existing child, hidden when there's nothing to
-move. `drawSyringes` is deliberately not a loop over `addChild` - see
-CHANGELOG for the two bugs that forces.
-
-`items.amount`/`amount_unit` is a **recorded note, never a calculation.**
-Nothing decrements or rolls up; hand-edit it after a spill or overdraw.
-Must not be wired into `lots`/`lot_links`.
-
-Syringe edges on the tree render dotted (`.hypha.drawn`) - decanted, not
-transformed. Node subtitles show the form where one is set.
-
-**How an item was started (`items.method`)** — a third axis, separate
-from `type` (what it is) and `form` (which vessel): a plate off a
-fruiting block could be a clone from a fruit or tissue off the block's
-mycelium, and those have very different success rates. Stored on the
-child, since each item has exactly one parent.
-
-Options key on the **parent's** type (`METHODS`/`methodsFor`), so
-changing the parent changes what's offered - block/monotub → fruit clone
-/ block tissue; agar → wedge transfer; lc → inoculation; grain → grain
-transfer; spores → spore germination; no parent → purchased / spore
-print. Every list ends in `other` + free text (`items.method_note`, its
-own column), cleared automatically when the method isn't `other`. Drawn
-syringes get no method - `form: syringe` already answers it. Renders
-under the item header, e.g. "Clone from fruit from LM-FB1".
-
-**Photos** — upload from item pages, equipment, standalone via Gallery, or
-inline on a specific History log entry (`EventPhotos`, using the
-`photos.event_id` column). Species filter in Gallery. Native
-camera-or-library chooser. Caption and taken-on date are editable in place
-from the shared `Lightbox` component (used consistently by Gallery, Tree,
-and item pages - no more duplicated hand-rolled lightbox markup). Signed
-URLs, 6hr expiry, private bucket.
-
-**Calculators** — spawn ratio (either direction), hydration, BE, dry yield
-estimate (pulls each species' own logged `dry_yield_pct` when set,
-otherwise a clearly-labeled general average - never a fabricated
-per-species number), unit converter, grain weight<->volume (flagged
-approximate).
-
-**QR label printing** — "Print label" (single item, on item detail),
-"Print labels" (whole species, all lines), and "Print labels" (per stock
-batch, on-hand units, in Supplies/Stock) all open the same picker/print
-screen, generalized over what's being printed (`PrintLabels` takes a
-pre-built candidate list + which query param to encode, not items
-directly). Item QRs encode `?item=<label>`; stock unit QRs encode
-`?stock=<id>` - read on app load, both jump straight to their target
-using the deployed production URL so a code always resolves on any
-device, never a local dev URL. A stock unit's link keeps working after
-it's consumed: the deep link follows `consumed_into_item_id` through to
-the resulting item once one exists, no reprint needed. Layout targets
-standard Avery-5160-style 3x10 address labels (2.625"x1", margins
-editable on the print screen), with a "start at label #" field to resume
-a partial sheet. QR error-correction level `Q` (~25% damage tolerance)
-for humid grow-space durability. **Desktop/native app only** - hidden on
-mobile (<760px) since iOS Safari doesn't reliably honor print CSS; see
-CHANGELOG for why.
-
-**Search** — a top-level nav item scanning everything already loaded into
-state at once (items, genetics, species, lots, recipes/reference,
-equipment, suppliers) - client-side, no extra query, since there's no
-pagination to work around. Results are grouped by category, each showing
-which field matched with a short snippet. Clicking a result jumps
-straight to it - items/species open in Cultures, lots open in Inventory,
-everything else lands on the exact matched row in Supplies/Reference via
-a one-shot `initialTab`/`suppliesOpenId` prop those screens accept.
-
-**Lineage photo collage** — every species' Tree page has a mosaic-grid
-photo section below the pan/zoom canvas, covering every photo tied to any
-item in that species' whole lineage (not just one item, and not the flat
-Gallery's uniform cropped-square grid). Tiles span different row/column
-counts on a dense-packed CSS grid, sized by a deterministic hash of the
-photo's id so a given photo's tile size stays stable across reloads.
-Costs cropping (`object-fit:cover`) for the size variety - same tradeoff
-every other photo tile in the app already makes.
-
-**Auth + security** — email/password sign-in, no self-serve sign-up. RLS on
-all tables and the storage bucket. Deployed on Vercel, connected to GitHub
-for auto-deploy on push. Self-serve sign-up gated by a per-tester invite
-code is planned for the beta rollout (see `sporedesk-beta-launch-plan.md`
-in the Project) - decided, not built yet.
-
-**Mobile** — bottom tab-bar nav (thumb reach, no scrolling), safe-area
-support, installable as a home-screen PWA (own icon, no browser chrome) on
-iOS/Android. Print-label buttons hidden here (see above).
-
-**Native Windows desktop app** — Electron wrapper around the same web app.
-`npm run electron:dev` (dev window, live reload), `npm run electron:pack`
-(fast unpacked build for a smoke test), `npm run electron:build` (real NSIS
-installer at `release/SporeDesk Setup <version>.exe`). Not code-signed, so
-SmartScreen flags it as unknown publisher on first run - expected, not a
-bug. **Only build/install/run this from Matt's actual Windows PC, never
-from a Linux shell** - both machines can mount the same folder, and a
-build/install from the wrong OS silently corrupts native binary deps
-(electron, rolldown) for the other side. Code edits (Read/Edit on
-individual files) are fine from either side; running `npm install` or any
-build/dev command is not.
+Mobile: bottom tab bar, safe-area aware, installable PWA. Windows:
+Electron (`npm run electron:dev` / `electron:pack` / `electron:build` ->
+`release/SporeDesk Setup <version>.exe`), unsigned so SmartScreen warns.
+**Only install/build/run from Matt's Windows PC, never a Linux shell** -
+shared folder, wrong-OS installs corrupt native deps. Code edits from
+either side are fine.
 
 ## Visual design
 
-Warm tan/dark-panel with a reishi-lacquer accent. Live in `App.jsx`'s
-`.root` CSS variables and `AuthGate.jsx`.
+Warm tan page, dark panels, reishi-lacquer accent. Tokens in `App.jsx`
+`.root` and `AuthGate.jsx`.
 
 ```
 page bg:      #B3966B      page text:     #2B2013 (headings), #5E4C36 (dim)
@@ -271,92 +148,41 @@ amber:        #D6934A      jade (olive):  #7FA66A      slate: #8A7862
 reishi (wordmark): #6B2717   reishi (status pill fill): #8C3B26
 ```
 
-**The palette has two mirrored halves and they are not interchangeable.**
-`bone`/`dim`/`amber` for anything on a dark panel; `ink`/`ink-dim`/
-`amber-ink` for anything on the tan `--ground`. A chip or button with its
-own `background:var(--panel)` takes the *dark* half even though it sits
-on the tan page. Amber as a *border* is fine on either. Getting this
-wrong doesn't look broken, it looks **absent** - that's how a whole
-"Filter by species" control went unnoticed. Five instances fixed
-2026-09-07; check new rules against this before adding colour.
+**Two mirrored palettes, not interchangeable:** `bone`/`dim`/`amber` for
+anything on a dark panel, `ink`/`ink-dim`/`amber-ink` for anything on the
+tan ground. A chip or button with its own `background:var(--panel)` takes
+the *dark* half even on the tan page. Amber as a border is fine on either.
+Getting it wrong doesn't look broken, it looks invisible. Help text on the
+tan page uses `nf-help-page`. Brand serif: Libre Caslon Display.
 
-Logo assets (glyph/favicon/wordmark/badge) are placeholder art for the
-prototype - a real design pass is planned as its own dedicated chat
-thread later (see `sporedesk-logo-design-brief.md` in the Gourmet
-Mushrooms Project).
+**Logo is placeholder art** (`public/sporedesk-glyph|favicon|wordmark|badge.png`,
+radial mycelium glyph, tagline "CULTIVATED · TRACKED"). A real design pass
+is planned in its own thread. Constraints: legible at 16-32px (favicon,
+app icon); needs light *and* dark variants (the current wordmark is dark
+text and vanishes on dark panels); lean approachable/mobile-first, since
+mobile users are likely the main audience if it launches (Jordan's point).
+Assets are referenced from the favicon link, sidebar brand, sign-in card,
+and two loading screens.
 
-## Decided + schema done, UI not built (2026-09-07)
+## Schema with no UI yet
 
-These DB changes are live in Supabase with no code behind them yet. The
-columns exist; nothing reads or writes them. CHANGELOG has the reasoning.
-
-- **`stock.amount` / `stock.amount_unit`** — per *physical unit*, NOT the
-  recipe's `yield_amount` (that's a batch for agar: 175mL MEA makes ~7
-  plates, so keying off it would report every plate as 175mL). Capture on
-  the "Add stock" form, carry onto `items.amount` when the unit is
-  inoculated. Blank for plates. Until wired, `items.amount` is typed by
-  hand.
-- **`items.source`** (`made`/`bought`) + **`items.supplier_id`** (FK →
-  `suppliers`) — backfilled already. **The rule: provenance of the
-  *culture*, not the container.** Commercial agar plates, AIO bags, and
-  bought Master's Mix that Matt inoculated himself all stay `made` -
-  bought *media* is the `stock` table's job and the two must not collide.
-  Needs a supplier picker on the item form with inline quick-add (name
-  alone is enough; every other supplier column is nullable).
-- **`lots.badge_dismissed_at`** / **`suppliers.badge_dismissed_at`** — one
-  badge meaning "this record has holes in it," only on records
-  side-created from another screen (a harvest logged from Cultures, a
-  supplier quick-added from a picker). Not a "new record" badge:
-  intentional creations don't need flagging, so there's no second colour
-  and no precedence rule. Self-clears when filled; the tap is an
-  "I know, leave it" override. Scoped **off** `items` on purpose. Open:
-  which fields count as holes.
+- **`lots.badge_dismissed_at` / `suppliers.badge_dismissed_at`** - one
+  "this record has holes" badge, only on records side-created from another
+  screen (a harvest logged from Cultivation, a supplier quick-added from a
+  picker). Self-clears when filled; the tap is an "I know" override. Not
+  on `items` on purpose. Open: which fields count as holes.
+- `items.location` (old "Where") and `stock.species_id` - UI removed
+  2026-09-13, columns kept.
 
 ## Known gaps
 
-- Hover-lit lineage path has no touch equivalent (desktop-only).
-- No photo thumbnail on species/genetics tiles - only item pages,
-  equipment rows, and Gallery show images.
-- Harvest event <-> lot links are matched by text in one older code path
-  (`deleteHarvest`), for entries created before the `lot_id` column
-  existed. New harvests are properly linked.
-- Logging a harvest always sets item status to `fruiting` - fine live,
-  needs a manual status fix after back-filling history on a retired item.
-
-## Backlog (bigger ideas without their own doc yet)
-
-Day-to-day bugs/upgrades and the beta/multi-tenant rollout plan both live
-in the claude.ai Project (`sporedesk-backlog.md` and
-`sporedesk-beta-launch-plan.md`), not in this repo. This section is only
-for the smaller loose ideas that don't have a home yet:
-
-- **Species-specific background texture** behind the lineage tree canvas,
-  hinting at that species' real cap surface. Simple procedural SVG pattern
-  is the tractable scope; literal illustrated artwork per species is a
-  much bigger, separate project - decide scope before starting.
-- **Unused sterile media log** distinct from Stock - track agar
-  plates/LC jars made and sitting ready but not yet inoculated into
-  anything, tagged to the recipe that made them.
-- **Raw ingredient inventory**, possibly with brand/product tracking, so
-  recipe ingredients become real on-hand records instead of free text -
-  and potentially tying a specific brand back to results (contamination
-  rate, BE%, yield). Genuinely undecided if this is worth the complexity.
-- **Reimagine the logo** — see Visual design above. Its own dedicated
-  chat thread, not this one.
-- Tiered pricing (free/basic vs. paid) - business-model note only, logged
-  so it isn't lost, nothing to design.
+- Hover-lit lineage has no touch equivalent.
+- No photo thumbnails on species/genetics tiles.
+- `deleteHarvest` matches old pre-`lot_id` harvests by text.
+- Logging a harvest always sets status to `fruiting` - fix by hand after
+  back-filling history on a retired item.
 
 ## Running it
 
-```
-npm run dev
-```
-
-Needs `.env.local` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
-(same values as the Vercel project's environment variables).
-
----
-
-Full history of how each of the above got built, every bug and its root
-cause, and decisions that were considered and set aside lives in
-`CHANGELOG.md`. Load it only when a task actually needs that context.
+`npm run dev` with `.env.local` holding `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` (same as the Vercel env vars). PC only.

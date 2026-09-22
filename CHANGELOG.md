@@ -756,3 +756,18 @@ How logs/beds get *tracked* is still undesigned (see roadmap).
   flags mutating it during render, and syncing via an effect leaves a stale
   render. `dateFormat` is computed once in `App()` and threaded as a prop,
   same pattern as `unitsPref`. Dates now render numeric with year.
+- **Refresh keeps the current page** (`44b1f40`): the mount effect always
+  re-applied `profile.default_section`, and nothing tracked what was open.
+  `section`/`nav`/`open`/`openLot` now round-trip through sessionStorage
+  (one write-back effect, restored via lazy `useState` initializers so the
+  first render is already right). Session-scoped on purpose: a new tab
+  still lands on the default tab. Deep links and the logo still win. The
+  print queue still clears on refresh, per Matt - it's for one sitting.
+- **Print icons reappearing on mobile** (`c5792b6`): the icon redesign added
+  an unconditional `.pl-icon-btn{display:inline-flex}` later in the
+  stylesheet, which beat the mobile hide rule on source order at equal
+  specificity. Hide rule now uses compound `.pl-icon-btn.pl-trigger` /
+  `.pl-icon-btn.pl-queue` (0-2-0) so appending CSS can't undo it.
+- Project docs consolidated 2026-09-22: README.md is mirrored as
+  `claude/sporedesk-app-context.md`; open work lives in
+  `claude/sporedesk-roadmap.md`; this file holds the history.
