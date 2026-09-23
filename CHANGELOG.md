@@ -771,3 +771,9 @@ How logs/beds get *tracked* is still undesigned (see roadmap).
 - Project docs consolidated 2026-09-22: README.md is mirrored as
   `claude/sporedesk-app-context.md`; open work lives in
   `claude/sporedesk-roadmap.md`; this file holds the history.
+- **Terms/Privacy wired into the app**: Account page's Legal card now links
+  to sporedesk.com/terms and /privacy (were inert "coming soon" placeholders).
+  Sign-up gained a required checkbox - "I'm 18 or older and agree to the
+  Terms of Service and Privacy Policy" - which also closes a gap: the app
+  itself had no age gate, only the site's beta application did. Linked,
+  not copied, so the marketing site stays the single source of both docs.

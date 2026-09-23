@@ -366,6 +366,18 @@ export default function AuthGate({ children }) {
 
               <label>Beta code</label>
               <input type="text" value={betaCode} onChange={(e) => setBetaCode(e.target.value)} required />
+
+              {/* Required consent: age gate + agreement to the Terms/Privacy
+                  Policy, which live on the marketing site (single source). */}
+              <label className="auth-consent">
+                <input type="checkbox" required />
+                <span>
+                  I'm 18 or older and agree to the{' '}
+                  <a href="https://sporedesk.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+                  {' '}and{' '}
+                  <a href="https://sporedesk.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                </span>
+              </label>
             </>
           )}
 
@@ -433,6 +445,9 @@ const AUTH_CSS = `
 .auth-error{background:#2E1710;border:1px solid #6B2717;color:#D4886B;font-size:12px;padding:8px 10px;border-radius:8px;}
 .auth-notice{background:#1E2E17;border:1px solid #3A6B27;color:#9AD488;font-size:12px;padding:8px 10px;border-radius:8px;}
 .auth-switch{background:none;border:none;color:#A6927A;font-size:12px;text-decoration:underline;cursor:pointer;padding:4px 0;margin-top:2px;}
+.auth-card label.auth-consent{display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-family:inherit;font-size:12.5px;letter-spacing:normal;text-transform:none;line-height:1.5;color:#D8CDB8;cursor:pointer;}
+.auth-card label.auth-consent input{width:16px;height:16px;padding:0;margin:2px 0 0;flex:none;accent-color:#D6934A;}
+.auth-card label.auth-consent a{color:#D6934A;}
 .pw-strength{display:flex;align-items:center;gap:8px;margin-top:5px;}
 .pw-strength-track{flex:1;height:5px;background:#2F2216;border-radius:3px;overflow:hidden;}
 .pw-strength-fill{height:100%;border-radius:3px;transition:width .15s ease,background .15s ease;}

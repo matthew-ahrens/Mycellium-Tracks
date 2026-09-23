@@ -12,8 +12,9 @@ every screen is a component in it) plus `src/AuthGate.jsx` (auth).
 Updated 2026-09-22.
 
 Lineage and inventory tracker for mushroom cultivation. Live at
-mycellium-tracks.vercel.app (planned move to app.sporedesk.com - the
-vercel.app URL must keep working, printed QR labels encode it). Same code
+app.sporedesk.com (marketing site at sporedesk.com is a separate repo,
+`E:\Projects\sporedesk-site`). mycellium-tracks.vercel.app must keep
+working - printed QR labels encode it. Same code
 ships as the web app, a home-screen PWA, and an Electron Windows app, all
 on one Supabase backend.
 
@@ -28,7 +29,10 @@ on one Supabase backend.
 - **Photos** - private bucket, signed URLs (6hr); attach to an item,
   equipment, a history event, or nothing.
 - **Account** - `profiles` (display name, avatar, default tab, units, date
-  format), `app_config` (beta code).
+  format), `app_config` (beta code), `usage_events` (first-party usage log;
+  powers Home's "most visited").
+- **Beta applications** - `beta_applications`, written by the marketing
+  site's form (insert-only RLS), reviewed in the Supabase dashboard.
 
 Rules:
 - New container = new node; same container aging = status change.
@@ -102,9 +106,9 @@ Rules:
   state, jumps straight to the matched record.
 - **Account / Settings** - overlays. Real: name, avatar, password, sign
   out, default tab, units (Metric/Imperial/Adaptive), date format (all
-  dates go through `fmt()`). Placeholders: visibility, shared refs, AI
-  connector, notifications, ToS links. Delete account and Erase all
-  content: UI only, inert.
+  dates go through `fmt()`), Terms/Privacy links (open sporedesk.com).
+  Placeholders: visibility, shared refs, AI connector, notifications.
+  Delete account and Erase all content: UI only, inert.
 - **Page state** - section/nav/open item/open lot survive a same-tab
   refresh via sessionStorage; a new tab lands on the default tab. Deep
   links and the logo still win. The print queue clears on refresh on
@@ -123,6 +127,8 @@ Email/password, self-serve sign-up gated by one shared beta code in
 backstop - **close enrollment by rotating the code, never blanking it**;
 the trigger lets everything through when the code is NULL). Email
 confirmation ON, forgot-password flow, 8-char+number+special rule.
+Sign-up requires a checkbox: 18+ and agrees to the Terms/Privacy Policy
+(links to sporedesk.com - the site is the single copy of both).
 Confirmation/reset links need the app URL in Supabase Auth > Redirect
 URLs. Vercel auto-deploys on push to GitHub.
 

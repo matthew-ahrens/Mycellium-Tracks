@@ -2131,9 +2131,9 @@ function AccountPanel({ profile, avatarUrl, onSave, onBack }) {
 
             <div className="acct-card">
                 <div className="acct-section-title">Legal</div>
-                <div className="acct-hint">Terms of Service and Privacy Policy - placeholder until the real documents exist.</div>
-                <a className="acct-link" href="#" onClick={(e) => e.preventDefault()}>Terms of Service (coming soon)</a>
-                <a className="acct-link" href="#" onClick={(e) => e.preventDefault()}>Privacy Policy (coming soon)</a>
+                <div className="acct-hint">Opens on sporedesk.com.</div>
+                <a className="acct-link" href="https://sporedesk.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+                <a className="acct-link" href="https://sporedesk.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
             </div>
         </div>
     );
