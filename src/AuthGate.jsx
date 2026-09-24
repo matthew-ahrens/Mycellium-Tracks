@@ -254,7 +254,7 @@ export default function AuthGate({ children }) {
     return (
       <div className="auth-loading">
         <style>{AUTH_CSS}</style>
-        <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="auth-loading-mark" />
+        <img src={`${import.meta.env.BASE_URL}sporedesk-lockup-stacked-light.svg`} alt="SporeDesk" className="auth-loading-mark" />
       </div>
     )
   }
@@ -264,7 +264,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <form className="auth-card" onSubmit={submitNewPassword}>
-          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-plate.svg`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">Set a new password</div>
 
@@ -290,7 +290,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <div className="auth-card">
-          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-plate.svg`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">Confirm your email</div>
           <p className="auth-confirm-text">
@@ -316,7 +316,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <div className="auth-card">
-          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-plate.svg`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">Check your email</div>
           <p className="auth-confirm-text">
@@ -342,7 +342,7 @@ export default function AuthGate({ children }) {
       <div>
         <style>{AUTH_CSS}</style>
         <form className="auth-card" onSubmit={submit}>
-          <img src={`${import.meta.env.BASE_URL}sporedesk-badge.png`} alt="" className="auth-badge" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-plate.svg`} alt="" className="auth-badge" />
           <div className="auth-brand">SporeDesk</div>
           <div className="auth-sub">
             {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create an account - beta' : 'Reset your password'}
@@ -437,7 +437,7 @@ const AUTH_CSS = `
 @keyframes auth-pulse{0%,100%{opacity:.55;transform:scale(.97);}50%{opacity:1;transform:scale(1);}}
 .auth-sub{font-size:12.5px;color:#A6927A;margin-bottom:10px;}
 .auth-confirm-text{font-size:13px;line-height:1.55;color:#D8CDB8;margin:4px 0 6px;}
-.auth-card label{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#A6927A;margin-top:6px;}
+.auth-card label{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#A6927A;margin-top:6px;}
 .auth-card input{background:#2F2216;border:1px solid #4A3826;border-radius:8px;padding:10px 12px;color:#EDE3D0;font-size:13.5px;}
 .auth-card input:focus{outline:none;border-color:#D6934A;}
 .auth-card button[type=submit]{margin-top:14px;background:#D6934A;color:#241811;border:none;border-radius:9px;padding:11px;font-size:13.5px;font-weight:600;cursor:pointer;}

@@ -649,7 +649,7 @@ export default function App() {
       <div className="root">
         <style>{CSS}</style>
         <div className="load-wrap">
-          <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="load-glyph" />
+          <img src={`${import.meta.env.BASE_URL}sporedesk-plate.svg`} alt="" className="load-glyph" />
         </div>
       </div>
     );
@@ -1924,7 +1924,7 @@ export default function App() {
             <style>{CSS}</style>
             <div className="mobile-brand">
                 <div className="mobile-brand-top" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
-                    <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
+                    <img src={`${import.meta.env.BASE_URL}sporedesk-tiny-mark.svg`} alt="" className="brand-icon" />SporeDesk
                     <div className="mobile-brand-icons" onClick={(e) => e.stopPropagation()}>
                     <button className="mb-icon" aria-label="Account"
                         onClick={() => { setPrinting(null); setSettingsOpen(false); setAccountOpen(true); }}>
@@ -1944,7 +1944,7 @@ export default function App() {
             <div className={key === 'home' ? 'shell shell-home' : 'shell'}>
                 {key !== 'home' && (
                 <nav className="side">
-                    <div className="brand" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}><img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk</div>
+                    <div className="brand" onClick={goHome} role="button" tabIndex={0} style={{ cursor: 'pointer' }}><img src={`${import.meta.env.BASE_URL}sporedesk-tiny-mark.svg`} alt="" className="brand-icon" />SporeDesk</div>
                     <div className="side-search">
                         <SearchBox {...searchProps} />
                         <PrintQueueButton count={printQueue.length} onOpen={() => setPrinting({ kind: 'queue' })} />
@@ -2312,7 +2312,7 @@ function SettingsPanel({ profile, onSave, onBack }) {
             </div>
 
             <div className="app-version">
-                <img src={`${import.meta.env.BASE_URL}sporedesk-wordmark.png`} alt="SporeDesk" className="app-version-mark" />
+                <img src={`${import.meta.env.BASE_URL}sporedesk-lockup-stacked-dark.svg`} alt="SporeDesk" className="app-version-mark" />
                 <span>v{APP_VERSION}</span>
             </div>
         </div>
@@ -4584,7 +4584,7 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                 a desktop-width screen. Mobile already has its own logo in
                 .mobile-brand up top, so this is CSS-hidden there. */}
             <div className="home-logo">
-                <img src={`${import.meta.env.BASE_URL}sporedesk-glyph.png`} alt="" className="brand-icon" />SporeDesk
+                <img src={`${import.meta.env.BASE_URL}sporedesk-tiny-mark.svg`} alt="" className="brand-icon" />SporeDesk
             </div>
 
             <div className="bar">
@@ -7011,7 +7011,7 @@ const CSS = `
   --jade:#7FA66A;--clay:#8C3B26;--rust:#A85C35;--slate:#8A7862;
   --ink:#2B2013;--ink-dim:#5E4C36;--border-warm:#5C4630;--muted-warm:#7A6552;--amber-ink:#9C6423;
   --serif:'Libre Caslon Display','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
-  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
   background:var(--ground);color:var(--ink);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;
   /* clip, not hidden - setting overflow-x alone to a non-visible value
