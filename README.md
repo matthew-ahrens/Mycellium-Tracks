@@ -7,9 +7,11 @@ Project - update both together. Open work and decisions:
 `claude/sporedesk-roadmap.md` (Project). History: the repo's
 `CHANGELOG.md` (load only when backstory matters). The Supabase DB
 (`pbjgelklvlbzarasjcwt`) is always more current than any doc - check it
-directly. Code: `E:\Projects\mycelium` - `src/App.jsx` (~7,200 lines,
-every screen is a component in it) plus `src/AuthGate.jsx` (auth).
-Updated 2026-09-22.
+directly. Code: `E:\Projects\mycelium` - `src/App.jsx` (~7,800 lines,
+every screen is a component in it) plus `src/AuthGate.jsx` (auth),
+`src/photoProcessing.js` (upload-time resize/metadata strip) and
+`src/photoUrls.js` (cached signed URLs).
+Updated 2026-09-24.
 
 Lineage and inventory tracker for mushroom cultivation. Live at
 app.sporedesk.com (marketing site at sporedesk.com is a separate repo,
@@ -26,8 +28,15 @@ on one Supabase backend.
   becomes a wet lot.
 - **Library** - `library` (recipes + reference notes, species tags via
   `library_species`, `general` flag), `stock`, `equipment`, `suppliers`.
-- **Photos** - private bucket, signed URLs (6hr); attach to an item,
-  equipment, a history event, or nothing.
+- **Photos** - private bucket, RLS is `owner = auth.uid()` on
+  `storage.objects` (a service-role upload leaves `owner` NULL and
+  silently breaks signed URLs - fix by hand via SQL if that ever
+  happens again, see `scripts/backfill-photos.mjs`). Every upload is
+  three files - thumb (~480px), display (~2048px), original (metadata
+  stripped to capture date + orientation) - tracked as `storage_path`/
+  `thumb_path`/`display_path` on `photos`. Signed URLs are 7-day,
+  cached client-side (`src/photoUrls.js`) instead of re-signed per
+  load. Attach to an item, equipment, a history event, or nothing.
 - **Account** - `profiles` (display name, avatar, default tab, units, date
   format), `app_config` (beta code), `usage_events` (first-party usage log;
   powers Home's "most visited").
@@ -161,14 +170,20 @@ the *dark* half even on the tan page. Amber as a border is fine on either.
 Getting it wrong doesn't look broken, it looks invisible. Help text on the
 tan page uses `nf-help-page`. Brand serif: Libre Caslon Display.
 
-**Logo is placeholder art** (`public/sporedesk-glyph|favicon|wordmark|badge.png`,
-radial mycelium glyph, tagline "CULTIVATED · TRACKED"). A real design pass
-is planned in its own thread. Constraints: legible at 16-32px (favicon,
-app icon); needs light *and* dark variants (the current wordmark is dark
-text and vanishes on dark panels); lean approachable/mobile-first, since
-mobile users are likely the main audience if it launches (Jordan's point).
-Assets are referenced from the favicon link, sidebar brand, sign-in card,
-and two loading screens.
+**Final brand assets, 2026-09-23** (Matt, `8b54d1c`) - real logo/wordmark/
+icon set, replacing the old placeholder art. In-app: `public/sporedesk-
+plate.svg` (loading screen, AuthGate badge on signup/confirm/reset/check-
+email), `public/sporedesk-tiny-mark.svg` (sidebar brand, mobile top bar,
+Home's desktop-width logo), `public/sporedesk-lockup-stacked-light.svg`
+(AuthGate's own loading screen) and `-dark.svg` (Settings version
+footer). Favicons/PWA icons/manifest updated too (`public/favicon*`,
+`apple-touch-icon.png`, `icon-192/512/maskable-512.png`, `og-image.png`),
+plus the Windows build icon (`build/icon.ico`/`.png`). Full kit (app
+store icons, print, social) lives in `New Branded Material/` in the repo
+and as `SporeDesk-Brand-Guide.pdf` in the Gourmet Mushrooms Project.
+Brand serif stays Libre Caslon Display; UI mono is now IBM Plex Mono
+(Google Fonts). **Still open:** the marketing site (`sporedesk-site`)
+hasn't been updated to match yet.
 
 ## Schema with no UI yet
 
