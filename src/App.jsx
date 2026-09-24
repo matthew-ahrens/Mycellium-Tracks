@@ -7736,8 +7736,10 @@ const CSS = `
 .lb-scrim{position:fixed;inset:0;background:rgba(20,14,8,.88);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;animation:pop .18s ease-out;}
 .lb-frame{max-width:min(92vw,760px);max-height:88vh;display:flex;flex-direction:column;background:var(--panel);border-radius:14px;overflow:hidden;border:1px solid var(--line);}
 .lb-img{max-width:100%;max-height:74vh;object-fit:contain;background:#000;}
-.lb-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;font-size:12px;color:var(--dim);}
-.lb-bar div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+.lb-bar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 12px;padding:12px 16px;font-size:12px;color:var(--dim);}
+.lb-bar>span{flex:1 1 auto;}
+.lb-bar div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto;}
+.lb-bar .mini{white-space:nowrap;}
 .lb-bar.editing{flex-wrap:wrap;}
 .lb-bar.editing .in{flex:1 1 140px;}
 
