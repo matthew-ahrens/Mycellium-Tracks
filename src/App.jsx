@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient'
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import QRCode from 'qrcode';
+import { processPhotoForUpload, processAvatarForUpload } from './photoProcessing';
+import { getSignedUrls, getSignedUrl, getOriginalUrl, thumbPathOf, displayPathOf, CACHE_CONTROL } from './photoUrls';
 
 /* ================= DATA ================= */
 
@@ -452,10 +454,8 @@ export default function App() {
     useEffect(() => {
         if (!profile?.avatar_url) { setAvatarUrl(null); return; }
         let cancelled = false;
-        supabase.storage.from('photos').createSignedUrl(profile.avatar_url, 21600).then(({ data, error }) => {
-            if (cancelled) return;
-            if (error) { console.error(error); setAvatarUrl(null); return; }
-            setAvatarUrl(data?.signedUrl ?? null);
+        getSignedUrl(profile.avatar_url).then((url) => {
+            if (!cancelled) setAvatarUrl(url);
         });
         return () => { cancelled = true; };
     }, [profile?.avatar_url]);
@@ -466,8 +466,9 @@ export default function App() {
         const { data, error } = await supabase.from('profiles')
             .update({ ...fields, updated_at: new Date().toISOString() })
             .eq('id', profile.id).select('*').single();
-        if (error) { console.error(error); alert('Could not save - check console'); return; }
+        if (error) { console.error(error); alert('Could not save - check console'); return false; }
         setProfile(data);
+        return true;
     };
 
     useEffect(() => {
@@ -502,12 +503,12 @@ export default function App() {
             const { data: usage } = await supabase.from('usage_events').select('*')
                 .order('created_at', { ascending: false }).limit(400);
 
+            /* Only the thumb + display sizes are signed up front; originals
+               are signed on demand when someone taps "Full size". Signed
+               URLs come from a local cache so they stay stable between
+               loads and the browser can reuse what it already downloaded. */
             if (pics?.length) {
-                const { data: signed } = await supabase.storage.from('photos')
-                    .createSignedUrls(pics.map((p) => p.storage_path), 21600); // 6 hours
-                const urlMap = {};
-                (signed ?? []).forEach((s) => { if (s.signedUrl) urlMap[s.path] = s.signedUrl; });
-                setPhotoUrls(urlMap);
+                setPhotoUrls(await getSignedUrls(pics.flatMap((p) => [thumbPathOf(p), displayPathOf(p)])));
             }
 
             setSpecies(sp ?? []);
@@ -1302,31 +1303,59 @@ export default function App() {
     /* Upload goes straight from the browser to Supabase Storage, then a row
        tracks where it lives. It can attach to an item, to equipment, or to
        nothing at all - a plain gallery photo isn't required to be about
-       anything. */
+       anything.
+       Each photo is stored as up to three files (see photoProcessing.js):
+       original (metadata stripped to date + orientation), display (~2048px,
+       what the lightbox shows) and thumb (~480px, every grid/strip). If the
+       browser can't decode the image at all, the raw file goes up alone and
+       every size falls back to it - same as before this existed. */
     const addPhoto = async (file, { itemId, equipmentId, eventId, caption } = {}) => {
-        const today = todayISO();
-        const ext = file.name.split('.').pop() || 'jpg';
         const folder = itemId || equipmentId || 'general';
-        const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const base = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const put = (path, body) => supabase.storage.from('photos')
+            .upload(path, body, { cacheControl: CACHE_CONTROL, contentType: body.type || undefined });
 
-        const { error: upErr } = await supabase.storage.from('photos').upload(path, file);
-        if (upErr) { console.error(upErr); alert('Upload failed - check console'); return; }
+        let processed = null;
+        try { processed = await processPhotoForUpload(file); }
+        catch (e) { console.warn('Photo processing failed, uploading as-is', e); }
+
+        let row;
+        if (processed) {
+            const path = `${base}.jpg`;
+            const thumbPath = `${base}-thumb.jpg`;
+            const displayPath = processed.displayIsOriginal ? path : `${base}-display.jpg`;
+            const uploads = [put(path, processed.original), put(thumbPath, processed.thumb)];
+            if (!processed.displayIsOriginal) uploads.push(put(displayPath, processed.display));
+            const results = await Promise.all(uploads);
+            const upErr = results.find((r) => r.error)?.error;
+            if (upErr) {
+                console.error(upErr);
+                await supabase.storage.from('photos').remove([...new Set([path, thumbPath, displayPath])]);
+                alert('Upload failed - check console'); return;
+            }
+            row = { storage_path: path, thumb_path: thumbPath, display_path: displayPath, taken_on: processed.takenOn || todayISO() };
+        } else {
+            const ext = file.name.split('.').pop() || 'jpg';
+            const path = `${base}.${ext}`;
+            const { error: upErr } = await put(path, file);
+            if (upErr) { console.error(upErr); alert('Upload failed - check console'); return; }
+            row = { storage_path: path, taken_on: todayISO() };
+        }
 
         const { data, error } = await supabase.from('photos').insert({
             item_id: itemId || null, equipment_id: equipmentId || null,
-            event_id: eventId || null, storage_path: path,
-            caption: caption?.trim() || null, taken_on: today,
+            event_id: eventId || null, caption: caption?.trim() || null, ...row,
         }).select('*').single();
         if (error) { console.error(error); alert('Could not save - check console'); return; }
 
-        const { data: signed } = await supabase.storage.from('photos').createSignedUrl(path, 21600);
-        if (signed?.signedUrl) setPhotoUrls((p) => ({ ...p, [path]: signed.signedUrl }));
-
+        const signed = await getSignedUrls([thumbPathOf(data), displayPathOf(data)]);
+        setPhotoUrls((p) => ({ ...p, ...signed }));
         setPhotos((p) => [...p, data]);
     };
 
     const deletePhoto = async (photo) => {
-        await supabase.storage.from('photos').remove([photo.storage_path]);
+        await supabase.storage.from('photos').remove(
+            [...new Set([photo.storage_path, photo.thumb_path, photo.display_path].filter(Boolean))]);
         const { error } = await supabase.from('photos').delete().eq('id', photo.id);
         if (error) { console.error(error); alert('Could not delete - check console'); return; }
         setPhotos((p) => p.filter((x) => x.id !== photo.id));
@@ -1342,10 +1371,15 @@ export default function App() {
         setPhotos((p) => p.map((x) => (x.id === photo.id ? { ...x, ...cols } : x)));
     };
 
-    /* Bucket is private now, so photos need signed, time-limited URLs
-       rather than a plain public link. Keyed by storage path so every
-       photoUrl(path) call site stays unchanged. */
-    const photoUrl = (path) => photoUrls[path] ?? '';
+    /* Bucket is private, so photos need signed URLs (cached, see
+       photoUrls.js). Pass the photo row: photoUrl(p) is the small thumb for
+       grids and strips, photoUrl(p, 'display') is the lightbox size. A bare
+       path string still works for anything that only has a path. */
+    const photoUrl = (p, size = 'thumb') => {
+        if (typeof p === 'string') return photoUrls[p] ?? '';
+        const path = size === 'display' ? displayPathOf(p) : thumbPathOf(p);
+        return photoUrls[path] ?? '';
+    };
 
     const addSpecies = async (fields) => {
         const { data, error } = await supabase.from('species').insert({
@@ -2033,10 +2067,19 @@ function AccountPanel({ profile, avatarUrl, onSave, onBack }) {
 
     const uploadPhoto = async (file) => {
         setBusy(true); setMsg('');
-        const path = `avatars/${profile.id}-${Date.now()}-${file.name}`;
-        const { error: upErr } = await supabase.storage.from('photos').upload(path, file, { upsert: true });
+        /* Avatars only ever render small: one clean ~512px JPEG, no
+           metadata. Falls back to the raw file if it can't be decoded. */
+        let body = file, ext = file.name.split('.').pop() || 'jpg';
+        try { body = await processAvatarForUpload(file); ext = 'jpg'; }
+        catch (e) { console.warn('Avatar processing failed, uploading as-is', e); }
+        const path = `avatars/${profile.id}-${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('photos')
+            .upload(path, body, { upsert: true, cacheControl: CACHE_CONTROL, contentType: body.type || undefined });
         if (upErr) { console.error(upErr); setMsg('Could not upload - check console'); setBusy(false); return; }
-        await onSave({ avatar_url: path, avatar_preset: null });
+        const oldPath = profile.avatar_url;
+        const saved = await onSave({ avatar_url: path, avatar_preset: null });
+        if (!saved) { supabase.storage.from('photos').remove([path]); setBusy(false); return; }
+        if (oldPath && oldPath !== path) supabase.storage.from('photos').remove([oldPath]); // don't pile up old avatars
         setAvatarUrlLocal(path); setAvatarPreset(null);
         setBusy(false); setMsg('Saved.');
         setTimeout(() => setMsg(''), 2000);
@@ -3802,7 +3845,7 @@ function EquipmentTab({ equipment, onAdd, onEdit, onDelete, photos, photoUrl, on
                                         setForm(e.id);
                                     }}>
                                         {thumb
-                                            ? <img className="equip-thumb" src={photoUrl(thumb.storage_path)} alt="" />
+                                            ? <img className="equip-thumb" src={photoUrl(thumb)} alt="" loading="lazy" decoding="async" />
                                             : <span className="equip-thumb equip-thumb-empty" />}
                                         <span className="equip-name">{e.name}</span>
                                         {e.notes && <span className="equip-note">{e.notes}</span>}
@@ -6138,7 +6181,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
                             return (
                                 <button key={p.id} className={`lc-tile sz-${tileSize(p.id)}`}
                                     onClick={() => setLightbox({ photo: p, item: it })}>
-                                    <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} loading="lazy" />
+                                    <img src={photoUrl(p)} alt={p.caption ?? ''} loading="lazy" decoding="async" />
                                     <div className="lc-meta">
                                         <span>{it?.id ?? 'Unlinked'}</span>
                                         {p.taken_on && <span>{fmt(p.taken_on, dateFormat)}</span>}
@@ -6151,7 +6194,7 @@ function Tree({ items, lines, species, library, librarySpecies, onOpen, onBack, 
             </div>
 
             {lightbox && (
-                <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo.storage_path)}
+                <Lightbox photo={lightbox.photo} url={photoUrl(lightbox.photo, 'display')}
                     onClose={() => setLightbox(null)} onDelete={onDeletePhoto} onEdit={onEditPhoto} dateFormat={dateFormat}
                     extra={lightbox.item && <button className="mini ghost" onClick={() => onOpen(lightbox.item.id)}>Open {lightbox.item.id}</button>} />
             )}
@@ -6835,6 +6878,18 @@ function Lightbox({ photo, url, onClose, onDelete, onEdit, extra, dateFormat }) 
         setEditing(false);
     };
 
+    /* The lightbox shows the ~2048px display copy. The untouched original
+       is only signed and downloaded when someone actually asks for it.
+       The tab is opened synchronously (popup blockers only allow that
+       inside the click) and pointed at the URL once it's signed. */
+    const hasFullSize = !!photo.display_path && photo.display_path !== photo.storage_path;
+    const openFullSize = async () => {
+        const win = window.open('', '_blank');
+        const full = await getOriginalUrl(photo.storage_path);
+        if (!full) { win?.close(); alert('Could not load the full-size photo.'); return; }
+        if (win) win.location.href = full; else window.location.href = full;
+    };
+
     return (
         <div className="lb-scrim" onClick={onClose}>
             <div className="lb-frame" onClick={(e) => e.stopPropagation()}>
@@ -6856,6 +6911,7 @@ function Lightbox({ photo, url, onClose, onDelete, onEdit, extra, dateFormat }) 
                         <span>{photo.taken_on ? fmt(photo.taken_on, dateFormat) : ''}{photo.caption ? ' · ' + photo.caption : ''}</span>
                         <div>
                             {extra}
+                            {hasFullSize && <button className="mini ghost" onClick={openFullSize}>Full size</button>}
                             {onEdit && <button className="mini ghost" onClick={() => { setDraft({ caption: photo.caption ?? '', taken_on: photo.taken_on ?? '' }); setEditing(true); }}>Edit</button>}
                             <button className="mini danger" onClick={() => { if (confirm('Delete this photo?')) { onDelete(photo); onClose(); } }}>Delete</button>
                             <button className="mini ghost" onClick={onClose}>Close</button>
@@ -6884,14 +6940,14 @@ function EventPhotos({ photos, photoUrl, onAdd, onDelete, onEdit, dateFormat }) 
         <span className="log-photos">
             {photos.map((p) => (
                 <button key={p.id} className="log-photo" onClick={() => setLightbox(p)}>
-                    <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} />
+                    <img src={photoUrl(p)} alt={p.caption ?? ''} loading="lazy" decoding="async" />
                 </button>
             ))}
             <button type="button" className="log-photo-add" title="Attach a photo to this note"
                 onClick={() => fileRef.current?.click()}>+</button>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
             {lightbox && (
-                <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)}
+                <Lightbox photo={lightbox} url={photoUrl(lightbox, 'display')}
                     onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} dateFormat={dateFormat} />
             )}
         </span>
@@ -6925,7 +6981,7 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, la
             <div className="photo-strip">
                 {photos.map((p) => (
                     <button key={p.id} className="photo-thumb" onClick={() => setLightbox(p)}>
-                        <img src={photoUrl(p.storage_path)} alt={p.caption ?? ''} />
+                        <img src={photoUrl(p)} alt={p.caption ?? ''} loading="lazy" decoding="async" />
                     </button>
                 ))}
                 <button className="photo-add" onClick={() => setAdding(true)}>
@@ -6942,7 +6998,7 @@ function PhotoStrip({ attach = {}, photos, photoUrl, onAdd, onDelete, onEdit, la
                         style={{ display: 'none' }} onChange={onFile} />
                 </div>
             )}
-            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox.storage_path)} onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} dateFormat={dateFormat} />}
+            {lightbox && <Lightbox photo={lightbox} url={photoUrl(lightbox, 'display')} onClose={() => setLightbox(null)} onDelete={onDelete} onEdit={onEdit} dateFormat={dateFormat} />}
         </div>
     );
 }
@@ -7681,7 +7737,7 @@ const CSS = `
 .lb-frame{max-width:min(92vw,760px);max-height:88vh;display:flex;flex-direction:column;background:var(--panel);border-radius:14px;overflow:hidden;border:1px solid var(--line);}
 .lb-img{max-width:100%;max-height:74vh;object-fit:contain;background:#000;}
 .lb-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;font-size:12px;color:var(--dim);}
-.lb-bar div{display:flex;gap:8px;}
+.lb-bar div{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
 .lb-bar.editing{flex-wrap:wrap;}
 .lb-bar.editing .in{flex:1 1 140px;}
 
