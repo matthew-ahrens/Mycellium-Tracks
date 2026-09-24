@@ -42,6 +42,19 @@ const download = async (path) => {
     if (error) throw new Error(`download ${path}: ${error.message}`);
     return Buffer.from(await data.arrayBuffer());
 };
+/* IMPORTANT - storage RLS on this bucket is `owner = auth.uid()`. This
+ * script authenticates with the service-role key, which has no
+ * auth.uid() at all, so every file it uploads or overwrites lands with
+ * owner = NULL - invisible to the real user's signed-URL requests even
+ * though the file is right there. That's exactly what happened on
+ * 2026-09-24: this script ran fine, but every thumb/display it created
+ * silently failed to load in the app until the owner column was fixed
+ * by hand with a SQL UPDATE (join storage.objects to photos.user_id /
+ * profiles.id by path, matching one of thumb_path/display_path/
+ * storage_path/avatar_url). storage-js has no call to set `owner` -
+ * fixing it needs SQL against storage.objects directly. If this script
+ * is ever run again, run that same SQL fix afterward before assuming
+ * the new files actually work in the app. */
 const upload = async (path, buf) => {
     if (!APPLY) return;
     const { error } = await bucket.upload(path, buf, { upsert: true, cacheControl: CACHE, contentType: 'image/jpeg' });
