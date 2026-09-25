@@ -4577,6 +4577,39 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
             sub: 'success rate', accent: dataAccent },
     ];
 
+    /* Account/Settings used to live only in the sidebar, which Home
+       hides. Rendered twice, CSS shows one: in the top row beside
+       Cultivation on desktop, filling the dead space to the hero's right
+       (Matt 2026-09-18: "to the right of cultivation ... in two separate
+       cards"), and at the bottom of Home under Most visited at <=760px
+       (Matt 2026-09-25 - on a phone they'd otherwise stack right under
+       Cultivation, above the section list). */
+    const sideCards = (
+        <>
+            <button className="home-side-card" onClick={onOpenAccount} style={{ '--accent': 'var(--slate)' }}>
+                <div className="home-side-icon">
+                    <AvatarBadge url={profile?.avatar_url ? avatarUrl : null} preset={profile?.avatar_preset} size={22} />
+                </div>
+                <div>
+                    <div className="home-card-title">Account</div>
+                    <div className="home-side-value">{profile?.display_name || 'View profile'}</div>
+                </div>
+            </button>
+            <button className="home-side-card" onClick={onOpenSettings} style={{ '--accent': 'var(--slate)' }}>
+                <div className="home-side-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </div>
+                <div>
+                    <div className="home-card-title">Settings</div>
+                    <div className="home-side-value">Preferences</div>
+                </div>
+            </button>
+        </>
+    );
+
     return (
         <div className="page">
             {/* Sidebar (with its .brand logo) is hidden on Home - see
@@ -4620,33 +4653,7 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     </div>
                 </button>
 
-                {/* Account/Settings used to live only in the sidebar, which
-                    Home hides - these fill the space that used to sit dead
-                    to the hero's right on a wide desktop screen (Matt: "account
-                    and settings need to be to the right of cultivation to fill
-                    that space under the search bar in two separate cards"),
-                    and stack under the hero on mobile instead (see CSS). */}
-                <button className="home-side-card" onClick={onOpenAccount} style={{ '--accent': 'var(--slate)' }}>
-                    <div className="home-side-icon">
-                        <AvatarBadge url={profile?.avatar_url ? avatarUrl : null} preset={profile?.avatar_preset} size={22} />
-                    </div>
-                    <div>
-                        <div className="home-card-title">Account</div>
-                        <div className="home-side-value">{profile?.display_name || 'View profile'}</div>
-                    </div>
-                </button>
-                <button className="home-side-card" onClick={onOpenSettings} style={{ '--accent': 'var(--slate)' }}>
-                    <div className="home-side-icon">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <div className="home-card-title">Settings</div>
-                        <div className="home-side-value">Preferences</div>
-                    </div>
-                </button>
+                {sideCards}
             </div>
 
             {/* Secondary sections as a dense list instead of a card grid -
@@ -4689,6 +4696,8 @@ function HomeTab({ items, genetics, species, lots, library, stock, usageEvents, 
                     </div>
                 </div>
             )}
+
+            <div className="home-bottom-cards">{sideCards}</div>
         </div>
     );
 }
@@ -7123,6 +7132,9 @@ const CSS = `
      and were winning on source order - same trap as .pl-trigger. */
   .root .home-logo{display:none;}
   .root .home-search{display:none;}
+  /* Account/Settings: bottom of Home instead of the top row - see sideCards. */
+  .root .home-top-row .home-side-card{display:none;}
+  .root .home-bottom-cards{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;}
   .mobile-brand{
     display:flex;flex-direction:column;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
     padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
@@ -7426,6 +7438,7 @@ const CSS = `
   border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:16px;padding:20px 22px;
   cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
 .home-side-card:hover{transform:translateY(-1px);}
+.home-bottom-cards{display:none;}
 .home-side-icon{flex:0 0 auto;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
   background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent);}
 .home-side-value{font-family:var(--serif);font-size:17px;color:var(--bone);margin-top:2px;}
@@ -7493,6 +7506,7 @@ const CSS = `
      than squeezed in. Untested on a real phone yet - flag anything that
      still looks off. */
   .home-top-row{flex-direction:column;}
+  .root .home-bottom-cards{flex-direction:column;}
   .home-hero{width:100%;padding:16px 18px;gap:14px;}
   .home-hero-icon{width:44px;height:44px;border-radius:12px;}
   .home-hero-stat{font-size:32px;}
