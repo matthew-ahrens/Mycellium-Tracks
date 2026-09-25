@@ -30,6 +30,12 @@ through a fixed end date, in exchange for feedback.
   a contingency if a real surge hits - not on the site, not committed,
   purely a later marketing call if it happens. Drives the Beta page,
   the "free through" copy, and checkpoints 2-3.
+- 🔲 **Social media presence / tester recruitment** - not started as of
+  2026-09-25. This is the actual bottleneck for hitting Oct 26, not the
+  code - needs profiles built and FB mushroom-group admin outreach
+  started essentially immediately to leave enough runway. Cold, no ad
+  spend, so expect a trust-building lag before applications come in,
+  not an instant response.
 - 🔧 **ToS + privacy policy** - drafted and live 2026-09-22 and linked
   from the app (Account page Legal card + a required "18+ and agree"
   checkbox at sign-up, `e358f54`) at sporedesk.com/terms and /privacy
@@ -61,13 +67,17 @@ through a fixed end date, in exchange for feedback.
   sessionStorage, so give each post its own tag. Beta dates are
   `BETA_END`/`ENROLL_CLOSES` constants at the top of `beta.astro`.
   Terms (/terms) and Privacy (/privacy) live 2026-09-22 as
-  plain-language drafts (see ToS item). Still to do: real dates,
-  applicant confirmation email (needs Resend), About Me page (new,
-  2026-09-24 - Matt as a person, why he's building this). v1 pages:
-  feature-showcase home; Beta page (how it works, tester commitments,
-  7/45/90 checkpoints, dates); ToS/privacy; sign-up CTA handing off to
-  app.sporedesk.com. Copy says "free through [end date]," never "3
-  months free."
+  plain-language drafts (see ToS item). Still to do: wire the
+  now-decided dates into `BETA_END`/`ENROLL_CLOSES` (see Beta
+  start/end dates above - cohort 2's site copy stays conditional/date-
+  only, no cap numbers), applicant confirmation email (needs Resend),
+  About Me page (new, 2026-09-24 - Matt as a person, why he's building
+  this). Idea floated 2026-09-25, not scoped: a countdown timer to
+  launch on the Beta page - purely visual/marketing, no logic beyond
+  the date already being wired in. v1 pages: feature-showcase home;
+  Beta page (how it works, tester commitments, 7/45/90 checkpoints,
+  dates); ToS/privacy; sign-up CTA handing off to app.sporedesk.com.
+  Copy says "free through [end date]," never "3 months free."
 - ✅ **Website branding to match the app** - done 2026-09-24/25
   (`d9fb52f`, `83c0dca`). Kit header logo in the nav, full-color plate
   halo behind the hero phone, plate-anchored closing CTA section, tiny
@@ -415,4 +425,14 @@ reference the brand kit's plate/lockup SVGs in the app or site - they
 wrap multi-MB embedded PNGs (plate master is 8 MB); resize from the kit
 PNGs to WebP instead. Resetting the Claude desktop app in Windows
 Settings wipes `claude_desktop_config.json` - Desktop Commander (and
-any other local tools) disappear until re-added.
+any other local tools) disappear until re-added. A Cowork session
+reaching this repo through the device bridge (not a local Claude Code
+session) runs in its own sandboxed shell with no access to the PC's
+normal GitHub credentials - `git push` fails with "could not read
+Username" until a repo-scoped credential is set up. Fixed 2026-09-25:
+a fine-grained PAT (Contents: Read and write, scoped to Mycellium-
+Tracks and sporedesk-site) stored via `credential.helper store` at
+`.git/credentials` inside each repo's own `.git` folder on the real
+disk - survives across sessions since it's not in the ephemeral
+sandbox home. Matt's token expires 2026-10-25; pushes will fail again
+after that until it's regenerated.
