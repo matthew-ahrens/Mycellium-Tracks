@@ -104,18 +104,34 @@ through a fixed end date, in exchange for feedback.
   SPF `v=spf1 include:zohomail.com ~all` (Porkbun forwarding MX/SPF
   removed), DKIM zmail._domainkey, DMARC `_dmarc p=none` with rua to
   support@. Tested both directions; Gmail shows SPF/DKIM/DMARC pass.
-  🔲 Resend next. Inbox: Zoho Mail Lite (~$12/yr, support@ as a free
-  alias; beat Porkbun $36/yr and Google Workspace ~$84/yr). Auth
-  sender: Resend as Supabase custom SMTP (free 3,000/mo, 100/day cap;
-  Pro $20/mo). Kept separate so a signup burst can't get the support
-  inbox flagged; ZeptoMail rejected (slow approval, weak support, too
-  much riding on Zoho). Must be live before enrollment opens - email
-  confirmation is ON and Supabase's built-in sender is heavily
-  rate-limited (reportedly team addresses only - confirm). Unblocks
+  🔧 Resend in progress (2026-09-25): account created (GitHub
+  SSO). Domain added as `send.sporedesk.com`, not the apex - keeps
+  Resend's SPF/DKIM off the root domain entirely so nothing has to be
+  merged with Zoho's existing records. Resend's newer "Forge" DNS
+  shape showed up: SPF via two CNAMEs (`rsend.send`/`send.send` ->
+  `*.forge.rmta.net`) instead of a raw TXT+MX, plus a DKIM TXT
+  (`resend._domainkey.send`). Added to Porkbun manually - the Resend
+  and Porkbun claude.ai connectors were both connected, but the
+  Porkbun one kept rejecting valid-looking keys (not a balance issue,
+  DNS record writes are free; root cause not found, went manual
+  instead of burning more time on it). Verification pending on DNS
+  propagation. API key `SupaBase` created scoped to sending-only,
+  restricted to this domain (not full access). Supabase custom SMTP
+  configured (Auth > Emails, not Project Settings - easy to confuse
+  with the Pro-gated Custom Domains feature, which is unrelated):
+  host smtp.resend.com, port 465, sender `SporeDesk
+  <noreply@send.sporedesk.com>`. Confirmed (was previously
+  unconfirmed above): Supabase's default-sender restriction to
+  org-member addresses applies on every plan as of their Sept 2024
+  policy change - not a rate limit, an outright block on external
+  recipients - so custom SMTP is mandatory before enrollment opens,
+  not just nice-to-have. Still to do: confirm DNS verified in Resend,
+  send a real password-reset to check delivery and inbox placement.
+  Inbox: Zoho Mail Lite (~$12/yr, support@ as a free alias; beat
+  Porkbun $36/yr and Google Workspace ~$84/yr). Kept separate from
+  support@ so a signup burst can't get that inbox flagged. Unblocks
   branded auth emails (§3), which now also cover feedback-checkpoint
-  reminders, not just confirm/reset (Matt, 2026-09-24). A Resend
-  connector exists in the claude.ai directory (not connected) - would
-  let Claude set up the domain/templates and check delivery.
+  reminders, not just confirm/reset (Matt, 2026-09-24).
 - 🔲 **Enrollment**: fixed cohort, ~2-week window, then a waitlist
   (waitlist doubles as the hard-launch marketing list). Close it by
   rotating the `app_config` code to a long random string - never NULL,
