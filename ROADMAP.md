@@ -18,8 +18,18 @@ dedicated SporeDesk profiles), working with FB mushroom-group admins.
 Target more than 30 testers. Each gets a full private account, free
 through a fixed end date, in exchange for feedback.
 
-- 🔲 **Beta start/end dates** - not set. Drives the Beta page, the "free
-  through" copy, and checkpoints 2-3.
+- ✅ **Beta start/end dates** - decided 2026-09-25. Cohort 1 opens
+  October 26, 2026 at 12pm, capped at 50 testers, 90-day window (runs
+  to roughly late January 2027). Cohort 2 tentatively ~30 days later
+  (around November 25, 2026), triggered by cohort 1 reaching 30
+  testers, capped so total stays at 100 max, same 90-day window (to
+  roughly late February 2027). Site copy for cohort 2: date only, no
+  cap numbers, phrased conditionally (e.g. "opens the week of
+  November 25 - pending tester demand") so a miss on the trigger
+  doesn't leave a false date live. A possible cohort 3 exists only as
+  a contingency if a real surge hits - not on the site, not committed,
+  purely a later marketing call if it happens. Drives the Beta page,
+  the "free through" copy, and checkpoints 2-3.
 - 🔧 **ToS + privacy policy** - drafted and live 2026-09-22 and linked
   from the app (Account page Legal card + a required "18+ and agree"
   checkbox at sign-up, `e358f54`) at sporedesk.com/terms and /privacy
@@ -157,14 +167,23 @@ through a fixed end date, in exchange for feedback.
   (Sentry raised 2026-09-25 as an alternative for the error-logging
   piece only - not decided; it's a third party, so weigh against the
   no-vendor stance.)
-- 🔲 **Tester Data/Stats tab** - required day one; must be accurate and
-  look good (load dataviz). v1: success/fail hero stat, contamination
-  vs. other failure, by source, colonization speed vs. species'
-  `colonize_time`, live status board, failure-reason tally, activity
-  heatmap. Held back as "not enough data yet" placeholders: yield by
-  species, flush/time-to-harvest trends, by-supplier. (Note: DataTab
-  and `itemOutcome()` already exist - check what's built before
-  starting.)
+- ✅ **Tester Data/Stats tab** - correction 2026-09-25: this is built
+  and functional in the app today (DataTab + `itemOutcome()`), not an
+  open item. Needs a cleanup/polish pass but works - not a beta
+  blocker. v1 covers: success/fail hero stat, contamination vs. other
+  failure, by source, colonization speed vs. species' `colonize_time`,
+  live status board, failure-reason tally, activity heatmap. Held back
+  as "not enough data yet" placeholders: yield by species,
+  flush/time-to-harvest trends, by-supplier.
+- 🔲 **Admin analytics digest** (correctly-scoped version of what was
+  mislabeled above until 2026-09-25) - a daily automated email to Matt
+  rolling up app performance and feature usage, for his own
+  research/product decisions, not customer-facing. Genuinely still
+  needed pre-beta - can't retroactively generate clean data once
+  testers are already in and using the app. Matt's estimate: ~1-2
+  days. Builds on the existing `usage_events` table/`logUsage()` (see
+  Passive usage analytics below) - reporting layer is what's missing,
+  not data capture.
 - 🔲 **Seeded starter content** for new accounts. Library/reference
   seeding waits on Matt's content audit (style + contradiction check -
   the 2026-09-20 reformat may have covered most of it). Equipment/supplier
@@ -209,7 +228,14 @@ in §1.
 - 🔲 **Delete account** - UI exists, action inert. Needs a server-side
   Edge Function (`auth.admin.deleteUser` needs the service-role key)
   and a decision on what happens to the user's rows (all data tables
-  are `ON DELETE RESTRICT` from `auth.users`).
+  are `ON DELETE RESTRICT` from `auth.users`). **Stale comment, found
+  2026-09-25**: the card's explanatory text in `App.jsx` still says
+  "there's only one account in the whole app right now and no
+  self-serve sign-up" as the reason it's inert - no longer true since
+  multi-tenant RLS + beta-code sign-up shipped 2026-09-17 (`ad98d1d`).
+  Harmless (button's still correctly disabled/inert either way), just
+  misleading if read later. Reword next time this file's open - real
+  reason is simply that the delete logic itself isn't built yet.
 - 🔲 **Erase all content** - UI exists, action inert. Needs Matt's call
   on scope (grow data only, or equipment/suppliers too) and a careful
   tested pass.
