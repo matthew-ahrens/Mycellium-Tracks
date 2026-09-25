@@ -65,16 +65,25 @@ through a fixed end date, in exchange for feedback.
   unique on `lower(email)`, review via status/review_notes in the
   dashboard); `?ref=<tag>` on any page is carried to the form via
   sessionStorage, so give each post its own tag. Beta dates are
-  `BETA_END`/`ENROLL_CLOSES` constants at the top of `beta.astro`.
+  `COHORT_1_OPENS`/`COHORT_1_OPENS_ISO` constants at the top of `beta.astro`.
   Terms (/terms) and Privacy (/privacy) live 2026-09-22 as
-  plain-language drafts (see ToS item). Still to do: wire the
-  now-decided dates into `BETA_END`/`ENROLL_CLOSES` (see Beta
-  start/end dates above - cohort 2's site copy stays conditional/date-
-  only, no cap numbers), applicant confirmation email (needs Resend),
-  About Me page (new, 2026-09-24 - Matt as a person, why he's building
-  this). Idea floated 2026-09-25, not scoped: a countdown timer to
-  launch on the Beta page - purely visual/marketing, no logic beyond
-  the date already being wired in. v1 pages: feature-showcase home;
+  plain-language drafts (see ToS item). ✅ Cohort 1 date + countdown wired in 2026-09-25
+  (`COHORT_1_OPENS`/`COHORT_1_OPENS_ISO` in `beta.astro`, replacing the
+  old `BETA_END`/`ENROLL_CLOSES` placeholders; new `Countdown.astro`
+  component, Field Notebook styling, no dependencies, counts down to
+  the Oct 26 noon-Central open). Cohort 2 mention added the same day,
+  phrased conditionally per the plan above (date only, no cap numbers,
+  no countdown - just a line noting it may open the week of Nov 25
+  depending on demand). Still to do: applicant confirmation email
+  (needs Resend), About Me page (new, 2026-09-24 - Matt as a person,
+  why he's building this).
+  Aside, low-priority: local `node_modules` for `sporedesk-site` can't
+  run `npm run build`/`astro check` in a Claude cloud session (missing
+  native `rolldown` binding) - doesn't affect Vercel, which builds
+  clean. Matt doesn't check builds locally (goes straight to prod), so
+  fix later with `rm -rf node_modules package-lock.json && npm install`
+  once real users are actually on the site and a local check-before-
+  push loop is worth having. v1 pages: feature-showcase home;
   Beta page (how it works, tester commitments, 7/45/90 checkpoints,
   dates); ToS/privacy; sign-up CTA handing off to app.sporedesk.com.
   Copy says "free through [end date]," never "3 months free."
