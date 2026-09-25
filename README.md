@@ -11,7 +11,7 @@ directly. Code: `E:\Projects\mycelium` - `src/App.jsx` (~7,800 lines,
 every screen is a component in it) plus `src/AuthGate.jsx` (auth),
 `src/photoProcessing.js` (upload-time resize/metadata strip) and
 `src/photoUrls.js` (cached signed URLs).
-Updated 2026-09-24.
+Updated 2026-09-25.
 
 Lineage and inventory tracker for mushroom cultivation. Live at
 app.sporedesk.com (marketing site at sporedesk.com is a separate repo,

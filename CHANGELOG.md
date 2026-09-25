@@ -777,3 +777,30 @@ How logs/beds get *tracked* is still undesigned (see roadmap).
   Terms of Service and Privacy Policy" - which also closes a gap: the app
   itself had no age gate, only the site's beta application did. Linked,
   not copied, so the marketing site stays the single source of both docs.
+
+## 2026-09-23 to 09-25 - Final brand kit, app + site
+
+- **Kit wired in** (`8b54d1c`, 2026-09-23): the placeholder glyph/badge/
+  wordmark PNGs were replaced by the final kit (`New Branded Material/`,
+  `SporeDesk-Brand-Guide.pdf`): favicons, PWA icons + manifest, Windows
+  build icon, Open Graph tags, IBM Plex Mono for `--mono`. That commit
+  also swept the whole raw kit (~90 MB incl. print PDFs and social
+  banners) into the repo and deleted four stray root-level logo PNGs.
+- **Marketing site** (`d9fb52f`, `83c0dca` in `sporedesk-site`): had no
+  branding at all, just serif text. Now the kit's header logo, a
+  full-color plate halo behind the hero phone, a closing Join-the-beta
+  section built around the plate, the favicon set + OG image, and Plex
+  Mono eyebrow labels.
+- **Sizing pass** (`2bec39b`, 2026-09-25). The first pass referenced the
+  kit's SVGs directly, which was a mistake: the plate and lockup SVGs are
+  wrappers around embedded PNGs/filters (`sporedesk-plate-master.svg` is
+  8 MB, each stacked lockup 2.3 MB), so sign-in/loading pulled ~13 MB of
+  logo. Everything in-app is now WebP resized from the kit PNGs (~190 KB
+  total). Also, the first pass used the tiny mark + system text for the
+  sidebar/mobile/Home brand, which read as "barely changed" - swapped to
+  the kit's purpose-built header logo. AuthGate cards got the cream
+  stacked lockup, which also fixed the old reishi "SporeDesk" text on the
+  dark card (reishi is a text-on-light color; it was nearly invisible).
+- Tooling note: a Windows "Reset" of the Claude desktop app wiped
+  `claude_desktop_config.json`, taking Desktop Commander with it. Re-added
+  2026-09-25 (it's also available as a plugin now).
