@@ -170,20 +170,21 @@ the *dark* half even on the tan page. Amber as a border is fine on either.
 Getting it wrong doesn't look broken, it looks invisible. Help text on the
 tan page uses `nf-help-page`. Brand serif: Libre Caslon Display.
 
-**Final brand assets, 2026-09-23** (Matt, `8b54d1c`) - real logo/wordmark/
-icon set, replacing the old placeholder art. In-app: `public/sporedesk-
-plate.svg` (loading screen, AuthGate badge on signup/confirm/reset/check-
-email), `public/sporedesk-tiny-mark.svg` (sidebar brand, mobile top bar,
-Home's desktop-width logo), `public/sporedesk-lockup-stacked-light.svg`
-(AuthGate's own loading screen) and `-dark.svg` (Settings version
-footer). Favicons/PWA icons/manifest updated too (`public/favicon*`,
-`apple-touch-icon.png`, `icon-192/512/maskable-512.png`, `og-image.png`),
-plus the Windows build icon (`build/icon.ico`/`.png`). Full kit (app
-store icons, print, social) lives in `New Branded Material/` in the repo
-and as `SporeDesk-Brand-Guide.pdf` in the Gourmet Mushrooms Project.
-Brand serif stays Libre Caslon Display; UI mono is now IBM Plex Mono
-(Google Fonts). **Still open:** the marketing site (`sporedesk-site`)
-hasn't been updated to match yet.
+**Brand assets** (kit added `8b54d1c`, 2026-09-23; sizing pass 2026-09-25).
+In-app logos are WebP files resized from the kit's PNGs. Don't reference the
+kit's plate or lockup SVGs directly: they embed multi-MB PNGs and filters
+(`sporedesk-plate-master.svg` is 8 MB). `public/sporedesk-header-logo-dark.webp`
+is the sidebar brand, `-light.webp` the mobile top bar and Home's logo;
+`sporedesk-lockup-stacked-dark.webp` is the AuthGate card logo
+(signin/confirm/reset/check-email) and the Settings version footer, `-light`
+the AuthGate loading screen; `sporedesk-plate-256.webp` the App loading
+spinner. Favicons/PWA icons/manifest (`public/favicon*`,
+`apple-touch-icon.png`, `icon-192/512/maskable-512.png`, `og-image.png`) and
+the Windows build icon (`build/icon.ico`/`.png`) come straight from the kit.
+Full kit (app store icons, print, social) lives in `New Branded Material/`
+and as `SporeDesk-Brand-Guide.pdf` in the Gourmet Mushrooms Project. Brand serif
+Libre Caslon Display; UI mono IBM Plex Mono (Google Fonts). The marketing
+site (`sporedesk-site`) uses the same kit.
 
 ## Schema with no UI yet
 
