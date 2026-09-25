@@ -7117,9 +7117,12 @@ const CSS = `
   .side-search{display:none;}
   /* Mobile already shows the logo + search in .mobile-brand above the
      page - these are the desktop-only stand-ins for the sidebar's .brand
-     and .side-search, so they'd be duplicates here otherwise. */
-  .home-logo{display:none;}
-  .home-search{display:none;}
+     and .side-search, so they'd be duplicates here otherwise.
+     Prefixed with .root (0-2-0) because the unconditional .home-logo/
+     .home-search rules in the HOME block come later in this stylesheet
+     and were winning on source order - same trap as .pl-trigger. */
+  .root .home-logo{display:none;}
+  .root .home-search{display:none;}
   .mobile-brand{
     display:flex;flex-direction:column;gap:8px;font-family:var(--serif);font-size:18px;color:var(--ink);
     padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
@@ -7412,7 +7415,7 @@ const CSS = `
    to its right, which isn't a box with a number in it. Restored to
    width:100% only on mobile, where the breakdown is hidden and the
    compact icon+number needs the full phone width to read right. */
-.home-top-row{display:flex;align-items:stretch;gap:12px;margin-bottom:24px;}
+.home-top-row{display:flex;flex-wrap:wrap;align-items:stretch;gap:12px;margin-bottom:24px;}
 .home-hero{display:flex;align-items:center;gap:24px;width:fit-content;max-width:100%;flex:0 0 auto;background:var(--panel);color:var(--bone);
   border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:26px 32px;
   cursor:pointer;text-align:left;transition:border-color .15s,transform .15s;}
@@ -7495,7 +7498,7 @@ const CSS = `
   .home-hero-stat{font-size:32px;}
   .home-hero-divider{display:none;}
   .home-hero-breakdown{display:none;}
-  .home-side-card{width:100%;box-sizing:border-box;padding:14px 16px;}
+  .home-side-card{flex:0 0 auto;min-width:0;width:100%;box-sizing:border-box;padding:14px 16px;}
   .home-list-title{width:76px;}
   .home-mv-item{padding:9px 14px 9px 10px;}
   .home-mv-label{max-width:160px;}
