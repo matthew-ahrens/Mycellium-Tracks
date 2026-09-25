@@ -1,10 +1,10 @@
 # SporeDesk (repo: mycelium) - current state
 
 **Start here in a fresh thread.** Current state only, not history. This
-file lives in two places kept identical: the repo's `README.md` and
-`claude/sporedesk-app-context.md` in the Gourmet Mushrooms claude.ai
-Project - update both together. Open work and decisions:
-`claude/sporedesk-roadmap.md` (Project). History: the repo's
+file is the single source of truth for current state - reachable in the
+SporeDesk claude.ai Project through the connected GitHub repo, no
+separate uploaded copy. Open work and decisions: `ROADMAP.md` (same
+repo, same sync). History: the repo's
 `CHANGELOG.md` (load only when backstory matters). The Supabase DB
 (`pbjgelklvlbzarasjcwt`) is always more current than any doc - check it
 directly. Code: `E:\Projects\mycelium` - `src/App.jsx` (~7,800 lines,
@@ -182,7 +182,7 @@ spinner. Favicons/PWA icons/manifest (`public/favicon*`,
 `apple-touch-icon.png`, `icon-192/512/maskable-512.png`, `og-image.png`) and
 the Windows build icon (`build/icon.ico`/`.png`) come straight from the kit.
 Full kit (app store icons, print, social) lives in `New Branded Material/`
-and as `SporeDesk-Brand-Guide.pdf` in the Gourmet Mushrooms Project. Brand serif
+and as `SporeDesk-Brand-Guide.pdf` in the SporeDesk claude.ai Project. Brand serif
 Libre Caslon Display; UI mono IBM Plex Mono (Google Fonts). The marketing
 site (`sporedesk-site`) uses the same kit.
 
