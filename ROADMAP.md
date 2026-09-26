@@ -177,6 +177,20 @@ through a fixed end date, in exchange for feedback.
   state plainly that location/EXIF is stripped (see ToS item above).
 - 🔲 **Support link** in the app from day one (Account page and/or
   sidebar), plus on the site and in the welcome email.
+  Scope added 2026-09-25 (Matt): make it an in-app **Message support**
+  form, not just a mailto link. This is separate from the scheduled
+  feedback-checkpoint forms below. Messages go straight to
+  support@sporedesk.com (Zoho), and the user gets an automatic reply:
+  "We have received your request for assistance and will get back to
+  you as soon as possible." Placement: a simple button in Settings on
+  mobile; on PC a "?" in the corner that opens a popup, like the
+  search dropdown. Build note: sending mail from the app needs a
+  server-side piece (a Supabase Edge Function calling Resend). The
+  Resend key can't be shipped in the client. The auto-reply would go
+  out from `noreply@send.sporedesk.com`, and Reply-To should be set to
+  the user's address so Matt can answer straight from Zoho. Open:
+  whether messages are also saved to a table (a record if an email
+  bounces) or are email-only.
 - 🔲 **Feedback form.** Ratings + multiple choice + open text.
   Checkpoint 1 (onboarding) = 7 days after each tester's own
   `auth.users.created_at` - covers sign-up experience, setup
@@ -271,26 +285,68 @@ in §1.
 - 🔲 **Erase all content** - UI exists, action inert. Needs Matt's call
   on scope (grow data only, or equipment/suppliers too) and a careful
   tested pass.
-- 🔲 **Branded auth + reminder emails** (confirmation, password reset,
-  feedback-checkpoint reminders - scope widened 2026-09-24) - unblocked
-  2026-09-25, custom SMTP live (§1). Matt's ask 2026-09-25: pretty up all
-  the automated emails with real branding and proper wording, not left as
-  plain text - a design pass (logo, colors, HTML template), not just a
-  copy pass. Confirmation copy drafted: subject "Confirm your SporeDesk
-  account," body opens "Thanks for signing up for SporeDesk beta" - but
-  that's plain-text/unbranded too, so it still needs the design treatment.
-  Reset and reminder copy not drafted at all yet.
+- ✅ **Branded Supabase auth emails** - done 2026-09-26. All 13 Supabase
+  Auth email templates rebuilt with real branding (Field Notebook
+  palette/fonts matching the site, hosted logo, table-based email-safe
+  HTML) and pushed live via the Supabase Dashboard (the only path for a
+  hosted project - no API/CLI/MCP route exists for Auth email templates).
+  Covers the 6 standard templates (confirm signup, invite, magic link,
+  change email, reset password, reauthentication) plus all 7 security
+  notifications (password changed, email changed, phone changed,
+  sign-in method linked/removed, MFA method added/removed) - the
+  security set's "Enable notification" toggles were off by default and
+  are now on for all 7. Verified char-for-char via the Monaco editor
+  after each save.
+- 🔲 **Feedback-checkpoint reminder emails** (scope added 2026-09-24) -
+  still open. Not a Supabase Auth template type, so this doesn't ride on
+  the work above - needs its own send mechanism (likely a scheduled job
+  calling the Resend API directly, e.g. a Vercel cron or Supabase Edge
+  Function) plus copy and a trigger/cadence decision.
 - 🔲 **Mobile label printing** - all printing is hidden under 760px
   (iOS Safari ignores `@page`). Options: share-to-print, server-side
   PDF, or steer to desktop.
-- 🔲 **Home button** (Matt, 2026-09-24) - right now the only way back
-  to Home is tapping the logo; add a dedicated Home button too
-  (nav/sidebar or mobile top bar).
-- 🔲 **Mobile bottom nav redesign** (Matt, 2026-09-24) - replace the
-  fixed bottom tab bar with an expandable "fan" to free up screen
-  space. Must keep clear of iOS's own bottom-edge swipe-up gesture
-  zone. Needs its own design pass - not just a CSS swap, changes the
-  whole mobile nav model (`.side`/`.nav-item` in `App.jsx`).
+- 🔲 **Side quest: mobile nav fan + Home button** (Matt, 2026-09-24;
+  grouped into one side quest 2026-09-25 per Matt: "this and the new
+  home button should be one side quest"). Build these together:
+  - **Fan menu** - replace the fixed row of options in the mobile
+    bottom bar with a single button that opens an expanding,
+    fan-shaped list of options when tapped. Frees up screen space.
+    Must stay clear of iOS's own bottom-edge swipe-up gesture zone.
+    Needs its own design pass. It's not just a CSS swap: it changes
+    the whole mobile nav model (`.side`/`.nav-item` in `App.jsx`).
+  - **Home button** - right now the only way back to Home is tapping
+    the logo. Add a dedicated Home button (likely one of the fan's
+    entries on mobile; nav/sidebar on desktop).
+- 🔲 **History note box grows as you type** (Matt, 2026-09-25) - the
+  "add a note…" field in an item's History is a single-line `<input>`
+  (`App.jsx` ~6681, and the edit-entry field ~6644). Long notes run off
+  the side in a small box and are hard to proofread. Make it a textarea
+  that grows taller with the text. Catch: Enter currently submits the
+  note (`onKeyDown` Enter -> `addNote()`). A multi-line box needs a
+  decision on Enter: new line vs. submit (e.g. Enter adds a line and
+  Ctrl/Cmd+Enter submits, or keep Enter = submit and use Shift+Enter
+  for a new line).
+- 🔲 **Export data button** (Matt, 2026-09-25) - **never built**, only
+  discussed. Nothing in `App.jsx` exports anything today. Needs
+  decisions on format (CSV per table, one JSON dump, or both), scope
+  (all tables vs. picked sections; photos included or not), and
+  placement (likely Account/Settings). Worth having before beta: it
+  pairs with the ToS promise about users' data and with Delete account.
+- 🔲 **Culinary recipes + categories in the Library** (Matt,
+  2026-09-25) - add culinary (cooking) recipes and their own
+  categories to the Library/reference feed alongside the cultivation
+  recipes. Check first how Library categories are stored. If
+  `library.category` is constrained (check constraint/enum) or the
+  Type/Category dropdowns are hardcoded, this touches the schema and
+  needs Matt's go-ahead on the shape.
+- 🔲 **Accessibility options** (Matt, 2026-09-25) - options for users
+  with hearing or sight impairments. Not scoped. The app has almost no
+  audio, so sight is most of the work: contrast (the tan/dark mirrored
+  palettes, see README), text size, screen-reader labels on icon-only
+  buttons, keyboard access to the tree canvas. Hearing mostly matters
+  for any future video/tutorial content (captions). Needs a
+  conversation on which options are settings toggles vs. just fixing
+  the defaults.
 - 🔲 **Stock naming automation** - Matt wants adding stock "more
   automated," not sure how. Check it's not just the existing
   `label_prefix` auto-numbering first; needs a conversation.
